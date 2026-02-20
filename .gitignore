@@ -5,3 +5,7 @@ dist/
 release/
 harness/out/
 *.bak
+
+# Library files downloaded by library-manager (don't commit these)
+test-fixtures/boardgame_insert_toolkit_lib*.scad
+test-fixtures/bit_functions_lib*.scad
