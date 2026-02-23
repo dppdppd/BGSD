@@ -1,0 +1,4 @@
+wait app-root
+new bit
+js (() => { const row = document.querySelector('[data-testid="virtual-G_TOLERANCE_DETENT_POS"]'); const btns = row.querySelectorAll('.comment-btn'); return btns.length + ' btns: ' + Array.from(btns).map(b => b.outerHTML).join(' | '); })()
+js (() => { const row = document.querySelector('[data-testid="virtual-G_TOLERANCE_DETENT_POS"]'); return row.innerHTML.substring(0, 600); })()

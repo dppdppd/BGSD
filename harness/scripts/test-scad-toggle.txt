@@ -1,0 +1,13 @@
+wait app-root
+new bit
+shot loaded
+ipc menu-toggle-show-scad true
+js await new Promise(r => setTimeout(r, 300))
+shot scad_on
+js document.querySelector('[data-testid="content-area"]').scrollTop = 0
+shot scad_on_top
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot scad_on_bottom
+ipc menu-toggle-show-scad false
+js await new Promise(r => setTimeout(r, 300))
+shot scad_off

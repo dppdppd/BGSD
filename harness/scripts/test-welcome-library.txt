@@ -1,0 +1,5 @@
+wait app-root
+js (async () => { await new Promise(r => setTimeout(r, 3000)); })()
+shot welcome_library_top
+js document.querySelector('.welcome-library-scroll').scrollTop = 500
+shot welcome_library_scrolled

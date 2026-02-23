@@ -1,6 +1,13 @@
-import schemaJson from "../../schema/bit.schema.json";
+import bitSchema from "../../schema/bit.schema.json";
+import ctdSchema from "../../schema/ctd.schema.json";
 
-export const schema = schemaJson;
+const schemas: Record<string, any> = { bit: bitSchema, ctd: ctdSchema };
+
+export function getSchema(profileId: string = "bit") {
+  return schemas[profileId] || bitSchema;
+}
+
+export const schema = bitSchema;
 
 export interface KeyDef {
   type: string;
@@ -12,8 +19,9 @@ export interface KeyDef {
 }
 
 /** Get all key definitions for a context */
-export function getContextKeys(context: string): Record<string, KeyDef> {
-  return (schema.contexts as any)[context]?.keys || {};
+export function getContextKeys(context: string, schemaOverride?: any): Record<string, KeyDef> {
+  const s = schemaOverride || bitSchema;
+  return (s.contexts as any)[context]?.keys || {};
 }
 
 /** Check if a key is a nested/optional type (table or table_list) */
@@ -30,8 +38,9 @@ export function mergeWithDefaults(
   params: { key: string; value: any }[],
   context: string,
   elementType?: string,
+  schemaOverride?: any,
 ): { key: string; value: any }[] {
-  const keys = getContextKeys(context);
+  const keys = getContextKeys(context, schemaOverride);
   const result: { key: string; value: any }[] = params.map((p) => ({ key: p.key, value: p.value }));
   const existingKeys = new Set(result.map((p) => p.key));
 
@@ -54,8 +63,9 @@ export function getAddableNodes(
   params: { key: string; value: any }[],
   context: string,
   elementType?: string,
+  schemaOverride?: any,
 ): { key: string; def: KeyDef }[] {
-  const keys = getContextKeys(context);
+  const keys = getContextKeys(context, schemaOverride);
   const existingKeys = new Set(params.map((p) => p.key));
   const addable: { key: string; def: KeyDef }[] = [];
 
@@ -76,8 +86,8 @@ export function getAddableNodes(
 /**
  * Create a new sub-node with all defaults for a given child context.
  */
-export function createDefaultNode(childContext: string): { key: string; value: any }[] {
-  const keys = getContextKeys(childContext);
+export function createDefaultNode(childContext: string, schemaOverride?: any): { key: string; value: any }[] {
+  const keys = getContextKeys(childContext, schemaOverride);
   const params: { key: string; value: any }[] = [];
 
   for (const [key, def] of Object.entries(keys)) {

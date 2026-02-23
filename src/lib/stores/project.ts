@@ -6,14 +6,16 @@ export interface Line {
   raw: string;
   /**
    * What we recognised this line as:
-   *  - "raw"     : unrecognised → editable text input
-   *  - "include" : BIT lib include → badge (regenerated as v4)
-   *  - "global"  : recognized global → inline control
-   *  - "marker"  : // BGSD → badge (regenerated)
-   *  - "makeall" : MakeAll(); → badge (regenerated)
-   *  - "kv"      : recognized [ KEY, VALUE ] → native control
-   *  - "open"    : structural opening bracket
-   *  - "close"   : structural closing bracket
+   *  - "raw"      : unrecognised → editable text input
+   *  - "include"  : BIT lib include → badge (regenerated as v4)
+   *  - "global"   : recognized global → inline control
+   *  - "marker"   : // BGSD → badge (regenerated)
+   *  - "makeall"  : Make(var); → badge (regenerated)
+   *  - "kv"       : recognized [ KEY, VALUE ] → native control
+   *  - "open"     : structural opening bracket
+   *  - "close"    : structural closing bracket
+   *  - "variable" : top-level variable assignment (e.g. `foo = [1,2,3];`)
+   *  - "comment"  : standalone comment line (e.g. `// note`)
    */
   kind: string;
   /** Bracket nesting depth (0 = top level). */
@@ -38,6 +40,8 @@ export interface Line {
   mergedClose?: boolean;
   /** For data open/close and makeall lines: the scene variable name (e.g. "data", "scene_1") */
   varName?: string;
+  /** For "variable" lines: the raw expression value (not parsed) */
+  varValue?: string;
 }
 
 export interface Project {
@@ -175,6 +179,7 @@ function formatGlobalRaw(key: string, value: any, inline?: boolean, existingRaw?
   }
   if (typeof value === "boolean") return `${key} = ${value ? "true" : "false"};`;
   if (typeof value === "number") return `${key} = ${value};`;
+  if (Array.isArray(value)) return `${key} = [${value.join(", ")}];`;
   return `${key} = "${value}";`;
 }
 
@@ -185,6 +190,7 @@ function formatInlineGlobalRaw(key: string, value: any): string {
 function formatInlineGlobalRawWithIndent(key: string, value: any, indent: string): string {
   if (typeof value === "boolean") return `${indent}[ ${key}, ${value} ],`;
   if (typeof value === "number") return `${indent}[ ${key}, ${value} ],`;
+  if (Array.isArray(value)) return `${indent}[ ${key}, [${value.join(", ")}] ],`;
   return `${indent}[ ${key}, "${value ?? ""}" ],`;
 }
 
@@ -226,6 +232,19 @@ export function materializeKv(beforeIndex: number, key: string, value: any, dept
 export function spliceLines(startIndex: number, count: number, newLines: Line[]) {
   project.update((p) => {
     p.lines.splice(startIndex, count, ...newLines);
+    return { ...p };
+  });
+}
+
+/** Update a variable line's value expression. */
+export function updateVariable(index: number, value: string) {
+  project.update((p) => {
+    const line = p.lines[index];
+    if (line?.kind !== "variable" || !line.varName) return p;
+    line.varValue = value;
+    const indent = line.raw.match(/^(\s*)/)?.[1] || "";
+    const comment = line.comment ? ` // ${line.comment}` : "";
+    line.raw = `${indent}${line.varName} = ${value};${comment}`;
     return { ...p };
   });
 }
@@ -300,14 +319,10 @@ function formatKvValue(value: any): string {
   if (value === false) return "false";
   if (typeof value === "number") return String(value);
   if (typeof value === "string") {
-    // Check for known constants
-    const CONSTANTS = new Set([
-      "BOX","DIVIDERS","SPACER","SQUARE","HEX","HEX2","OCT","OCT2",
-      "ROUND","FILLET","INTERIOR","EXTERIOR","BOTH","FRONT","BACK",
-      "LEFT","RIGHT","FRONT_WALL","BACK_WALL","LEFT_WALL","RIGHT_WALL",
-      "CENTER","BOTTOM","AUTO","MAX",
-    ]);
-    if (CONSTANTS.has(value) || /^[A-Z][A-Z0-9_]*$/.test(value)) return value;
+    // ALL_UPPERCASE identifiers (OpenSCAD constants like SQUARE, BOX, etc.) → unquoted
+    if (/^[A-Z][A-Z0-9_]*$/.test(value)) return value;
+    // $-prefixed OpenSCAD special variables → unquoted
+    if (/^\$[a-zA-Z_]\w*$/.test(value)) return value;
     return `"${value}"`;
   }
   if (Array.isArray(value)) {

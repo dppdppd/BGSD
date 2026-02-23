@@ -1,0 +1,11 @@
+wait app-root
+new bit
+shot defaults_visible
+ipc menu-toggle-hide-defaults true
+js await new Promise(r => setTimeout(r, 300))
+shot defaults_hidden
+js document.querySelector('[data-testid="content-area"]').scrollTop = 0
+shot hidden_top
+ipc menu-toggle-hide-defaults false
+js await new Promise(r => setTimeout(r, 300))
+shot defaults_restored

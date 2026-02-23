@@ -1,0 +1,9 @@
+wait app-root
+new bit
+shot top
+js document.querySelector('[data-testid="content-area"]').scrollTop = 500
+shot mid
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot bottom
+scad
+render bit

@@ -4,12 +4,26 @@
     "repo": "dppdppd/The-Boardgame-Insert-Toolkit",
     "branch": "master",
     "files": [
-      "boardgame_insert_toolkit_lib.4.scad",
-      "bit_functions_lib.4.scad"
+      "release/lib/boardgame_insert_toolkit_lib.4.scad"
     ],
-    "include": "boardgame_insert_toolkit_lib.4.scad",
+    "include": "../lib/boardgame_insert_toolkit_lib.4.scad",
     "entry": "Make",
+    "dataVar": "data",
     "schema": "schema/bit.schema.json",
-    "includePattern": "(?:boardgame_insert_toolkit_lib\\.|bit_functions_lib\\.)\\d+\\.scad"
+    "includePattern": "boardgame_insert_toolkit_lib\\.\\d+\\.scad",
+    "designsDir": "designs"
+  },
+  "ctd": {
+    "name": "Counter Tray Designer",
+    "repo": "dppdppd/counter-tray-designer",
+    "branch": "master",
+    "files": ["release/lib/counter_tray_designer_lib.1.scad"],
+    "include": "../lib/counter_tray_designer_lib.1.scad",
+    "entry": "Make",
+    "schema": "schema/ctd.schema.json",
+    "includePattern": "counter_tray_designer_lib\\.\\d+\\.scad",
+    "designsDir": "my_designs",
+    "libFiles": ["counter_tray_designer_lib.1.scad", "global_constants.scad"],
+    "libPattern": "_constants\\.scad$"
   }
 }

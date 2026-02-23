@@ -1,0 +1,7 @@
+wait app-root
+shot welcome_before_init
+js (async () => { const r = await window.bgsd.initWorkingDir("/tmp/bgsd-test-workspace"); return r; })()
+js (async () => { await new Promise(r => setTimeout(r, 1000)); location.reload(); })()
+js (async () => { await new Promise(r => setTimeout(r, 3000)); })()
+wait app-root
+shot welcome_with_library

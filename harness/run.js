@@ -21,11 +21,20 @@ try {
   }
 } catch {}
 
+// Shot prefix: defaults to script filename (without extension) if running a script
+let shotPrefix = process.env.BGSD_SHOT_PREFIX || "";
+if (!shotPrefix && process.env.BGSD_HARNESS_SCRIPT) {
+  shotPrefix = path.basename(process.env.BGSD_HARNESS_SCRIPT, path.extname(process.env.BGSD_HARNESS_SCRIPT));
+}
+
 let app, page;
 
 async function screenshot(label) {
   const num = String(shotCounter++).padStart(3, "0");
-  const fname = `${num}_${label || "shot"}.png`;
+  const parts = [num];
+  if (shotPrefix) parts.push(shotPrefix);
+  parts.push(label || "shot");
+  const fname = parts.join("_") + ".png";
   const fpath = path.join(OUT_DIR, fname);
   await page.screenshot({ path: fpath });
   console.log(`  Screenshot: ${fname}`);
@@ -103,6 +112,147 @@ async function handleCommand(line) {
         break;
       }
 
+      case "new": {
+        // Create a new project without Save As dialog: new bit | new ctd
+        const profile = rest.trim() || "bit";
+        const result = await page.evaluate(
+          (p) => window.bgsd.newProjectToPath(p),
+          profile
+        );
+        await page.waitForTimeout(500);
+        if (result?.ok) {
+          console.log(`  New ${profile} project: ${result.filePath}`);
+        } else {
+          console.log(`  Failed: ${result?.error || "unknown"}`);
+        }
+        await screenshot(`new_${profile}`);
+        break;
+      }
+
+      case "open": {
+        // Open a file by path: open /path/to/file.scad
+        const openPath = rest.trim();
+        if (!openPath) { console.log("  Usage: open <filepath>"); break; }
+        // Use the renderer's loadFilePath IPC then trigger handleLoad via menu-open
+        const loadResult = await page.evaluate(
+          async (fp) => {
+            const r = await window.bgsd.loadFilePath(fp);
+            return r;
+          },
+          openPath
+        );
+        if (loadResult?.ok) {
+          // Send menu-open to renderer to trigger handleLoad
+          await app.evaluate(({ BrowserWindow }, payload) => {
+            const win = BrowserWindow.getAllWindows()[0];
+            if (win) win.webContents.send("menu-open", payload);
+          }, { data: loadResult.data, filePath: loadResult.filePath });
+          await page.waitForTimeout(500);
+          console.log(`  Opened: ${openPath}`);
+        } else {
+          console.log(`  Open failed: ${loadResult?.error || "unknown"}`);
+        }
+        await screenshot(`open_${path.basename(openPath, ".scad")}`);
+        break;
+      }
+
+      case "scad": {
+        // Print the current SCAD output (from hidden harness element)
+        const scad = await page.evaluate(
+          () => document.querySelector('[data-testid="scad-output"]')?.textContent || ""
+        );
+        if (scad) {
+          console.log(scad);
+        } else {
+          console.log("  (no SCAD output — is a project loaded?)");
+        }
+        break;
+      }
+
+      case "render": {
+        // Render current SCAD with OpenSCAD: render [label]
+        const scad = await page.evaluate(
+          () => document.querySelector('[data-testid="scad-output"]')?.textContent || ""
+        );
+        if (!scad) {
+          console.log("  (no SCAD output — is a project loaded?)");
+          break;
+        }
+        const renderLabel = rest.trim() || "render";
+        const num = String(shotCounter++).padStart(3, "0");
+        const renderParts = [num];
+        if (shotPrefix) renderParts.push(shotPrefix);
+        renderParts.push(renderLabel);
+        const renderFname = renderParts.join("_") + ".png";
+        const renderFpath = path.join(OUT_DIR, renderFname);
+        // Write SCAD to a temp dir with proper lib/ structure for ../lib/ includes
+        const os = require("os");
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bgsd_render_"));
+        // Detect if SCAD uses ../lib/ includes (new structure) or flat includes
+        const usesLibDir = /include\s*<\.\.\/lib\//.test(scad);
+        const scadDir = usesLibDir ? path.join(tmpDir, "designs") : tmpDir;
+        const libDir = usesLibDir ? path.join(tmpDir, "lib") : tmpDir;
+        fs.mkdirSync(scadDir, { recursive: true });
+        fs.mkdirSync(libDir, { recursive: true });
+        const tmpScad = path.join(scadDir, "render.scad");
+        fs.writeFileSync(tmpScad, scad, "utf-8");
+        // Detect profile from include line and copy library files
+        const profilesData = JSON.parse(
+          fs.readFileSync(path.join(BGSD, "lib", "profiles.json"), "utf-8")
+        );
+        const userDataDir = await app.evaluate(({ app: eApp }) => eApp.getPath("userData"));
+        for (const [profileId, prof] of Object.entries(profilesData)) {
+          const re = new RegExp(prof.includePattern, "i");
+          if (re.test(scad)) {
+            const cacheDir = path.join(userDataDir, "lib-cache", profileId);
+            for (const libFile of prof.files) {
+              const basename = path.basename(libFile);
+              const src = path.join(cacheDir, basename);
+              if (fs.existsSync(src)) {
+                fs.copyFileSync(src, path.join(libDir, basename));
+              } else {
+                console.log(`  WARNING: library file not cached: ${src}`);
+              }
+            }
+            // For CTD designs that include publisher constants via ../lib/,
+            // also copy all *_constants.scad from the workspace lib/ if available
+            const workDirStatus = await page.evaluate(
+              () => (async () => window.bgsd.getWorkingDirStatus())()
+            );
+            if (workDirStatus?.set) {
+              const wsLibDir = path.join(workDirStatus.path, profileId, "lib");
+              if (fs.existsSync(wsLibDir)) {
+                for (const f of fs.readdirSync(wsLibDir)) {
+                  if (f.endsWith(".scad")) {
+                    const dst = path.join(libDir, f);
+                    if (!fs.existsSync(dst)) {
+                      fs.copyFileSync(path.join(wsLibDir, f), dst);
+                    }
+                  }
+                }
+              }
+            }
+            break;
+          }
+        }
+        try {
+          const { execSync } = require("child_process");
+          execSync(`openscad -o "${renderFpath}" --autocenter --viewall --imgsize=800,600 "${tmpScad}"`, {
+            timeout: 60000,
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+          console.log(`  OpenSCAD render: ${renderFname}`);
+        } catch (err) {
+          console.log(`  OpenSCAD render failed: ${err.message.split("\n")[0]}`);
+        }
+        // Clean up temp dir
+        try {
+          const { execSync: execClean } = require("child_process");
+          execClean(`rm -rf "${tmpDir}"`);
+        } catch {}
+        break;
+      }
+
       case "wait":
         await page.waitForSelector(`[data-testid="${rest}"]`, {
           timeout: 15000,
@@ -121,6 +271,10 @@ async function handleCommand(line) {
     js <expression>           Evaluate JS in page
     ipc <channel> [json]      Send IPC to renderer
     wait <testid>             Wait for element
+    new <bit|ctd>             Create new project (no dialog)
+    open <filepath>           Open a .scad file by path
+    scad                      Print current SCAD output
+    render [label]            Render SCAD with OpenSCAD to PNG
     help                      Show this help
     quit                      Exit
 `);

@@ -14,25 +14,54 @@ const KNOWN_CONSTANTS = {
   LEFT_WALL: "LEFT_WALL", RIGHT_WALL: "RIGHT_WALL",
   CENTER: "CENTER", BOTTOM: "BOTTOM",
   AUTO: "AUTO", MAX: "MAX",
+  SHAPE_SQUARE: "SHAPE_SQUARE", SHAPE_CIRCLE: "SHAPE_CIRCLE",
+  SHAPE_TRIANGLE: "SHAPE_TRIANGLE", SHAPE_HEX: "SHAPE_HEX",
+  COUNTER_SET: "COUNTER_SET",
   true: true, false: false, t: true, f: false,
 };
 
-// Derive ALL_KEYS from the actual schema — only keys that exist in a schema
-// context get native controls. Everything else stays raw.
-const schemaJson = require("./schema/bit.schema.json");
+// Derive key sets from all schemas — supports multi-profile parsing.
+const schemas = {
+  bit: require("./schema/bit.schema.json"),
+  ctd: require("./schema/ctd.schema.json"),
+};
 const profiles = require("./lib/profiles.json");
-const ALL_KEYS = new Set();
-for (const ctx of Object.values(schemaJson.contexts)) {
-  for (const k of Object.keys(ctx.keys)) ALL_KEYS.add(k);
+
+function deriveSchemaInfo(schemaJson) {
+  const ALL_KEYS = new Set();
+  for (const ctx of Object.values(schemaJson.contexts)) {
+    for (const k of Object.keys(ctx.keys)) ALL_KEYS.add(k);
+  }
+  // Include globals in ALL_KEYS so they're recognized as KV params
+  for (const k of Object.keys(schemaJson.globals || {})) ALL_KEYS.add(k);
+  const GLOBAL_NAMES = new Set(Object.keys(schemaJson.globals || {}));
+  const GLOBAL_DEFAULTS = {};
+  for (const [k, v] of Object.entries(schemaJson.globals || {})) {
+    GLOBAL_DEFAULTS[k] = v.default;
+  }
+  const MODULE_VARS = schemaJson.moduleVars || {};
+  return { ALL_KEYS, GLOBAL_NAMES, GLOBAL_DEFAULTS, MODULE_VARS };
 }
 
-const GLOBAL_NAMES = new Set(Object.keys(schemaJson.globals || {}));
-const GLOBAL_DEFAULTS = {};
-for (const [k, v] of Object.entries(schemaJson.globals || {})) {
-  GLOBAL_DEFAULTS[k] = v.default;
+const schemaInfoByProfile = {};
+for (const [id, s] of Object.entries(schemas)) {
+  schemaInfoByProfile[id] = deriveSchemaInfo(s);
 }
-function isGlobalDefault(key, value) {
-  return key in GLOBAL_DEFAULTS && JSON.stringify(value) === JSON.stringify(GLOBAL_DEFAULTS[key]);
+
+// Default to BIT for backward compatibility
+const schemaJson = schemas.bit;
+const ALL_KEYS = schemaInfoByProfile.bit.ALL_KEYS;
+const GLOBAL_NAMES = schemaInfoByProfile.bit.GLOBAL_NAMES;
+const GLOBAL_DEFAULTS = schemaInfoByProfile.bit.GLOBAL_DEFAULTS;
+function isGlobalDefault(key, value, defaults) {
+  const d = defaults || GLOBAL_DEFAULTS;
+  return key in d && JSON.stringify(value) === JSON.stringify(d[key]);
+}
+
+// Merged ALL_KEYS across all profiles (for KV recognition in profile-unaware contexts)
+const ALL_KEYS_MERGED = new Set();
+for (const info of Object.values(schemaInfoByProfile)) {
+  for (const k of info.ALL_KEYS) ALL_KEYS_MERGED.add(k);
 }
 const GLOBAL_BOOL_RE = /^\s*(g_\w+)\s*=\s*(true|false|t|f|0|1)\s*;\s*(?:\/\/.*)?$/i;
 const GLOBAL_NUM_RE  = /^\s*(g_\w+)\s*=\s*(-?\d+(?:\.\d+)?)\s*;\s*(?:\/\/.*)?$/i;
@@ -42,6 +71,8 @@ const MARKER_RE = /^\s*\/\/\s*(?:BGSD|BITGUI)\b/i;
 const MAKEALL_RE = /^\s*MakeAll\s*\(\s*\)\s*;\s*(?:\/\/.*)?$/;
 const MAKE_RE = /^\s*Make\s*\(\s*(\w+)\s*\)\s*;\s*(?:\/\/.*)?$/;
 const KV_LINE_RE = /^\s*\[\s*([_A-Z][A-Z0-9_]*)\s*,\s*(.*?)\s*\]\s*,?\s*(?:\/\/.*)?$/;
+const VAR_ASSIGN_RE = /^\s*([A-Za-z_$]\w*)\s*=\s*(.+?)\s*;\s*(?:\/\/.*)?$/;
+const COMMENT_RE = /^\s*\/\/(.*)$/;
 
 // New-style OBJECT_* element type constants
 const OBJECT_TYPES = new Set(["OBJECT_BOX", "OBJECT_DIVIDERS", "OBJECT_SPACER"]);
@@ -62,20 +93,158 @@ const ELEMENT_OPEN_MERGED_RE = /^\s*\[\s*"([^"]+)"\s*,\s*\[\s*(?:\/\/.*)?$/;    
 const KEY_OPEN_MERGED_RE = /^\s*\[\s*([_A-Z][A-Z0-9_]*)\s*,\s*\[\s*(?:\/\/.*)?$/;  // [ KEY, [
 const CLOSE_DOUBLE_RE = /^\s*\]\s*\]\s*,?\s*(?:\/\/.*)?$/;                         // ]] or ]],
 
+// --- Pre-processing: collapse multi-line values ---
+// Joins continuation lines (where brackets don't balance) into single lines,
+// EXCEPT for scene data arrays and structural openers that the line-based
+// importer needs to see as separate lines.
+
+function bracketDeltaOf(line) {
+  let delta = 0, inStr = false, inComment = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i], next = line[i + 1];
+    if (inComment) continue;
+    if (!inStr && ch === "/" && next === "/") { inComment = true; i++; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === "[") delta++;
+    if (ch === "]") delta--;
+  }
+  return delta;
+}
+
+/** Insert `content` before any trailing // comment on `line`. */
+function insertBeforeComment(line, content) {
+  // Find // that isn't inside a string
+  let inStr = false;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '"') { inStr = !inStr; continue; }
+    if (!inStr && line[i] === '/' && line[i + 1] === '/') {
+      const before = line.slice(0, i).trimEnd();
+      const comment = line.slice(i);
+      return before + " " + content + " " + comment;
+    }
+  }
+  // No comment — just append
+  return line.trimEnd() + " " + content;
+}
+
+function collapseMultilineValues(text) {
+  const lines = text.split("\n");
+  const result = [];
+  let i = 0;
+
+  function isSceneOrStructural(line, idx) {
+    // Scene data array: identifier = [ — peek ahead to check for nested brackets
+    if (DATA_ASSIGN_RE.test(line)) {
+      // If content between here and matching close has no nested [, collapse (it's a simple variable)
+      let peekDelta = bracketDeltaOf(line);
+      for (let j = idx + 1; j < lines.length && peekDelta > 0; j++) {
+        const trimmed = lines[j].trim();
+        if (!trimmed) continue;
+        const d = bracketDeltaOf(lines[j]);
+        if (d > 0) return true; // nested bracket → structural scene
+        peekDelta += d;
+      }
+      return false; // simple values → variable, collapse it
+    }
+    // Object openers
+    if (OBJECT_OPEN_RE.test(line) || OBJECT_OPEN_MERGED_RE.test(line)) return true;
+    if (ELEMENT_OPEN_RE.test(line) || ELEMENT_OPEN_MERGED_RE.test(line)) return true;
+    // Known structural key openers (COUNTER_SET, BOX_FEATURE, BOX_LID, LABEL)
+    const km = line.match(KEY_OPEN_RE) || line.match(KEY_OPEN_MERGED_RE);
+    if (km && FORMAT_STRUCTURAL_KEYS.has(km[1])) return true;
+    // Bare [ (could be params block, data_list, etc.)
+    if (BARE_OPEN_RE.test(line)) return true;
+    return false;
+  }
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { result.push(line); i++; continue; }
+
+    // Special case: identifier = (without [) followed by [ on next line
+    // Join them so the importer sees identifier = [ as a scene opener
+    // Use insertBeforeComment so `foo = // comment` + `[` becomes `foo = [ // comment`
+    if (DATA_ASSIGN_INLINE_RE.test(line)) {
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trim()) j++;
+      if (j < lines.length && BARE_OPEN_RE.test(lines[j])) {
+        result.push(insertBeforeComment(line, lines[j].trim()));
+        i = j + 1;
+        continue;
+      }
+    }
+
+    const delta = bracketDeltaOf(line);
+    if (delta <= 0) { result.push(line); i++; continue; }
+
+    // Unbalanced brackets — check if structural
+    if (isSceneOrStructural(line, i)) {
+      result.push(line); i++; continue;
+    }
+
+    // Join continuation lines until brackets balance
+    // First join inserts before any trailing comment; subsequent appends are plain
+    let cumDelta = delta;
+    let joined = line;
+    let firstJoin = true;
+    i++;
+    while (i < lines.length && cumDelta > 0) {
+      if (firstJoin) {
+        joined = insertBeforeComment(joined, lines[i].trim());
+        firstJoin = false;
+      } else {
+        joined = joined.trimEnd() + " " + lines[i].trim();
+      }
+      cumDelta += bracketDeltaOf(lines[i]);
+      i++;
+    }
+    result.push(joined);
+  }
+
+  return result.join("\n");
+}
+
 // --- Load-time formatter ---
 // Normalizes the `data = [ ... ];` table so the line-based editor can
 // reliably classify entries (KV on one line, structural openers/closers
 // on their own lines, and commas fixed).
 
-const FORMAT_STRUCTURAL_KEYS = new Set(["BOX_FEATURE", "BOX_LID", "LABEL"]);
+const FORMAT_STRUCTURAL_KEYS_BY_PROFILE = {
+  bit: new Set(["BOX_FEATURE", "BOX_LID", "LABEL"]),
+  ctd: new Set(["COUNTER_SET"]),
+};
+// Merged set for profile-unaware contexts
+const FORMAT_STRUCTURAL_KEYS = new Set([...FORMAT_STRUCTURAL_KEYS_BY_PROFILE.bit, ...FORMAT_STRUCTURAL_KEYS_BY_PROFILE.ctd]);
+
+/** Detect profile by scanning raw text for include patterns. */
+function detectProfileFromText(text) {
+  const lines = text.split("\n");
+  for (const line of lines) {
+    const m = line.match(/^\s*include\s*<\s*(.+?)\s*>\s*;?\s*(?:\/\/.*)?$/i);
+    if (m) {
+      const incFile = m[1].trim();
+      for (const [id, profile] of Object.entries(profiles)) {
+        const re = new RegExp(profile.includePattern, "i");
+        if (re.test(incFile)) return id;
+      }
+    }
+  }
+  return null;
+}
 
 function formatScadOnLoad(scadText) {
   let text = String(scadText ?? "").replace(/\r\n/g, "\n");
 
-  // Legacy key name conversion for pre-rename files:
-  // CMP_ → FTR_, BOX_COMPONENT → BOX_FEATURE, cmp_parms → ftr_parms
-  text = text.replace(/\bCMP_/g, "FTR_").replace(/\bBOX_COMPONENT\b/g, "BOX_FEATURE").replace(/\bcmp_parms/g, "ftr_parms");
-  text = text.replace(/\bmain\s*\(\s*(\w+)\s*\)/g, "Make($1)");
+  // Detect profile early to conditionally apply transforms
+  const detectedProfile = detectProfileFromText(text);
+
+  // BIT-only legacy transforms
+  if (detectedProfile === "bit" || !detectedProfile) {
+    // Legacy key name conversion for pre-rename files:
+    // CMP_ → FTR_, BOX_COMPONENT → BOX_FEATURE, cmp_parms → ftr_parms
+    text = text.replace(/\bCMP_/g, "FTR_").replace(/\bBOX_COMPONENT\b/g, "BOX_FEATURE").replace(/\bcmp_parms/g, "ftr_parms");
+  }
 
   const span = findDataAssignmentSpan(text);
   if (!span) return { text, changed: false };
@@ -92,14 +261,11 @@ function formatScadOnLoad(scadText) {
     return { text, changed: false };
   }
 
-  // Best-effort v2 -> v4 normalization inside data[]:
-  // - BOX_COMPONENTS => multiple BOX_FEATURE entries
-  // - BOX_LID_* keys => BOX_LID block with LID_* keys
-  try { transformV2ToV4(root); } catch { /* non-fatal */ }
-
-  // Convert old string-name elements to OBJECT_* format:
-  // [ "name", [ [TYPE, BOX], ... ] ] → [ OBJECT_BOX, [ [NAME, "name"], ... ] ]
-  try { transformToObjectStyle(root); } catch { /* non-fatal */ }
+  // BIT-only best-effort v2 -> v4 normalization inside data[]:
+  if (detectedProfile === "bit" || !detectedProfile) {
+    try { transformV2ToV4(root); } catch { /* non-fatal */ }
+    try { transformToObjectStyle(root); } catch { /* non-fatal */ }
+  }
 
   const out = [];
   const headerLine = `${baseIndent}${varName || "data"} = [` + (headerComment ? ` //${headerComment}` : "");
@@ -664,13 +830,33 @@ function renderEntryLines(node, indent, needsComma, outLines) {
 
       // Known structural keys — merge brackets
       if (FORMAT_STRUCTURAL_KEYS.has(key)) {
-        outLines.push(`${indent}[ ${key}, [` + (node.commentAfterFirst ? ` //${node.commentAfterFirst}` : ""));
-        const childIndent = indent + " ".repeat(4);
-        for (const child of b.elements) {
-          if (child.type === "comment") { outLines.push(`${childIndent}//${child.text}`); continue; }
-          renderEntryLines(child, childIndent, true, outLines);
+        // Check if b is itself a single KV pair (e.g. [COUNTER_SIZE_XYZ, [13.3, 13.3, 3]])
+        // rather than a wrapper array of KV pairs. This happens with flat structural blocks
+        // that have exactly 1 child KV — render as flat format, not merged brackets.
+        const bChildren = b.elements.filter(e => e.type !== "comment");
+        const isSingleKvPair = bChildren.length === 2 && bChildren[0].type === "atom" &&
+          !FORMAT_STRUCTURAL_KEYS.has(bChildren[0].text.trim()) &&
+          !OBJECT_TYPES.has(bChildren[0].text.trim());
+
+        if (isSingleKvPair) {
+          // Flat format: [ KEY, <single child KV>, ]
+          outLines.push(`${indent}[ ${key},` + (node.commentAfterFirst ? ` //${node.commentAfterFirst}` : ""));
+          const childIndent = indent + " ".repeat(4);
+          for (const c of b.elements) {
+            if (c.type === "comment") { outLines.push(`${childIndent}//${c.text}`); continue; }
+          }
+          renderEntryLines(b, childIndent, true, outLines);
+          outLines.push(`${indent}]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
+        } else {
+          // Wrapper format: [ KEY, [ <children>, ]]
+          outLines.push(`${indent}[ ${key}, [` + (node.commentAfterFirst ? ` //${node.commentAfterFirst}` : ""));
+          const childIndent = indent + " ".repeat(4);
+          for (const child of b.elements) {
+            if (child.type === "comment") { outLines.push(`${childIndent}//${child.text}`); continue; }
+            renderEntryLines(child, childIndent, true, outLines);
+          }
+          outLines.push(`${indent}]]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
         }
-        outLines.push(`${indent}]]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
         return;
       }
 
@@ -745,6 +931,8 @@ function parseSimpleValue(text) {
     if (hasExpr) return { value: vals.map(String), ok: true, hasExpr: true };
     return { value: vals, ok: true };
   }
+  // Bare identifier (variable reference, including $-prefixed OpenSCAD vars)
+  if (/^[a-zA-Z_$]\w*$/.test(t)) return { value: t, ok: true };
   return { ok: false };
 }
 
@@ -769,8 +957,19 @@ function extractComment(raw) {
 }
 
 function importScad(scadText) {
+  // Detect profile early (before formatting) so we can select the right schema
+  const earlyProfile = detectProfileFromText(scadText) || "bit";
+  const info = schemaInfoByProfile[earlyProfile] || schemaInfoByProfile.bit;
+  const activeAllKeys = info.ALL_KEYS;
+  const activeGlobalNames = info.GLOBAL_NAMES;
+  const activeGlobalDefaults = info.GLOBAL_DEFAULTS;
+  const activeModuleVars = info.MODULE_VARS;
+  const activeStructuralKeys = FORMAT_STRUCTURAL_KEYS_BY_PROFILE[earlyProfile] || FORMAT_STRUCTURAL_KEYS_BY_PROFILE.bit;
+
   const formatted = formatScadOnLoad(scadText);
   scadText = formatted.text;
+  // Collapse multi-line simple variables and KV values into single lines
+  scadText = collapseMultilineValues(scadText);
   const hasMarker = MARKER_RE.test(scadText);
   const rawLines = scadText.replace(/\r\n/g, "\n").split("\n");
   const lines = [];
@@ -810,24 +1009,41 @@ function importScad(scadText) {
 
     // --- Non-structural lines ---
 
-    // v3 file-scope globals: g_tolerance = 0.1; → convert key to G_TOLERANCE
+    // Module-scope variables (e.g. g_make_filler = 0;)
     const boolMatch = raw.match(GLOBAL_BOOL_RE);
     if (boolMatch) {
+      const gKeyLower = boolMatch[1].toLowerCase();
       const gKey = boolMatch[1].toUpperCase();
-      if (GLOBAL_NAMES.has(gKey)) {
+      // Check moduleVars first (lowercase match)
+      if (gKeyLower in activeModuleVars) {
         const v = boolMatch[2].toLowerCase();
         const gv = v === "true" || v === "t" || v === "1";
-        if (isGlobalDefault(gKey, gv)) continue;
+        lines.push({ raw, kind: "modulevar", depth, globalKey: gKeyLower, globalValue: gv });
+        continue;
+      }
+      if (activeGlobalNames.has(gKey)) {
+        const v = boolMatch[2].toLowerCase();
+        const gv = v === "true" || v === "t" || v === "1";
+        if (isGlobalDefault(gKey, gv, activeGlobalDefaults)) continue;
         lines.push({ raw, kind: "global", depth, globalKey: gKey, globalValue: gv });
         continue;
       }
     }
     const numMatch = raw.match(GLOBAL_NUM_RE);
     if (numMatch) {
+      const gKeyLower = numMatch[1].toLowerCase();
       const gKey = numMatch[1].toUpperCase();
-      if (GLOBAL_NAMES.has(gKey)) {
+      if (gKeyLower in activeModuleVars) {
         const gv = parseFloat(numMatch[2]);
-        if (isGlobalDefault(gKey, gv)) continue;
+        // For CTD: 0 = false, non-zero = true for bool moduleVars
+        const mv = activeModuleVars[gKeyLower];
+        const val = mv.type === "bool" ? (gv !== 0) : gv;
+        lines.push({ raw, kind: "modulevar", depth, globalKey: gKeyLower, globalValue: val });
+        continue;
+      }
+      if (activeGlobalNames.has(gKey)) {
+        const gv = parseFloat(numMatch[2]);
+        if (isGlobalDefault(gKey, gv, activeGlobalDefaults)) continue;
         lines.push({ raw, kind: "global", depth, globalKey: gKey, globalValue: gv });
         continue;
       }
@@ -835,8 +1051,8 @@ function importScad(scadText) {
     const strMatch = raw.match(GLOBAL_STR_RE);
     if (strMatch) {
       const gKey = strMatch[1].toUpperCase();
-      if (GLOBAL_NAMES.has(gKey)) {
-        if (isGlobalDefault(gKey, strMatch[2])) continue;
+      if (activeGlobalNames.has(gKey)) {
+        if (isGlobalDefault(gKey, strMatch[2], activeGlobalDefaults)) continue;
         lines.push({ raw, kind: "global", depth, globalKey: gKey, globalValue: strMatch[2] });
         continue;
       }
@@ -844,26 +1060,36 @@ function importScad(scadText) {
     const inclMatch = raw.match(INCLUDE_RE);
     if (inclMatch) { lines.push({ raw, kind: "include", depth, includeFile: inclMatch[1].trim() }); continue; }
     if (MARKER_RE.test(raw)) { lines.push({ raw, kind: "marker", depth }); continue; }
+    // Standalone comment (but not BGSD/BITGUI markers, already handled above)
+    const commentMatch = raw.match(COMMENT_RE);
+    if (commentMatch) { lines.push({ raw, kind: "comment", depth, comment: commentMatch[1].trim() }); continue; }
     const makeMatch = raw.match(MAKE_RE);
     if (MAKEALL_RE.test(raw) || makeMatch) { lines.push({ raw, kind: "makeall", depth, varName: makeMatch?.[1] || "data" }); continue; }
 
     // KV line (self-contained: [ KEY, value ])
     const kvMatch = raw.match(KV_LINE_RE);
-    // v4 inline globals: [ G_TOLERANCE, 0.1 ] → kind: "global"
-    if (kvMatch && GLOBAL_NAMES.has(kvMatch[1])) {
+    // v4 inline globals: [ G_TOLERANCE, 0.1 ] → kind: "global" (BIT only; CTD treats all scene KVs as regular params)
+    if (kvMatch && earlyProfile !== "ctd" && activeGlobalNames.has(kvMatch[1])) {
       const parsed = parseSimpleValue(kvMatch[2]);
       if (parsed.ok) {
-        if (isGlobalDefault(kvMatch[1], parsed.value)) continue;
+        if (isGlobalDefault(kvMatch[1], parsed.value, activeGlobalDefaults)) continue;
         lines.push({ raw, kind: "global", depth, globalKey: kvMatch[1], globalValue: parsed.value, inlineGlobal: true });
         continue;
       }
     }
-    if (kvMatch && ALL_KEYS.has(kvMatch[1])) {
+    if (kvMatch && activeAllKeys.has(kvMatch[1])) {
       const parsed = parseSimpleValue(kvMatch[2]);
       if (parsed.ok) {
         lines.push({ raw, kind: "kv", depth, kvKey: kvMatch[1], kvValue: parsed.value });
         continue;
       }
+    }
+
+    // Variable assignment (depth 0 only, skip g_* names handled by globals)
+    const varMatch = raw.match(VAR_ASSIGN_RE);
+    if (varMatch && depth === 0 && !/^g_/i.test(varMatch[1])) {
+      lines.push({ raw, kind: "variable", depth, varName: varMatch[1], varValue: varMatch[2].trim() });
+      continue;
     }
 
     // --- Structural: opening brackets ---
@@ -931,6 +1157,7 @@ function importScad(scadText) {
       if (key === "BOX_FEATURE") role = "feature_list";
       else if (key === "BOX_LID") role = "lid";
       else if (key === "LABEL") role = "label";
+      else if (key === "COUNTER_SET") role = "counter_set";
 
       if (role) {
         // Determine child role
@@ -938,6 +1165,7 @@ function importScad(scadText) {
         if (role === "feature_list") { childRole = "feature"; }
         else if (role === "lid") { childRole = "lid_params"; }
         else if (role === "label") { childRole = "label_params"; }
+        else if (role === "counter_set") { childRole = "counter_set_params"; }
 
         lines.push({ raw, kind: "open", depth, role, label: key, mergedOpen: true });
         stack.push({ role, label: key });
@@ -960,6 +1188,7 @@ function importScad(scadText) {
       if (key === "BOX_FEATURE") role = "feature_list";
       else if (key === "BOX_LID") role = "lid";
       else if (key === "LABEL") role = "label";
+      else if (key === "COUNTER_SET") role = "counter_set";
 
       if (role) {
         lines.push({ raw, kind: "open", depth, role, label: key });
@@ -983,6 +1212,7 @@ function importScad(scadText) {
       else if (parent?.role === "feature_list") { role = "feature"; label = "feature list"; }
       else if (parent?.role === "lid") { role = "lid_params"; label = "lid params"; }
       else if (parent?.role === "label") { role = "label_params"; label = "label params"; }
+      else if (parent?.role === "counter_set") { role = "counter_set_params"; label = "counter_set params"; }
       else if (parent?.role === "data") { role = "data_list"; label = "data list"; }
 
       lines.push({ raw, kind: "open", depth, role, label });
@@ -1038,15 +1268,15 @@ function importScad(scadText) {
 
   // Detect library profile from include lines
   let libraryProfile = "bit"; // default
-  let libraryInclude = "boardgame_insert_toolkit_lib.4.scad"; // default
+  let libraryInclude = profiles.bit.include; // default
   for (const line of lines) {
     if (line.kind === "include" && line.includeFile) {
       for (const [id, profile] of Object.entries(profiles)) {
         const re = new RegExp(profile.includePattern, "i");
         if (re.test(line.includeFile)) {
           libraryProfile = id;
-          // Use the primary include file from the profile
-          libraryInclude = profile.include;
+          // Preserve the actual include path from the file
+          libraryInclude = line.includeFile;
           break;
         }
       }
@@ -1132,6 +1362,9 @@ function reimportBlock(text, baseDepth) {
     const inclMatchR = raw.match(INCLUDE_RE);
     if (inclMatchR) { lines.push({ raw, kind: "include", depth, includeFile: inclMatchR[1].trim() }); continue; }
     if (MARKER_RE.test(raw)) { lines.push({ raw, kind: "marker", depth }); continue; }
+    // Standalone comment (but not BGSD/BITGUI markers)
+    const commentMatchR = raw.match(COMMENT_RE);
+    if (commentMatchR) { lines.push({ raw, kind: "comment", depth, comment: commentMatchR[1].trim() }); continue; }
     const makeMatchR = raw.match(MAKE_RE);
     if (MAKEALL_RE.test(raw) || makeMatchR) { lines.push({ raw, kind: "makeall", depth, varName: makeMatchR?.[1] || "data" }); continue; }
 
@@ -1146,12 +1379,19 @@ function reimportBlock(text, baseDepth) {
         continue;
       }
     }
-    if (kvMatch && ALL_KEYS.has(kvMatch[1])) {
+    if (kvMatch && ALL_KEYS_MERGED.has(kvMatch[1])) {
       const parsed = parseSimpleValue(kvMatch[2]);
       if (parsed.ok) {
         lines.push({ raw, kind: "kv", depth, kvKey: kvMatch[1], kvValue: parsed.value });
         continue;
       }
+    }
+
+    // Variable assignment (depth = baseDepth only, skip g_* names)
+    const varMatchR = raw.match(VAR_ASSIGN_RE);
+    if (varMatchR && depth === baseDepth && !/^g_/i.test(varMatchR[1])) {
+      lines.push({ raw, kind: "variable", depth, varName: varMatchR[1], varValue: varMatchR[2].trim() });
+      continue;
     }
 
     // identifier = [
@@ -1212,11 +1452,13 @@ function reimportBlock(text, baseDepth) {
       if (key === "BOX_FEATURE") role = "feature_list";
       else if (key === "BOX_LID") role = "lid";
       else if (key === "LABEL") role = "label";
+      else if (key === "COUNTER_SET") role = "counter_set";
       if (role) {
         let childRole = "list";
         if (role === "feature_list") { childRole = "feature"; }
         else if (role === "lid") { childRole = "lid_params"; }
         else if (role === "label") { childRole = "label_params"; }
+        else if (role === "counter_set") { childRole = "counter_set_params"; }
         lines.push({ raw, kind: "open", depth, role, label: key, mergedOpen: true });
         stack.push({ role, label: key });
         stack.push({ role: childRole, label: childRole });
@@ -1237,6 +1479,7 @@ function reimportBlock(text, baseDepth) {
       if (key === "BOX_FEATURE") role = "feature_list";
       else if (key === "BOX_LID") role = "lid";
       else if (key === "LABEL") role = "label";
+      else if (key === "COUNTER_SET") role = "counter_set";
       if (role) {
         lines.push({ raw, kind: "open", depth, role, label: key });
         stack.push({ role, label: key });
@@ -1258,6 +1501,7 @@ function reimportBlock(text, baseDepth) {
       else if (parent?.role === "feature_list") { role = "feature"; label = "feature list"; }
       else if (parent?.role === "lid") { role = "lid_params"; label = "lid params"; }
       else if (parent?.role === "label") { role = "label_params"; label = "label params"; }
+      else if (parent?.role === "counter_set") { role = "counter_set_params"; label = "counter_set params"; }
       else if (parent?.role === "data") { role = "data_list"; label = "data list"; }
       lines.push({ raw, kind: "open", depth, role, label });
       stack.push({ role, label });

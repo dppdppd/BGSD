@@ -1,0 +1,5 @@
+wait app-root
+new bit
+ipc menu-toggle-show-scad true
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot bottom_with_scad

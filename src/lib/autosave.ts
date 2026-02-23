@@ -4,8 +4,10 @@ import { generateScad } from "./scad";
 
 let filePath: string | null = null;
 let needsBackup = false;
+let readOnly = false;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let saveStatus: (msg: string) => void = () => {};
+let onReadOnlySave: (() => void) | null = null;
 
 const DEBOUNCE_MS = 300;
 
@@ -25,12 +27,25 @@ export function getNeedsBackup(): boolean {
   return needsBackup;
 }
 
+export function setReadOnly(val: boolean) {
+  readOnly = val;
+}
+
+export function getReadOnly(): boolean {
+  return readOnly;
+}
+
+export function onReadOnlyEdit(cb: () => void) {
+  onReadOnlySave = cb;
+}
+
 export function onSaveStatus(cb: (msg: string) => void) {
   saveStatus = cb;
 }
 
 async function doSave() {
   if (!filePath) return;
+  if (readOnly) return;
   const bgsd = (window as any).bgsd;
   if (!bgsd?.saveFile) return;
 
@@ -44,6 +59,10 @@ async function doSave() {
     }
     needsBackup = false; // Only backup once
     saveStatus(`Saved ${new Date().toLocaleTimeString()}`);
+  } else if (result.repoFile) {
+    // Server-side safety net: file is repo-tracked
+    readOnly = true;
+    if (onReadOnlySave) onReadOnlySave();
   } else {
     saveStatus(`Save failed: ${result.error}`);
   }
@@ -55,6 +74,10 @@ export async function saveNow(): Promise<string | null> {
 }
 
 export function triggerSave() {
+  if (readOnly) {
+    if (onReadOnlySave) onReadOnlySave();
+    return;
+  }
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(doSave, DEBOUNCE_MS);
 }

@@ -47,9 +47,9 @@ BGSD/
     generate_schema.py    # Script: parse v4 .scad -> regenerate schema
   harness/
     run.js                # Playwright-driven REPL (launch + screenshot + interact)
+    scripts/              # Reusable test scripts (one command per line)
     out/                  # Screenshot output (accumulates, never cleared)
-  lib/                    # Bundled BIT library files (shipped with app)
-  test-fixtures/          # Sample .scad files for testing
+  lib/                    # Library profiles + manager (fetches from GitHub, caches in userData)
   dist/                   # Vite build output (loaded by Electron)
   package.json
   vite.config.mjs
@@ -90,38 +90,61 @@ sudo apt-get update && sudo apt-get install -y xvfb
 xvfb-run -a node harness/run.js
 ```
 
-**Launch** (scripted, non-interactive):
+**Launch** (scripted, non-interactive — use a script file for complex commands):
 ```bash
-BITGUI_OPEN="../path/to.scad" \
-  BITGUI_WINDOW_WIDTH=1920 BITGUI_WINDOW_HEIGHT=1080 \
-  BITGUI_HARNESS_COMMANDS=$'wait app-root\nshot label' \
+cat <<'CMDS' > /tmp/bgsd-cmds.txt
+wait app-root
+shot welcome
+js document.querySelector('[data-testid="content-area"]').scrollTop = 3000
+shot scrolled
+CMDS
+BGSD_OPEN="/path/to/file.scad" \
+  BGSD_WINDOW_WIDTH=1920 BGSD_WINDOW_HEIGHT=1080 \
+  BGSD_HARNESS_SCRIPT=/tmp/bgsd-cmds.txt \
   xvfb-run -a node harness/run.js
 ```
 
-Screenshots go to `harness/out/` (monotonic counter, never cleared).
+Screenshots go to `harness/out/` with format `NNN_<prefix>_<label>.png`. The counter is monotonic and resumes from existing files, so screenshots never overwrite. When running a script, the prefix defaults to the script filename (e.g., `test-new-bit`).
 
 ### REPL Commands
 
-Every command auto-screenshots after execution:
-- `shot <label>` — screenshot only
-- `click <css>` — click an element
-- `type <css> "<text>"` — clear + type into an element
-- `toggle <css>` — click a checkbox/toggle
-- `wait <css>` — wait until element is visible
-- `intent "<text>"` — set the intent pane text (visible in next screenshot)
-- `act "<intent text>" <command> <args>` — set intent + execute + screenshot (one-liner shorthand)
+- `shot <label>` — take screenshot (no auto-screenshot)
+- `click <testid>` — click element by `data-testid` attribute + screenshot
+- `type <testid> "text"` — fill element with text + screenshot
+- `wait <testid>` — wait up to 15s for element to appear
+- `intent "text"` — set the intent pane text + screenshot
+- `act "intent" cmd args` — set intent + execute command + screenshot
+- `js <expression>` — evaluate JavaScript in the renderer page context
+- `ipc <channel> [json]` — send IPC message to renderer (args must be valid JSON)
+- `new <bit|ctd>` — create a new project (writes to temp file, no dialog)
+- `scad` — print the current SCAD output to stdout
+- `render [label]` — render current SCAD with OpenSCAD to PNG in `harness/out/`
+- `quit` / `exit` / `q` — close app and exit
+
+### Scrolling for Screenshots
+
+The app content is inside a scrollable `<section class="content">` container (NOT the window).
+Use `js` to scroll the content area:
+
+```
+js document.querySelector('[data-testid="content-area"]').scrollTop = 0      // top
+js document.querySelector('[data-testid="content-area"]').scrollTop = 3000   // middle
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999  // bottom
+```
+
+`window.scrollTo()` does NOT work — always scroll the content-area element.
 
 ### App Env Vars (for headless/harness use)
 
 | Var | Purpose |
 |-----|---------|
-| `BITGUI_TEST_PROJECT_DIR=/path` | Auto-open this project on startup |
-| `BITGUI_AUTOSAVE_DEBOUNCE_MS=0` | Instant save (no debounce delay) |
-| `BITGUI_DISABLE_PROMPTS=1` | Suppress modal dialogs |
-| `BITGUI_WINDOW_WIDTH=1200` | Window width for screenshots |
-| `BITGUI_WINDOW_HEIGHT=900` | Window height for screenshots |
-| `BITGUI_OPEN=<path>` | Open a specific .scad file on startup |
-| `BITGUI_HARNESS_COMMANDS=<cmds>` | Newline-separated commands for non-interactive mode |
+| `BGSD_OPEN=<path>` | Auto-open a .scad file on startup |
+| `BGSD_WINDOW_WIDTH=1200` | Window width (default: 800) |
+| `BGSD_WINDOW_HEIGHT=900` | Window height (default: 1600) |
+| `BGSD_HARNESS_SCRIPT=<path>` | Path to file with newline-separated commands |
+| `BGSD_HARNESS_COMMANDS=<cmds>` | Inline newline-separated commands (prefer BGSD_HARNESS_SCRIPT for complex scripts) |
+| `BGSD_HARNESS=1` | Auto-set by harness; enables intent pane in app |
+| `BGSD_SHOT_PREFIX=<name>` | Prefix for screenshot filenames (defaults to script filename) |
 
 ### data-testid Convention
 
@@ -151,23 +174,93 @@ The app has a bottom strip that is always rendered and captured in every screens
 This makes every screenshot self-describing: the intent text inside the image
 says what should be true, and the rest of the image shows what actually happened.
 
+### Test Scripts (`harness/scripts/`)
+
+Reusable command files that serve as a regression test suite. Run any script with:
+
+```bash
+BGSD_HARNESS_SCRIPT=harness/scripts/<script>.txt xvfb-run -a node harness/run.js
+```
+
+For scripts that need a specific file loaded on startup, add `BGSD_OPEN`:
+
+```bash
+BGSD_OPEN=/path/to/file.scad \
+  BGSD_HARNESS_SCRIPT=harness/scripts/<script>.txt \
+  xvfb-run -a node harness/run.js
+```
+
+| Script | What it tests |
+|--------|--------------|
+| `test-new-bit.txt` | Create new BIT project, screenshot top/bottom, print SCAD |
+| `test-new-ctd.txt` | Create new CTD project, screenshot top/bottom, print SCAD |
+| `test-open-bit.txt` | Create BIT project, screenshot at scroll positions, print SCAD |
+| `test-open-ctd.txt` | Create CTD project, screenshot at scroll positions, print SCAD |
+| `test-scad-toggle.txt` | Toggle Show SCAD view on/off, screenshot both states |
+| `test-hide-defaults.txt` | Toggle Hide Defaults on/off, screenshot both states |
+
+**Run the full suite** (all scripts sequentially):
+
+```bash
+npm run build && \
+for f in harness/scripts/test-*.txt; do
+  BGSD_HARNESS_SCRIPT="$f" xvfb-run -a node harness/run.js
+done
+```
+
 ### After Each Change (developer protocol)
 
-For every code change:
-1. State what I expect (1-3 bullets).
-2. Launch harness, set intent text, interact with the GUI.
-3. Inspect screenshots in `harness/out/`.
-4. Report: expectation + screenshot filenames used to confirm.
+**CRITICAL: Every code change MUST be validated with screenshots before reporting completion.**
 
-No prescripted test scenarios. The developer articulates the expected behavior,
-interacts to confirm it, and the screenshots are the evidence.
+For every code change:
+
+1. **Build**: `npm run build` — must succeed with no errors.
+2. **Create a test script** for your change in `harness/scripts/`. Name it descriptively
+   (e.g., `test-bracket-colors.txt`, `test-variable-rendering.txt`). The script should:
+   - Load a relevant fixture or create a new project (`new bit` / `new ctd`)
+   - Navigate to the areas affected by your change (scroll, toggle views, etc.)
+   - Take `shot` screenshots at key states
+   - Use `scad` to print SCAD output if the change affects output generation
+   - Use `render` to produce an OpenSCAD PNG if the change affects SCAD structure
+3. **Run the script**:
+   ```bash
+   BGSD_HARNESS_SCRIPT=harness/scripts/test-your-change.txt \
+     xvfb-run -a node harness/run.js
+   ```
+   Or with a specific SCAD file:
+   ```bash
+   BGSD_OPEN=/path/to/file.scad \
+     BGSD_HARNESS_SCRIPT=harness/scripts/test-your-change.txt \
+     xvfb-run -a node harness/run.js
+   ```
+   Screenshots are automatically prefixed with the script name
+   (e.g., `009_test-your-change_welcome.png`) so they never collide.
+4. **Inspect screenshots**: Read the images in `harness/out/` to visually verify.
+5. **Report**: State what you expected (1-3 bullets) + which screenshot files confirm it.
+6. **Fix before moving on**: If screenshots reveal issues, fix and re-run before reporting completion.
+
+Never skip the screenshot step. Never report a change as complete without visual verification.
 
 ## Key Design Decisions
 
 - **SCAD file = source of truth**: GUI preserves user code, comments, and preamble/postamble
-- **Schema-driven UI**: All controls generated from `bit.schema.json` -- no hardcoded parameter UI
+- **Schema-driven UI**: All controls generated from schema JSON — no hardcoded parameter UI
 - **Line-based preservation**: Importer classifies lines by kind/role instead of building AST; saves produce minimal diffs
 - **Harness-driven development**: Real app tested headlessly via Playwright; intent pane makes screenshots self-describing
+- **Electron over Tauri**: Tauri was attempted first but WebKit2GTK had fundamental JS execution issues in containers (modules not loading, CSP blocking inline scripts). Electron works reliably headless with zero configuration.
+
+## SCAD Output Formatting
+
+The generator (`src/lib/scad.ts`) produces `.scad` text from project state:
+
+- 4-space indentation
+- Keys: unquoted OpenSCAD constants (e.g. `BOX_SIZE_XYZ`)
+- Booleans: `true` / `false`
+- Numbers: bare (integer or decimal)
+- Strings: `"double-quoted"`
+- Vectors: `[a, b, c]` (space after comma)
+- Nested tables: each `[KEY, VALUE]` pair on its own line, indented
+- Only emits keys that differ from their schema defaults (keeps output clean)
 
 ## Code Style
 
@@ -193,3 +286,13 @@ interacts to confirm it, and the screenshots are the evidence.
 
 ### Globals (as `[G_*, value]` pairs in data array)
 `G_PRINT_LID_B`, `G_PRINT_BOX_B`, `G_ISOLATED_PRINT_BOX`, `G_VISUALIZATION_B`, `G_VALIDATE_KEYS_B`, `G_WALL_THICKNESS`, `G_TOLERANCE`, `G_TOLERANCE_DETENT_POS`, `G_DEFAULT_FONT`, `G_PRINT_MMU_LAYER`
+
+## Backlog
+
+- [ ] Reorder list items (components)
+- [ ] Duplicate element/component
+- [ ] Cross-platform release builds (electron-builder)
+- [ ] Keyboard shortcuts (Ctrl+O, Ctrl+S, Ctrl+Shift+S)
+- [ ] Undo/redo
+- [ ] Dark/light theme
+- [ ] Recent files list

@@ -22,6 +22,10 @@ export function generateScad(project: Project): string {
       case "makeall":
         out.push(`Make(${line.varName || "data"});`);
         break;
+      case "modulevar":
+        // Emit verbatim: file-scope variable like g_make_filler = 1;
+        out.push(line.raw);
+        break;
       case "global": {
         // v4 format: emit as [ G_KEY, value ] inside data array
         const gk = line.globalKey ?? "";
@@ -30,11 +34,17 @@ export function generateScad(project: Project): string {
           out.push(`${indent}[ ${gk}, ${line.globalValue} ],`);
         } else if (typeof line.globalValue === "number") {
           out.push(`${indent}[ ${gk}, ${line.globalValue} ],`);
+        } else if (Array.isArray(line.globalValue)) {
+          out.push(`${indent}[ ${gk}, [${line.globalValue.join(", ")}] ],`);
         } else if (gk) {
           out.push(`${indent}[ ${gk}, "${line.globalValue ?? ""}" ],`);
         }
         break;
       }
+      case "variable":
+      case "comment":
+        out.push(line.raw);
+        break;
       case "kv":
       case "open":
       case "close":

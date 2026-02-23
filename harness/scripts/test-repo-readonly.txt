@@ -1,0 +1,5 @@
+wait app-root
+shot welcome
+open /home/coder/projects/3d_Printing/BGSD/tests/workspace/ctd/gmt/the_us_civil_war.scad
+wait content-area
+shot ctd_readonly

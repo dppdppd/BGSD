@@ -1,0 +1,7 @@
+wait app-root
+new bit
+js document.querySelector('[data-testid="content-area"]').scrollTop = 0
+shot bit_globals
+new ctd
+js document.querySelector('[data-testid="content-area"]').scrollTop = 300
+shot ctd_globals

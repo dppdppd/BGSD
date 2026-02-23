@@ -1,0 +1,11 @@
+wait app-root
+new bit
+shot normal_view
+ipc menu-toggle-show-scad true
+shot scad_pane_top
+js document.querySelector('[data-testid="content-area"]').scrollTop = 500
+shot scad_pane_mid
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot scad_pane_bottom
+ipc menu-toggle-show-scad false
+shot scad_off

@@ -1,0 +1,17 @@
+wait app-root
+new bit
+shot bit_top
+js document.querySelector('[data-testid="content-area"]').scrollTop = 500
+shot bit_mid
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot bit_bottom
+scad
+render bit_render
+new ctd
+shot ctd_top
+js document.querySelector('[data-testid="content-area"]').scrollTop = 500
+shot ctd_mid
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot ctd_bottom
+scad
+render ctd_render

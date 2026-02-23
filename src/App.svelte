@@ -11,6 +11,7 @@
     materializeGlobal,
     updateKv,
     updateComment,
+    updateVariable,
     materializeKv,
     insertLine,
     spliceLines,
@@ -19,8 +20,8 @@
     type Line,
   } from "./lib/stores/project";
   import { generateScad } from "./lib/scad";
-  import { startAutosave, onSaveStatus, setFilePath, getFilePath, setNeedsBackup, saveNow, triggerSave } from "./lib/autosave";
-  import { schema } from "./lib/schema";
+  import { startAutosave, onSaveStatus, setFilePath, getFilePath, setNeedsBackup, setReadOnly, getReadOnly, onReadOnlyEdit, saveNow, triggerSave } from "./lib/autosave";
+  import { getSchema } from "./lib/schema";
   import tooltips from "./lib/tooltips/en.json";
 
   let intentText = $state("");
@@ -28,6 +29,23 @@
   let statusMsg = $state("No file open");
   let hideDefaults = $state(false);
   let showScad = $state(false);
+  let showWelcome = $state(true);
+
+  // Working directory state
+  let workingDir = $state("");
+  let workingDirSet = $state(false);
+  let setupBusy = $state(false);
+  let setupStatus = $state("");
+
+  // Library browser state
+  let libraryTreeRaw = $state<string>("{}");
+  let libraryTree = $derived(JSON.parse(libraryTreeRaw) as Record<string, any>);
+
+  // Preferences modal state
+  let showPrefs = $state(false);
+  let prefsOpenScadPath = $state("");
+  let prefsAutoOpen = $state(true);
+  let prefsReuseOpenScad = $state(true);
 
   let scadOutput = $derived(generateScad($project));
 
@@ -46,20 +64,50 @@
 
   let fileLoaded = false;
 
-  function handleLoad(payload: any) {
+  async function handleLoad(payload: any) {
     const { data, filePath } = payload;
     project.set(data);
-    setFilePath(filePath);
-    setNeedsBackup(!data.hasMarker);
     updateTitle(filePath);
     fileLoaded = true;
-    const name = filePath.replace(/.*[/\\]/, "");
-    statusMsg = data.hasMarker ? name : `${name} (will backup .bak on first save)`;
+    showWelcome = false;
+
+    // Check if this is a repo-tracked library file (read-only)
+    const bgsd = (window as any).bgsd;
+    const repoCheck = await bgsd?.checkRepoFile?.(filePath);
+    if (repoCheck?.repoFile) {
+      setFilePath(filePath);
+      setReadOnly(true);
+      const name = filePath.replace(/.*[/\\]/, "");
+      statusMsg = `${name} (library example — Save As to edit)`;
+    } else {
+      setFilePath(filePath);
+      setReadOnly(false);
+      setNeedsBackup(!data.hasMarker);
+      const name = filePath.replace(/.*[/\\]/, "");
+      statusMsg = data.hasMarker ? name : `${name} (will backup .bak on first save)`;
+    }
+
+    // Auto-launch OpenSCAD after every load
+    launchOpenScad(filePath, data.libraryProfile);
   }
 
   onMount(async () => {
     showIntent = !!(window as any).bgsd?.harness;
     startAutosave();
+
+    // When a read-only library file is edited, prompt Save As
+    onReadOnlyEdit(async () => {
+      if (!getReadOnly()) return;
+      statusMsg = "Library example — saving a copy...";
+      await saveFileAs();
+      if (getFilePath()) {
+        setReadOnly(false);
+        const name = (getFilePath() || "").replace(/.*[/\\]/, "");
+        statusMsg = `Saved ${name}`;
+      } else {
+        statusMsg = `${(getFilePath() || "").replace(/.*[/\\]/, "")} (library example — Save As to edit)`;
+      }
+    });
 
     // After 1 s of input inactivity, commit the focused control so autosave picks it up.
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -75,12 +123,24 @@
     });
 
     const bgsd = (window as any).bgsd;
-    if (bgsd?.onMenuNew) bgsd.onMenuNew(newFile);
+    if (bgsd?.onMenuNew) bgsd.onMenuNew((_event: any, profile: string) => newProject(profile || "bit"));
     if (bgsd?.onMenuOpen) bgsd.onMenuOpen(handleLoad);
     if (bgsd?.onMenuSaveAs) bgsd.onMenuSaveAs(saveFileAs);
     if (bgsd?.onMenuOpenInOpenScad) bgsd.onMenuOpenInOpenScad(openInOpenScad);
+    if (bgsd?.onMenuPreferences) bgsd.onMenuPreferences(openPreferencesModal);
     if (bgsd?.onMenuToggleHideDefaults) bgsd.onMenuToggleHideDefaults((checked: boolean) => { hideDefaults = checked; });
     if (bgsd?.onMenuToggleShowScad) bgsd.onMenuToggleShowScad((checked: boolean) => { showScad = checked; });
+
+    // Load working directory status
+    const wdStatus = await bgsd?.getWorkingDirStatus?.();
+    if (wdStatus?.set) {
+      workingDir = wdStatus.path;
+      workingDirSet = true;
+      loadLibraryTree();
+    }
+
+    // Listen for working dir progress messages
+    bgsd?.onWorkingDirProgress?.((msg: string) => { setupStatus = msg; });
 
     // Check for pending auto-load (CLI arg / env var)
     for (let i = 0; i < 50; i++) {
@@ -89,18 +149,78 @@
       if (pending) { handleLoad(pending); break; }
       await new Promise(r => setTimeout(r, 200));
     }
-    // If nothing was loaded by any path, start with a new project
-    if (!fileLoaded) newFile();
+    // If nothing was loaded by any path, show welcome screen
+    // (showWelcome is already true by default)
   });
 
-  function newFile() {
-    project.set({ version: 1, lines: [
-      { raw: "scene_1 = [", kind: "open", depth: 0, role: "data", label: "scene_1", varName: "scene_1" },
-      { raw: "];", kind: "close", depth: 0, role: "data", label: "scene_1", varName: "scene_1" },
-      { raw: "Make(scene_1);", kind: "makeall", depth: 0, varName: "scene_1" },
-    ], hasMarker: false, libraryProfile: "bit", libraryInclude: "boardgame_insert_toolkit_lib.4.scad" });
-    setFilePath(""); setNeedsBackup(false); statusMsg = "New file";
-    updateTitle("");
+  async function newProject(profile: string = "bit") {
+    const bgsd = (window as any).bgsd;
+
+    // If working directory is set, create directly via IPC (no Save As dialog)
+    if (workingDirSet && bgsd?.newProjectToPath) {
+      const res = await bgsd.newProjectToPath(profile);
+      if (!res.ok) {
+        statusMsg = `New project failed: ${res.error || "unknown error"}`;
+        return;
+      }
+      // The IPC handler sends menu-open which triggers handleLoad
+      return;
+    }
+
+    // No working dir — fall back to Save As flow
+    let templateProject: any;
+    if (profile === "ctd") {
+      templateProject = { version: 1, lines: [
+        { raw: "scene_1 = [", kind: "open", depth: 0, role: "data", label: "scene_1", varName: "scene_1" },
+        { raw: "    [ COUNTER_SET,", kind: "open", depth: 1, role: "counter_set", label: "COUNTER_SET" },
+        { raw: "        [ COUNTER_SIZE_XYZ, [13.3, 13.3, 3] ],", kind: "kv", depth: 2, kvKey: "COUNTER_SIZE_XYZ", kvValue: [13.3, 13.3, 3] },
+        { raw: "    ],", kind: "close", depth: 1, role: "counter_set", label: "COUNTER_SET" },
+        { raw: "];", kind: "close", depth: 0, role: "data", label: "scene_1", varName: "scene_1" },
+        { raw: "Make(scene_1);", kind: "makeall", depth: 0, varName: "scene_1" },
+      ], hasMarker: false, libraryProfile: "ctd", libraryInclude: "counter_tray_designer_lib.1.scad" };
+    } else {
+      templateProject = { version: 1, lines: [
+        { raw: "data = [", kind: "open", depth: 0, role: "data", label: "data", varName: "data" },
+        { raw: "    [ OBJECT_BOX, [", kind: "open", depth: 1, role: "object", label: "OBJECT_BOX", mergedOpen: true },
+        { raw: '        [ NAME, "box 1" ],', kind: "kv", depth: 2, kvKey: "NAME", kvValue: "box 1" },
+        { raw: "        [ BOX_SIZE_XYZ, [50, 50, 20] ],", kind: "kv", depth: 2, kvKey: "BOX_SIZE_XYZ", kvValue: [50, 50, 20] },
+        { raw: "    ]],", kind: "close", depth: 1, role: "object", label: "OBJECT_BOX", mergedClose: true },
+        { raw: "];", kind: "close", depth: 0, role: "data", label: "data", varName: "data" },
+        { raw: "Make(data);", kind: "makeall", depth: 0, varName: "data" },
+      ], hasMarker: false, libraryProfile: "bit", libraryInclude: "boardgame_insert_toolkit_lib.4.scad" };
+    }
+
+    project.set(templateProject);
+    const scadText = generateScad(templateProject);
+
+    if (!bgsd?.saveFileAs) return;
+    const res = await bgsd.saveFileAs(scadText, templateProject.libraryProfile);
+    if (!res.ok) {
+      project.set({ version: 1, lines: [], hasMarker: false });
+      showWelcome = true;
+      statusMsg = "No file open";
+      return;
+    }
+
+    if (res.libraryError) {
+      statusMsg = `Library: ${res.libraryError}`;
+    }
+
+    if (bgsd?.loadFilePath) {
+      const loaded = await bgsd.loadFilePath(res.filePath);
+      if (loaded.ok) {
+        handleLoad(loaded);
+        return;
+      }
+    }
+
+    setFilePath(res.filePath);
+    setNeedsBackup(false);
+    updateTitle(res.filePath);
+    fileLoaded = true;
+    showWelcome = false;
+    statusMsg = `Saved ${res.filePath.replace(/.*[/\\]/, "")}`;
+    launchOpenScad(res.filePath, templateProject.libraryProfile);
   }
 
   async function openFile() {
@@ -108,11 +228,7 @@
     if (!bgsd?.openFile) return;
     const res = await bgsd.openFile();
     if (!res.ok) { if (res.error) statusMsg = `Open failed: ${res.error}`; return; }
-    project.set(res.data);
-    setFilePath(res.filePath); setNeedsBackup(!res.data.hasMarker);
-    updateTitle(res.filePath); fileLoaded = true;
-    const name = res.filePath.replace(/.*[/\\]/, "");
-    statusMsg = res.data.hasMarker ? name : `${name} (will backup .bak on first save)`;
+    handleLoad({ data: res.data, filePath: res.filePath });
   }
 
   async function saveFileAs() {
@@ -121,8 +237,43 @@
     const res = await bgsd.saveFileAs(scadOutput, $project.libraryProfile);
     if (!res.ok) return;
     setFilePath(res.filePath);
+    setReadOnly(false);
     updateTitle(res.filePath);
     statusMsg = `Saved ${res.filePath.replace(/.*[/\\]/, "")}`;
+  }
+
+  async function launchOpenScad(filePath: string, profile?: string) {
+    const bgsd = (window as any).bgsd;
+    if (!bgsd?.openInOpenScad) return;
+    if (!filePath) return;
+
+    // Check preferences for auto-open
+    const prefs = await bgsd.getPreferences?.() || { autoOpenInOpenScad: true };
+    if (!prefs.autoOpenInOpenScad) return;
+
+    const res = await bgsd.openInOpenScad(filePath, profile || $project.libraryProfile);
+    if (res?.libraryError) {
+      statusMsg = `Library: ${res.libraryError}`;
+    }
+    if (res && !res.ok && res.error === "not-found") {
+      statusMsg = "OpenSCAD not found";
+      // Prompt user to locate OpenSCAD
+      const browse = await bgsd.browseOpenScad?.();
+      if (browse?.ok && browse.path) {
+        await bgsd.setPreferences?.({ openScadPath: browse.path });
+        // Retry launch
+        const retry = await bgsd.openInOpenScad(filePath, profile || $project.libraryProfile);
+        if (retry?.ok) {
+          statusMsg = filePath.replace(/.*[/\\]/, "");
+        } else if (retry && !retry.ok) {
+          statusMsg = `OpenSCAD: ${retry.error}`;
+        }
+      } else {
+        statusMsg = "OpenSCAD not found — set in File > Preferences";
+      }
+    } else if (res && !res.ok) {
+      statusMsg = `OpenSCAD: ${res.error}`;
+    }
   }
 
   async function openInOpenScad() {
@@ -139,19 +290,180 @@
 
     const savedPath = await saveNow();
     const openPath = savedPath || fp;
-    const res = await bgsd.openInOpenScad(openPath, $project.libraryProfile);
-    if (!res.ok) statusMsg = `OpenSCAD: ${res.error}`;
-  }
 
-  // --- Schema lookup ---
-  const ALL_KEYS: Set<string> = new Set();
-  const KEY_TYPE_MAP: Record<string, string> = {};
-  const KEY_SCHEMA_MAP: Record<string, any> = {};
-  for (const ctx of Object.values((schema as any).contexts)) {
-    for (const [k, def] of Object.entries((ctx as any).keys || {})) {
-      ALL_KEYS.add(k); KEY_TYPE_MAP[k] = (def as any).type; KEY_SCHEMA_MAP[k] = def;
+    // For manual launch (Tools menu), bypass auto-open pref check
+    const res = await bgsd.openInOpenScad(openPath, $project.libraryProfile);
+    if (res?.libraryError) {
+      statusMsg = `Library: ${res.libraryError}`;
+    }
+    if (res && !res.ok && res.error === "not-found") {
+      statusMsg = "OpenSCAD not found";
+      const browse = await bgsd.browseOpenScad?.();
+      if (browse?.ok && browse.path) {
+        await bgsd.setPreferences?.({ openScadPath: browse.path });
+        const retry = await bgsd.openInOpenScad(openPath, $project.libraryProfile);
+        if (retry?.ok) {
+          statusMsg = openPath.replace(/.*[/\\]/, "");
+        } else if (retry && !retry.ok) {
+          statusMsg = `OpenSCAD: ${retry.error}`;
+        }
+      } else {
+        statusMsg = "OpenSCAD not found — set in File > Preferences";
+      }
+    } else if (res && !res.ok) {
+      statusMsg = `OpenSCAD: ${res.error}`;
     }
   }
+
+  async function openPreferencesModal() {
+    const bgsd = (window as any).bgsd;
+    const prefs = await bgsd?.getPreferences?.() || { openScadPath: "", autoOpenInOpenScad: true };
+    prefsOpenScadPath = prefs.openScadPath || "";
+    prefsAutoOpen = prefs.autoOpenInOpenScad !== false;
+    prefsReuseOpenScad = prefs.reuseOpenScad !== false;
+    showPrefs = true;
+  }
+
+  async function savePreferences() {
+    const bgsd = (window as any).bgsd;
+    await bgsd?.setPreferences?.({ openScadPath: prefsOpenScadPath, autoOpenInOpenScad: prefsAutoOpen, reuseOpenScad: prefsReuseOpenScad });
+    showPrefs = false;
+  }
+
+  async function browseOpenScadPath() {
+    const bgsd = (window as any).bgsd;
+    const result = await bgsd?.browseOpenScad?.();
+    if (result?.ok && result.path) {
+      prefsOpenScadPath = result.path;
+    }
+  }
+
+  // --- Working directory functions ---
+
+  async function chooseAndInitWorkingDir() {
+    const bgsd = (window as any).bgsd;
+    if (!bgsd?.browseWorkingDir) return;
+    const result = await bgsd.browseWorkingDir();
+    if (!result?.ok || !result.path) return;
+
+    setupBusy = true;
+    setupStatus = "Initializing...";
+    try {
+      const res = await bgsd.initWorkingDir(result.path);
+      if (res.ok) {
+        workingDir = result.path;
+        workingDirSet = true;
+        setupStatus = "";
+        loadLibraryTree();
+      } else {
+        setupStatus = `Setup failed: ${res.error}`;
+      }
+    } catch (err: any) {
+      setupStatus = `Setup failed: ${err.message}`;
+    }
+    setupBusy = false;
+  }
+
+  async function updateLibs() {
+    const bgsd = (window as any).bgsd;
+    if (!bgsd?.updateLibraries) return;
+    setupBusy = true;
+    setupStatus = "Updating libraries...";
+    try {
+      const res = await bgsd.updateLibraries();
+      if (res.ok) {
+        setupStatus = "Libraries updated.";
+        setTimeout(() => { setupStatus = ""; }, 3000);
+        loadLibraryTree();
+      } else {
+        setupStatus = `Update failed: ${res.error}`;
+      }
+    } catch (err: any) {
+      setupStatus = `Update failed: ${err.message}`;
+    }
+    setupBusy = false;
+  }
+
+  async function changeWorkingDir() {
+    const bgsd = (window as any).bgsd;
+    if (!bgsd?.browseWorkingDir) return;
+    const result = await bgsd.browseWorkingDir();
+    if (!result?.ok || !result.path) return;
+
+    setupBusy = true;
+    setupStatus = "Initializing new directory...";
+    try {
+      const res = await bgsd.initWorkingDir(result.path);
+      if (res.ok) {
+        workingDir = result.path;
+        workingDirSet = true;
+        setupStatus = "";
+        loadLibraryTree();
+      } else {
+        setupStatus = `Setup failed: ${res.error}`;
+      }
+    } catch (err: any) {
+      setupStatus = `Setup failed: ${err.message}`;
+    }
+    setupBusy = false;
+  }
+
+  // --- Library browser helpers ---
+
+  async function loadLibraryTree() {
+    const bgsd = (window as any).bgsd;
+    const res = await bgsd?.getLibraryTree?.();
+    if (res?.ok) {
+      libraryTreeRaw = JSON.stringify(res.tree || {});
+    }
+  }
+
+  function formatPublisher(slug: string): string {
+    const allCaps: Record<string, string> = { gmt: "GMT", mmp: "MMP" };
+    if (allCaps[slug]) return allCaps[slug];
+    return slug.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  }
+
+  function formatGameName(slug: string): string {
+    return slug.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  }
+
+  async function openLibraryFile(filePath: string) {
+    const bgsd = (window as any).bgsd;
+    const loaded = await bgsd?.loadFilePath?.(filePath);
+    if (loaded?.ok) handleLoad(loaded);
+    else statusMsg = `Failed to open: ${loaded?.error || "unknown"}`;
+  }
+
+  // --- Schema lookup (reactive based on active profile) ---
+  let activeSchema = $derived(getSchema($project.libraryProfile || "bit"));
+
+  let ALL_KEYS = $derived.by(() => {
+    const s = new Set<string>();
+    for (const ctx of Object.values((activeSchema as any).contexts || {})) {
+      for (const k of Object.keys((ctx as any).keys || {})) s.add(k);
+    }
+    for (const k of Object.keys((activeSchema as any).globals || {})) s.add(k);
+    return s;
+  });
+
+  let KEY_TYPE_MAP = $derived.by(() => {
+    const m: Record<string, string> = {};
+    for (const ctx of Object.values((activeSchema as any).contexts || {})) {
+      for (const [k, def] of Object.entries((ctx as any).keys || {})) m[k] = (def as any).type;
+    }
+    for (const [k, def] of Object.entries((activeSchema as any).globals || {})) m[k] = (def as any).type;
+    return m;
+  });
+
+  let KEY_SCHEMA_MAP = $derived.by(() => {
+    const m: Record<string, any> = {};
+    for (const ctx of Object.values((activeSchema as any).contexts || {})) {
+      for (const [k, def] of Object.entries((ctx as any).keys || {})) m[k] = def;
+    }
+    for (const [k, def] of Object.entries((activeSchema as any).globals || {})) m[k] = def;
+    return m;
+  });
 
   const KNOWN_CONSTANTS: Record<string, any> = {
     BOX:"BOX",DIVIDERS:"DIVIDERS",SPACER:"SPACER",
@@ -162,6 +474,9 @@
     FRONT:"FRONT",BACK:"BACK",LEFT:"LEFT",RIGHT:"RIGHT",
     FRONT_WALL:"FRONT_WALL",BACK_WALL:"BACK_WALL",LEFT_WALL:"LEFT_WALL",RIGHT_WALL:"RIGHT_WALL",
     CENTER:"CENTER",BOTTOM:"BOTTOM",AUTO:"AUTO",MAX:"MAX",
+    SHAPE_SQUARE:"SHAPE_SQUARE",SHAPE_CIRCLE:"SHAPE_CIRCLE",
+    SHAPE_TRIANGLE:"SHAPE_TRIANGLE",SHAPE_HEX:"SHAPE_HEX",
+    COUNTER_SET:"COUNTER_SET",
     true:true,false:false,t:true,f:false,
   };
 
@@ -187,12 +502,14 @@
       if (hasExpr) return { value: vals.map(String), ok: true };
       return { value: vals, ok: true };
     }
+    // Bare identifier (variable reference, including $-prefixed OpenSCAD vars)
+    if (/^[a-zA-Z_$]\w*$/.test(t)) return { value: t, ok: true };
     return { ok: false, value: null };
   }
 
   const KV_RE = /^\s*\[\s*([_A-Z][A-Z0-9_]*)\s*,\s*(.*?)\s*\]\s*,?\s*(?:\/\/.*)?$/;
 
-  const GLOBAL_NAMES: Set<string> = new Set(Object.keys((schema as any).globals || {}));
+  let GLOBAL_NAMES = $derived(new Set(Object.keys((activeSchema as any).globals || {})));
 
   function classifyLocal(raw: string, depth: number = 0): Line {
     // v3 file-scope globals: g_tolerance = 0.1; → convert key to G_TOLERANCE
@@ -202,14 +519,21 @@
     if (nm) { const gk = nm[1].toUpperCase(); if (GLOBAL_NAMES.has(gk)) return { raw, kind: "global", depth, globalKey: gk, globalValue: parseFloat(nm[2]) }; }
     const sm = raw.match(/^\s*(g_\w+)\s*=\s*"([^"]*)"\s*;\s*(?:\/\/.*)?$/i);
     if (sm) { const gk = sm[1].toUpperCase(); if (GLOBAL_NAMES.has(gk)) return { raw, kind: "global", depth, globalKey: gk, globalValue: sm[2] }; }
-    if (/^\s*include\s*<\s*(?:lib\/)?(?:boardgame_insert_toolkit_lib\.|bit_functions_lib\.)\d+\.scad\s*>\s*;?\s*(?:\/\/.*)?$/i.test(raw)) return { raw, kind: "include", depth };
+    if (/^\s*include\s*<\s*(?:\.\.\/lib\/)?boardgame_insert_toolkit_lib\.\d+\.scad\s*>\s*;?\s*(?:\/\/.*)?$/i.test(raw)) return { raw, kind: "include", depth };
+    if (/^\s*include\s*<\s*(?:\.\.\/lib\/)?counter_tray_designer_lib\.\d+\.scad\s*>\s*;?\s*(?:\/\/.*)?$/i.test(raw)) return { raw, kind: "include", depth };
     if (/^\s*\/\/\s*(?:BGSD|BITGUI)\b/i.test(raw)) return { raw, kind: "marker", depth };
     const makeM = raw.match(/^\s*Make\s*\(\s*(\w+)\s*\)\s*;\s*(?:\/\/.*)?$/);
     if (/^\s*MakeAll\s*\(\s*\)\s*;\s*(?:\/\/.*)?$/.test(raw) || makeM) return { raw, kind: "makeall", depth, varName: makeM?.[1] || "data" };
+    // Standalone comment (but not BGSD/BITGUI markers, already handled above)
+    const cm = raw.match(/^\s*\/\/(.*)$/);
+    if (cm && !/^\s*\/\/\s*(?:BGSD|BITGUI)\b/i.test(raw)) return { raw, kind: "comment", depth, comment: cm[1].trim() };
+    // Variable assignment (skip g_* names handled by globals)
+    const vm = raw.match(/^\s*([A-Za-z_$]\w*)\s*=\s*(.+?)\s*;\s*(?:\/\/.*)?$/);
+    if (vm && !/^g_/i.test(vm[1])) return { raw, kind: "variable", depth, varName: vm[1], varValue: vm[2].trim() };
     // KV line
     const kv = raw.match(KV_RE);
-    // v4 inline globals: [ G_TOLERANCE, 0.1 ] → kind: "global"
-    if (kv && GLOBAL_NAMES.has(kv[1])) { const p = parseSimpleValue(kv[2]); if (p.ok) return { raw, kind: "global", depth, globalKey: kv[1], globalValue: p.value, inlineGlobal: true }; }
+    // v4 inline globals: [ G_TOLERANCE, 0.1 ] → kind: "global" (BIT only; CTD treats all scene KVs as regular params)
+    if (kv && $project.libraryProfile !== "ctd" && GLOBAL_NAMES.has(kv[1])) { const p = parseSimpleValue(kv[2]); if (p.ok) return { raw, kind: "global", depth, globalKey: kv[1], globalValue: p.value, inlineGlobal: true }; }
     if (kv && ALL_KEYS.has(kv[1])) { const p = parseSimpleValue(kv[2]); if (p.ok) return { raw, kind: "kv", depth, kvKey: kv[1], kvValue: p.value }; }
     // Brackets are never produced by classifyLocal — they only come from the importer's stack-based parsing.
     return { raw, kind: "raw", depth };
@@ -222,7 +546,14 @@
   function smartParseNum(s: string) { const t = s.trim(); return /^-?\d+(\.\d+)?$/.test(t) ? parseFloat(t) : t; }
   function updateKvIdx(li: number, arr: any[], j: number, val: any) { const c = [...arr]; c[j] = val; updateKv(li, c); }
   function canParse(raw: string) { return classifyLocal(raw).kind !== "raw"; }
-  function tip(key: string): string { return (tooltips as Record<string, string>)[key] || ""; }
+  function handleStandaloneCommentEdit(i: number, text: string) {
+    const indent = $project.lines[i].raw.match(/^(\s*)/)?.[0] || "";
+    updateLineRaw(i, text.trim() ? `${indent}// ${text.trim()}` : `${indent}//`);
+    project.update(p => { p.lines[i].comment = text.trim(); return { ...p }; });
+  }
+  const i18n = tooltips as Record<string, { label?: string; tooltip?: string }>;
+  function tip(key: string): string { return i18n[key]?.tooltip || ""; }
+  function label(key: string): string { return i18n[key]?.label || key; }
   function toRaw(i: number) {
     const l = $project.lines[i];
     if (!l || l.kind === "open" || l.kind === "close") return; // brackets are never raw
@@ -275,6 +606,11 @@
     const oldText = rawGroupText(startIndex);
     // If nothing changed, do nothing.
     if (newText === oldText) return;
+    // If all whitespace, delete the block entirely.
+    if (newText.trim() === "") {
+      spliceLines(startIndex, oldCount, []);
+      return;
+    }
     const depth = $project.lines[startIndex]?.depth ?? 0;
     const newRawLines = newText.split("\n");
     // Keep as raw — don't re-classify. The user can use the full reimport
@@ -313,6 +649,16 @@
   const DEPTH_PX = 24;
   function pad(line: Line) { return `padding-left: ${8 + (line.depth ?? 0) * DEPTH_PX}px`; }
   function padDepth(d: number) { return `padding-left: ${8 + d * DEPTH_PX}px`; }
+
+  /** Generate SCAD-style indentation: 4 spaces per depth level */
+  function scadIndent(depth: number): string { return "    ".repeat(depth); }
+
+  const BRACKET_COLORS = ["#546e7a","#2980b9","#27ae60","#e67e22","#8e44ad","#16a085"];
+  const BRACKET_BGS = ["#eceff1","#eef4fa","#eef8f0","#fef5ee","#f5eef8","#eef8f5"];
+  function bracketStyle(depth: number): string {
+    const i = (depth ?? 0) % BRACKET_COLORS.length;
+    return `--bracket-color: ${BRACKET_COLORS[i]}; --bracket-bg: ${BRACKET_BGS[i]}`;
+  }
 
   // --- Collapse/expand ---
   let collapsed = $state(new Set<number>());
@@ -376,6 +722,7 @@
     feature: "feature",
     label_params: "label",
     lid_params: "lid",
+    counter_set_params: "counter_set",
   };
 
   // For merged closes, map outer role → inner role
@@ -384,6 +731,7 @@
     feature_list: "feature",
     label: "label_params",
     lid: "lid_params",
+    counter_set: "counter_set_params",
   };
 
   /** Find the object label for a close bracket (to resolve element vs divider context). */
@@ -422,7 +770,7 @@
 
   // Get all scalar schema keys for a context (skip table/table_list)
   function getScalarKeysForContext(ctx: string): { key: string; def: any }[] {
-    const ctxDef = (schema as any).contexts?.[ctx];
+    const ctxDef = (activeSchema as any).contexts?.[ctx];
     if (!ctxDef) return [];
     return Object.entries(ctxDef.keys || {})
       .filter(([_, d]: [string, any]) => d.type !== "table" && d.type !== "table_list")
@@ -440,7 +788,9 @@
     const closeLine = $project.lines[closeIndex];
     if (!closeLine || closeLine.kind !== "close") return [];
     const ctx = getCloseContext(closeLine, closeIndex);
-    if (!ctx) return [];
+    // For CTD data close brackets, use globals schema for virtual defaults
+    const isCTDData = !ctx && closeLine.role === "data" && $project.libraryProfile === "ctd";
+    if (!ctx && !isCTDData) return [];
 
     // Find matching open bracket (merged brackets count as 2)
     let bd = 0;
@@ -465,7 +815,11 @@
       }
     }
 
-    const scalars = getScalarKeysForContext(ctx);
+    const scalars = isCTDData
+      ? Object.entries(GLOBAL_SCHEMA)
+          .filter(([_, d]: [string, any]) => d.type !== "table" && d.type !== "table_list")
+          .map(([k, d]) => ({ key: k, def: d }))
+      : getScalarKeysForContext(ctx!);
     const rows = scalars.map(({ key, def }) => {
       const existing = existingMap.get(key);
       if (existing) {
@@ -488,7 +842,6 @@
     const lines = $project.lines;
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].kind !== "close") continue;
-      if (!getCloseContext(lines[i], i)) continue;
       const rows = getSortedSchemaRows(i);
       for (const r of rows) {
         if (r.lineIndex !== null) set.add(r.lineIndex);
@@ -524,7 +877,7 @@
 
   // --- Virtual globals ---
 
-  const GLOBAL_SCHEMA: Record<string, any> = (schema as any).globals || {};
+  let GLOBAL_SCHEMA = $derived((activeSchema as any).globals || {} as Record<string, any>);
 
   function getGlobalRows(): { key: string; def: any; lineIndex: number | null; value: any; isReal: boolean }[] {
     const lines = $project.lines;
@@ -611,21 +964,23 @@
     if (line.role === "data") return { text: line.varName || "data", inferred: false };
     if (line.role === "data_list") return { text: "data list", inferred: true };
     if (line.role === "object") {
-      const label = line.label || "";
-      if (label.startsWith("OBJECT_")) {
-        return { text: `${label}${nameSuffix(lineIndex)}`, inferred: false };
+      const rawLabel = line.label || "";
+      if (rawLabel.startsWith("OBJECT_")) {
+        return { text: `${label(rawLabel)}${nameSuffix(lineIndex)}`, inferred: false };
       }
-      return { text: `object "${label}"`, inferred: false };
+      return { text: `object "${rawLabel}"`, inferred: false };
     }
     if (line.role === "params") return { text: "object params", inferred: true };
-    if (line.role === "feature_list") return { text: (line.label || "BOX_FEATURE") + nameSuffix(lineIndex), inferred: false };
+    if (line.role === "feature_list") return { text: label(line.label || "BOX_FEATURE") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "feature") return { text: "feature list", inferred: true };
-    if (line.role === "label") return { text: (line.label || "LABEL") + nameSuffix(lineIndex), inferred: false };
+    if (line.role === "label") return { text: label(line.label || "LABEL") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "label_params") return { text: "label params", inferred: true };
-    if (line.role === "lid") return { text: (line.label || "BOX_LID") + nameSuffix(lineIndex), inferred: false };
+    if (line.role === "lid") return { text: label(line.label || "BOX_LID") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "lid_params") return { text: "lid params", inferred: true };
+    if (line.role === "counter_set") return { text: label("COUNTER_SET"), inferred: false };
+    if (line.role === "counter_set_params") return { text: "counter_set params", inferred: true };
     if (line.role === "list") return { text: "list", inferred: true };
-    return { text: (line.label || "block") + nameSuffix(lineIndex), inferred: true };
+    return { text: label(line.label || "block") + nameSuffix(lineIndex), inferred: true };
   }
 
   // --- Scene names ---
@@ -854,6 +1209,21 @@
       return { ...p };
     });
   }
+
+  /** Insert a COUNTER_SET block before `closeIndex` (CTD profile). */
+  function addCounterSet(closeIndex: number, depth: number) {
+    const d = depth + 1;
+    const ind = (n: number) => "    ".repeat(n);
+    const lines: Line[] = [
+      { raw: `${ind(d)}[ COUNTER_SET,`, kind: "open", depth: d, role: "counter_set", label: "COUNTER_SET" },
+      { raw: `${ind(d+1)}[ COUNTER_SIZE_XYZ, [13.3, 13.3, 3] ],`, kind: "kv", depth: d + 1, kvKey: "COUNTER_SIZE_XYZ", kvValue: [13.3, 13.3, 3] },
+      { raw: `${ind(d)}],`, kind: "close", depth: d, role: "counter_set", label: "COUNTER_SET" },
+    ];
+    project.update((p) => {
+      p.lines.splice(closeIndex, 0, ...lines);
+      return { ...p };
+    });
+  }
 </script>
 
 {#snippet commentBtn(line, i)}
@@ -872,9 +1242,71 @@
 
 <main data-testid="app-root">
   <section class="content" data-testid="content-area">
-    {#if showScad}
-      <pre class="scad-view">{scadOutput}</pre>
+    {#if showWelcome}
+      <div class="welcome" data-testid="welcome-screen">
+        <h1 class="welcome-title">BGSD</h1>
+        <p class="welcome-subtitle">Board Game Storage Designer</p>
+
+        {#if !workingDirSet}
+          <div class="welcome-actions">
+            <p class="welcome-hint">Set a working directory where your<br>designs and libraries will be stored.</p>
+            <button class="welcome-btn welcome-btn-primary" data-testid="welcome-choose-dir" onclick={() => chooseAndInitWorkingDir()} disabled={setupBusy}>
+              {setupBusy ? "Setting up..." : "Choose Folder..."}
+            </button>
+            {#if setupStatus}
+              <p class="welcome-status">{setupStatus}</p>
+            {/if}
+          </div>
+        {:else}
+          <div class="welcome-columns">
+            <div class="welcome-col-left">
+              <div class="welcome-actions">
+                <button class="welcome-btn" data-testid="welcome-open" onclick={() => openFile()}>Open...</button>
+                <div class="welcome-new-group">
+                  <button class="welcome-card" data-testid="welcome-new-bit" onclick={() => newProject("bit")}>
+                    <span class="welcome-card-title">New Board Game Insert</span>
+                    <span class="welcome-card-desc">Box inserts with compartments, lids, and dividers to organize cards, minis, and components.</span>
+                  </button>
+                  <button class="welcome-card" data-testid="welcome-new-ctd" onclick={() => newProject("ctd")}>
+                    <span class="welcome-card-title">New Counter Tray</span>
+                    <span class="welcome-card-desc">Flat trays with compartments sized for tokens, markers, and chits used in wargames.</span>
+                  </button>
+                </div>
+                <button class="welcome-btn welcome-btn-secondary" data-testid="welcome-update-libs" onclick={() => updateLibs()} disabled={setupBusy}>
+                  {setupBusy ? "Updating..." : "Update Libraries"}
+                </button>
+                <button class="welcome-btn welcome-btn-secondary" data-testid="welcome-change-dir" onclick={() => changeWorkingDir()}>Change current workspace directory</button>
+                {#if setupStatus}
+                  <p class="welcome-status">{setupStatus}</p>
+                {/if}
+              </div>
+            </div>
+            {#if libraryTree.ctd?.publishers && Object.keys(libraryTree.ctd.publishers).length > 0}
+              <div class="welcome-col-right">
+                <h2 class="welcome-library-title">Start from an existing design...</h2>
+                <div class="welcome-library-scroll">
+                  {#each Object.keys(libraryTree.ctd.publishers).sort() as pub}
+                    <div class="welcome-library-publisher">
+                      <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
+                      {#each libraryTree.ctd.publishers[pub].sort((a: any, b: any) => a.name.localeCompare(b.name)) as game}
+                        <button class="welcome-library-game" onclick={() => openLibraryFile(game.path)}>{formatGameName(game.name)}</button>
+                      {/each}
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {:else if workingDirSet}
+              <div class="welcome-col-right">
+                <h2 class="welcome-library-title">Start from an existing design...</h2>
+                <p class="welcome-library-empty">No designs found — click Update Libraries.</p>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
     {:else}
+    <div class="editor-split" class:split-active={showScad}>
+    <div class="editor-left">
     {#each $project.lines as line, i (i)}
 
       {#if hiddenLines.has(i)}
@@ -887,9 +1319,9 @@
         <!-- This global line is rendered in the virtual globals block above -->
 
       {:else if line.kind === "open"}
-        {@const collapsible = !["params", "label_params", "lid_params", "feature"].includes(line.role || "")}
-        {@const deletable = line.role === "data" ? sceneNames.length > 1 : !["data_list", "params", "label_params", "lid_params", "feature"].includes(line.role || "")}
-        <div class="line-row struct open" style={pad(line)} data-testid="line-{i}">
+        {@const collapsible = !["params", "label_params", "lid_params", "feature", "counter_set_params"].includes(line.role || "")}
+        {@const deletable = line.role === "data" ? sceneNames.length > 1 : !["data_list", "params", "label_params", "lid_params", "feature", "counter_set_params"].includes(line.role || "")}
+        <div class="line-row struct open" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
           {#if collapsible}
             <button class="collapse-btn" title={collapsed.has(i) ? "Expand" : "Collapse"}
               onclick={() => toggleCollapse(i)}>{collapsed.has(i) ? "▶" : "▼"}</button>
@@ -904,7 +1336,7 @@
             <span class={structLabel(line, i).inferred ? "struct-label inferred" : "struct-label"}>{structLabel(line, i).text}</span>
           {/if}
           <span class="struct-bracket">{collapsed.has(i) ? "[ ... ]" : "["}</span>
-          {#if line.role === "object" || line.role === "feature_list" || line.role === "lid"}
+          {#if line.role === "object" || line.role === "feature_list" || line.role === "lid" || line.role === "counter_set"}
             {@const dbg = getDebugState(i)}
             <button class="debug-toggle" class:active={dbg.active} title="Highlight in OpenSCAD (#)"
               onclick={() => toggleDebug(i)}>
@@ -920,8 +1352,8 @@
             <button class="delete-btn" title="Delete block" onclick={() => deleteBlock(i)}>✕</button>
           {/if}
         </div>
-        <!-- Virtual globals block inside data = [ -->
-        {#if line.role === "data"}
+        <!-- Virtual globals block inside data = [ (BIT only; CTD uses per-scene KVs) -->
+        {#if line.role === "data" && $project.libraryProfile !== "ctd"}
           {#each getGlobalRows() as row (row.key)}
             {#if hideDefaults && !row.isReal}{:else}
             {@const gDef = row.def}
@@ -929,25 +1361,33 @@
             {@const gOnChange = row.isReal
               ? (v: any) => updateGlobalWithDefault(row.lineIndex!, v, gDef.default)
               : (v: any) => onVirtualGlobalChange(row.key, gDef, v)}
-            <div class="line-row kv" class:virtual={!row.isReal} style={padDepth(1)} data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
-              <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{row.key}</span>
+            <div class="line-row kv" class:virtual={!row.isReal} style="{padDepth(1)}; {bracketStyle(1)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
+              <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
               <span class="kv-control">
                 {#if gDef.type === "bool"}
                   <input type="checkbox" checked={gVal === true} onchange={(e) => gOnChange(e.currentTarget.checked)} />
+                {:else if gDef.type === "enum"}
+                  <select value={gVal} onchange={(e) => gOnChange(e.currentTarget.value)}>
+                    {#each gDef.values || [] as v}<option value={v}>{v}</option>{/each}
+                  </select>
                 {:else if gDef.type === "number"}
                   <input class="kv-num" type="number" step="any" value={gVal} onchange={(e) => gOnChange(parseNum(e.currentTarget.value))} />
+                {:else if gDef.type === "xy" && Array.isArray(gVal)}
+                  {#each [0,1] as j}
+                    <input class="kv-str sm" type="text" value={gVal[j] ?? 0}
+                      onchange={(e) => { const c = [...gVal]; c[j] = smartParseNum(e.currentTarget.value); gOnChange(c); }} />
+                  {/each}
                 {:else}
                   <input class="kv-str" type="text" value={gVal ?? ""} onchange={(e) => gOnChange(e.currentTarget.value)} />
                 {/if}
               </span>
               {#if row.isReal && row.lineIndex !== null}
                 {@render commentBtn($project.lines[row.lineIndex], row.lineIndex)}
-              {:else}
-                <button class="comment-btn" title="Add comment" onclick={() => materializeVirtualGlobalWithComment(row.key, row.def)}>//</button>
-              {/if}
-              <span class="spacer"></span>
-              {#if row.isReal && row.lineIndex !== null}
+                <span class="spacer"></span>
+                <button class="toggle-btn" title="Edit as raw text" onclick={() => toRaw(row.lineIndex!)}>{"{}"}</button>
                 <button class="delete-btn" title="Reset to default" onclick={() => deleteLine(row.lineIndex!)}>✕</button>
+              {:else}
+                <span class="spacer"></span>
               {/if}
             </div>
             {/if}
@@ -964,8 +1404,8 @@
             ? (v) => updateKv(row.lineIndex, v, row.def.default)
             : (v) => onVirtualChange(i, row.key, row.def, v)}
           {@const val = row.value}
-          <div class="line-row kv" class:virtual={!row.isReal} style={padDepth(row.depth)} data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
-            <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{row.key}</span>
+          <div class="line-row kv" class:virtual={!row.isReal} style="{padDepth(row.depth)}; {bracketStyle(row.depth)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
+            <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
             <span class="kv-control">
               {#if rkt === "bool"}
                 <input type="checkbox" checked={val === true} onchange={(e) => onChange(e.currentTarget.checked)} />
@@ -1012,30 +1452,30 @@
             </span>
             {#if row.isReal && row.lineIndex !== null}
               {@render commentBtn($project.lines[row.lineIndex], row.lineIndex)}
-            {:else}
-              <button class="comment-btn" title="Add comment" onclick={() => materializeVirtualKvWithComment(i, row.key, row.def, row.depth)}>//</button>
-            {/if}
-            <span class="spacer"></span>
-            {#if row.isReal && row.lineIndex !== null}
+              <span class="spacer"></span>
+              <button class="toggle-btn" title="Edit as raw text" onclick={() => toRaw(row.lineIndex!)}>{"{}"}</button>
               <button class="delete-btn" title="Reset to default" onclick={() => dematerializeKv(row.lineIndex)}>✕</button>
+            {:else}
+              <span class="spacer"></span>
             {/if}
           </div>
           {/if}
         {/each}
-        <!-- Virtual BOX_LID block for OBJECT_BOX without a lid -->
-        {#if !hideDefaults && supportsLid(i) && !hasLidChild(i)}
+        <!-- Virtual BOX_LID block for OBJECT_BOX without a lid (BIT only) -->
+        {#if !hideDefaults && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
           {@const lidDepth = (line.depth ?? 0) + 1}
           {@const lidChildDepth = lidDepth + 1}
           {@const lidScalars = getScalarKeysForContext("lid")}
-          <div class="line-row struct open virtual" style={padDepth(lidDepth)} data-testid="virtual-lid">
-            <span class="struct-label inferred">BOX_LID</span>
+          <div class="line-row struct open virtual" style="{padDepth(lidDepth)}; {bracketStyle(lidDepth)}" data-testid="virtual-lid">
+            <span class="struct-label inferred">{label("BOX_LID")}</span>
+            <span class="struct-bracket">[</span>
           </div>
           {#each lidScalars as srow (srow.key)}
             {@const rkt = srow.def.type}
             {@const val = srow.def.default}
             {@const onChange = (v: any) => materializeVirtualLidSetting(i, srow.key, srow.def, v)}
-            <div class="line-row kv virtual" style={padDepth(lidChildDepth)} data-testid="virtual-lid-{srow.key}">
-              <span class="kv-key virtual-key" title={tip(srow.key)}>{srow.key}</span>
+            <div class="line-row kv virtual" style="{padDepth(lidChildDepth)}; {bracketStyle(lidChildDepth)}" data-testid="virtual-lid-{srow.key}">
+              <span class="kv-key virtual-key" title={tip(srow.key)}>{label(srow.key)}</span>
               <span class="kv-control">
                 {#if rkt === "bool"}
                   <input type="checkbox" checked={val === true} onchange={(e) => onChange(e.currentTarget.checked)} />
@@ -1058,35 +1498,55 @@
               <span class="spacer"></span>
             </div>
           {/each}
-          <div class="line-row struct close virtual" style={padDepth(lidDepth)}>
+          <div class="line-row add-row virtual" style="{padDepth(lidChildDepth)}; {bracketStyle(lidChildDepth)}">
             <button class="add-btn" title="Add LABEL block inside lid" onclick={() => { addLid(i, lidDepth); addLabel(i + 2, lidChildDepth); }}>+ Label</button>
+          </div>
+          <div class="line-row struct close virtual" style="{padDepth(lidDepth)}; {bracketStyle(lidDepth)}">
             <span class="struct-bracket">],</span>
           </div>
         {/if}
-        <!-- Close bracket with add buttons inside (before bracket) -->
-        <div class="line-row struct close" style={pad(line)} data-testid="line-{i}">
-          {#if line.role === "data"}
-            <button class="add-btn" title="Add object" onclick={() => addObject(i, line.depth ?? 0)}>+ Object</button>
-          {:else if line.role === "params"}
-            <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, (line.depth ?? 0) + 1)}>+ Label</button>
-            <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, (line.depth ?? 0) + 1)}>+ Feature</button>
-          {:else if line.role === "object" && line.mergedClose}
-            {@const innerDepth = (line.depth ?? 0) + 1}
-            <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, innerDepth)}>+ Label</button>
-            <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, innerDepth)}>+ Feature</button>
-          {:else if line.role === "object" && !line.mergedClose}
-            {@const childDepth = (line.depth ?? 0) + 1}
-            <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, childDepth)}>+ Label</button>
-            <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, childDepth)}>+ Feature</button>
-          {:else if line.role === "lid" || line.role === "lid_params"}
-            {@const lidChildDepth = (line.depth ?? 0) + 1}
-            <button class="add-btn" title="Add LABEL block inside lid" onclick={() => addLabel(i, lidChildDepth)}>+ Label</button>
+        <!-- Add buttons on their own line, indented inside the block -->
+        {#if line.role === "data" || line.role === "params" || line.role === "object" || line.role === "lid" || line.role === "lid_params"}
+          {@const addDepth = (line.depth ?? 0) + 1}
+          <div class="line-row add-row virtual" style="{padDepth(addDepth)}; {bracketStyle(addDepth)}" data-testid="add-{i}">
+            {#if line.role === "data"}
+              {#if $project.libraryProfile === "ctd"}
+                <button class="add-btn" title="Add counter set" onclick={() => addCounterSet(i, line.depth ?? 0)}>+ Counter Set</button>
+              {:else}
+                <button class="add-btn" title="Add object" onclick={() => addObject(i, line.depth ?? 0)}>+ Object</button>
+              {/if}
+            {:else if line.role === "params" && $project.libraryProfile !== "ctd"}
+              <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, (line.depth ?? 0) + 1)}>+ Label</button>
+              <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, (line.depth ?? 0) + 1)}>+ Feature</button>
+            {:else if line.role === "object" && $project.libraryProfile !== "ctd"}
+              {@const childDepth = (line.depth ?? 0) + 1}
+              <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, childDepth)}>+ Label</button>
+              <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, childDepth)}>+ Feature</button>
+            {:else if (line.role === "lid" || line.role === "lid_params") && $project.libraryProfile !== "ctd"}
+              {@const lidChildDepth = (line.depth ?? 0) + 1}
+              <button class="add-btn" title="Add LABEL block inside lid" onclick={() => addLabel(i, lidChildDepth)}>+ Label</button>
+            {/if}
+          </div>
+        {/if}
+        <!-- Close bracket(s) — split merged ]] into separate lines -->
+        {#if line.mergedClose}
+          {@const hasVirtualLid = !hideDefaults && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
+          {#if !hasVirtualLid}
+            <div class="line-row struct close" style="{padDepth((line.depth ?? 0) + 1)}; {bracketStyle((line.depth ?? 0) + 1)}" data-testid="line-{i}-inner">
+              <span class="struct-bracket">],</span>
+            </div>
           {/if}
-          <span class="struct-bracket">{line.raw.trim()}</span>
-        </div>
+          <div class="line-row struct close" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+            <span class="struct-bracket">],</span>
+          </div>
+        {:else}
+          <div class="line-row struct close" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+            <span class="struct-bracket">{line.raw.trim()}</span>
+          </div>
+        {/if}
         <!-- Buttons that appear AFTER a close bracket (outside the block) -->
         {#if line.role === "data"}
-          <div class="line-row add-scene-row" style={pad(line)} data-testid="add-scene-{i}">
+          <div class="line-row add-scene-row" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="add-scene-{i}">
             <button class="add-btn" title="Add another scene" onclick={() => handleAddScene(i)}>+ Scene</button>
           </div>
         {/if}
@@ -1095,8 +1555,8 @@
         {@const kt = getKeyType(line.kvKey)}
         {@const ks = getKeySchema(line.kvKey)}
         {@const sd = getSchemaDefault(line.kvKey)}
-        <div class="line-row kv" class:is-default={isDefault(line.kvKey, line.kvValue)} style={pad(line)} data-testid="line-{i}">
-          <span class="kv-key" title={tip(line.kvKey || "")}>{line.kvKey}</span>
+        <div class="line-row kv" class:is-default={isDefault(line.kvKey, line.kvValue)} style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+          <span class="kv-key" title={tip(line.kvKey || "")}>{label(line.kvKey || "")}</span>
           <span class="kv-control">
             {#if kt === "bool"}
               <input type="checkbox" checked={line.kvValue === true}
@@ -1150,7 +1610,7 @@
         </div>
 
       {:else if line.kind === "makeall"}
-        <div class="line-row make-row" style={pad(line)} data-testid="line-{i}">
+        <div class="line-row make-row" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
           <span class="make-text">Make(</span>
           <select class="make-select" value={line.varName || "data"}
             onchange={(e) => handleMakeVarChange(i, e.currentTarget.value)}>
@@ -1162,21 +1622,45 @@
         </div>
 
       {:else if line.kind === "include" || line.kind === "marker"}
-        <div class="line-row muted" style={pad(line)} data-testid="line-{i}">
+        <div class="line-row muted" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
           <span class="line-text">{line.raw}</span>
           <span class="line-badge">{line.kind}</span>
         </div>
 
+      {:else if line.kind === "variable"}
+        <div class="line-row variable" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+          <span class="var-name">{line.varName}</span>
+          <span class="var-eq">=</span>
+          <input class="var-value" type="text" spellcheck="false" value={line.varValue ?? ""}
+            onblur={(e) => updateVariable(i, e.currentTarget.value)}
+            onchange={(e) => updateVariable(i, e.currentTarget.value)} />
+          {@render commentBtn(line, i)}
+          <span class="spacer"></span>
+          <button class="toggle-btn" title="Edit as raw text" onclick={() => toRaw(i)}>{"{}"}</button>
+          <button class="delete-btn" title="Delete" onclick={() => deleteLine(i)}>✕</button>
+        </div>
+
+      {:else if line.kind === "comment"}
+        <div class="line-row comment-line" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+          <span class="comment-slash">//</span>
+          <input class="comment-standalone" type="text" spellcheck="false" value={line.comment ?? ""}
+            onblur={(e) => handleStandaloneCommentEdit(i, e.currentTarget.value)}
+            onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+          <span class="spacer"></span>
+          <button class="delete-btn" title="Delete" onclick={() => deleteLine(i)}>✕</button>
+        </div>
+
       {:else if line.kind === "raw" && isRawGroupStart(i)}
-        <div class="raw-block" data-testid="line-{i}">
-          <textarea class="raw-textarea"
+        <div class="raw-block" style={bracketStyle(line.depth)} data-testid="line-{i}">
+          <textarea class="raw-textarea" spellcheck="false"
             rows={rawGroupLineCount(i)}
             value={rawGroupText(i)}
             onblur={(e) => handleRawGroupEdit(i, e.currentTarget.value)}
             onchange={(e) => handleRawGroupEdit(i, e.currentTarget.value)}
           ></textarea>
-          <button class="raw-delete" title="Delete raw block"
-            onclick={() => spliceLines(i, rawGroupLineCount(i), [])}>✕</button>
+          {#if rawGroupLineCount(i) === 1 && canParse(line.raw)}
+            <button class="toggle-btn raw-parse-btn" title="Parse as structured" onclick={() => toParsed(i)}>{"{}"}</button>
+          {/if}
         </div>
 
       {:else if line.kind === "raw" && isRawGroupMember(i)}
@@ -1184,27 +1668,149 @@
 
       {:else}
         <!-- Fallback for any other unhandled kind -->
-        <div class="line-row raw" style={pad(line)} data-testid="line-{i}">
-          <input class="raw-input" type="text" value={line.raw}
+        <div class="line-row raw" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+          <input class="raw-input" type="text" spellcheck="false" value={line.raw}
             onchange={(e) => handleLineEdit(i, e.currentTarget.value)} />
-          <span class="spacer"></span>
-          <button class="delete-btn" onclick={() => deleteLine(i)}>✕</button>
+          {#if canParse(line.raw)}
+            <button class="toggle-btn" title="Parse as structured" onclick={() => toParsed(i)}>{"{}"}</button>
+          {/if}
         </div>
       {/if}
 
     {/each}
+    </div>
+    {#if showScad}
+    <div class="editor-right" data-testid="scad-pane">
+    {#each $project.lines as line, i (i)}
+      {#if hiddenLines.has(i)}
+        <!-- hidden -->
+      {:else if kvRenderedInBlock.has(i)}
+        <!-- rendered in schema block -->
+      {:else if globalRenderedInBlock.has(i)}
+        <!-- rendered in globals block -->
+
+      {:else if line.kind === "open"}
+        <div class="scad-line">{line.raw}</div>
+        {#if line.role === "data" && $project.libraryProfile !== "ctd"}
+          {#each getGlobalRows() as row (row.key)}
+            {#if hideDefaults && !row.isReal}{:else}
+              {#if row.isReal && row.lineIndex !== null}
+                <div class="scad-line">{$project.lines[row.lineIndex].raw}</div>
+              {:else}
+                <div class="scad-line scad-virtual"></div>
+              {/if}
+            {/if}
+          {/each}
+        {/if}
+
+      {:else if line.kind === "close"}
+        {#each getSortedSchemaRows(i) as row (row.key)}
+          {#if hideDefaults && !row.isReal}{:else}
+            {#if row.isReal && row.lineIndex !== null}
+              <div class="scad-line">{$project.lines[row.lineIndex].raw}</div>
+            {:else}
+              <div class="scad-line scad-virtual"></div>
+            {/if}
+          {/if}
+        {/each}
+        {#if !hideDefaults && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
+          {@const lidScalars = getScalarKeysForContext("lid")}
+          <div class="scad-line scad-virtual"></div>
+          {#each lidScalars as srow (srow.key)}
+            <div class="scad-line scad-virtual"></div>
+          {/each}
+          <div class="scad-line scad-virtual"></div>
+          <div class="scad-line scad-virtual"></div>
+        {/if}
+        {#if line.role === "data" || line.role === "params" || line.role === "object" || line.role === "lid" || line.role === "lid_params"}
+          <div class="scad-line scad-virtual"></div>
+        {/if}
+        {#if line.mergedClose}
+          {@const hasVirtualLid = !hideDefaults && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
+          {#if !hasVirtualLid}
+            <div class="scad-line">{scadIndent((line.depth ?? 0) + 1)}],</div>
+          {/if}
+          <div class="scad-line">{scadIndent(line.depth ?? 0)}],</div>
+        {:else}
+          <div class="scad-line">{line.raw}</div>
+        {/if}
+        {#if line.role === "data"}
+          <div class="scad-line scad-virtual"></div>
+        {/if}
+
+      {:else if line.kind === "kv" && line.kvKey}
+        <div class="scad-line">{line.raw}</div>
+
+      {:else if line.kind === "makeall"}
+        <div class="scad-line">Make({line.varName || "data"});</div>
+
+      {:else if line.kind === "include" || line.kind === "marker"}
+        <div class="scad-line">{line.raw}</div>
+
+      {:else if line.kind === "variable"}
+        <div class="scad-line">{line.raw}</div>
+
+      {:else if line.kind === "comment"}
+        <div class="scad-line">{line.raw}</div>
+
+      {:else if line.kind === "raw" && isRawGroupStart(i)}
+        <div class="scad-raw-group">{rawGroupText(i)}</div>
+
+      {:else if line.kind === "raw" && isRawGroupMember(i)}
+        <!-- skip -->
+
+      {:else}
+        <div class="scad-line">{line.raw}</div>
+      {/if}
+    {/each}
+    </div>
+    {/if}
+    </div>
     {/if}
   </section>
 
-  <footer class="status-bar" data-testid="status-bar">
+  <footer class="status-bar" class:status-error={statusMsg.startsWith("Library:") || statusMsg.startsWith("OpenSCAD")} data-testid="status-bar">
     <span data-testid="save-status">{statusMsg}</span>
   </footer>
+
+  {#if showPrefs}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="prefs-overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) showPrefs = false; }}>
+      <div class="prefs-modal" data-testid="prefs-modal">
+        <h2 class="prefs-title">Preferences</h2>
+        <div class="prefs-row">
+          <label class="prefs-label" for="prefs-openscad-path">OpenSCAD path</label>
+          <div class="prefs-input-row">
+            <input class="prefs-input" id="prefs-openscad-path" type="text" bind:value={prefsOpenScadPath} placeholder="(auto-detect)" data-testid="prefs-openscad-path" />
+            <button class="prefs-browse" onclick={browseOpenScadPath} data-testid="prefs-browse">Browse...</button>
+          </div>
+        </div>
+        <div class="prefs-row">
+          <label class="prefs-check-label">
+            <input type="checkbox" bind:checked={prefsAutoOpen} data-testid="prefs-auto-open" />
+            Auto-open in OpenSCAD on file load
+          </label>
+        </div>
+        <div class="prefs-row">
+          <label class="prefs-check-label">
+            <input type="checkbox" bind:checked={prefsReuseOpenScad} data-testid="prefs-reuse-openscad" />
+            Reuse OpenSCAD window (don't spawn new instances)
+          </label>
+        </div>
+        <div class="prefs-buttons">
+          <button class="prefs-btn" onclick={() => showPrefs = false}>Cancel</button>
+          <button class="prefs-btn primary" onclick={savePreferences} data-testid="prefs-save">Save</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   {#if showIntent}
     <div class="intent-pane" data-testid="intent-pane">
       <input data-testid="intent-text" type="text" bind:value={intentText}
         placeholder="Describe what you expect to happen..." />
     </div>
+    <div data-testid="scad-output" style="display:none">{scadOutput}</div>
   {/if}
 </main>
 
@@ -1216,40 +1822,132 @@
   }
   main { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   .content { flex: 1; overflow-y: auto; padding: 4px 0; }
-  .scad-view {
-    margin: 0; padding: 12px 16px;
-    font-family: "Courier New", monospace; font-size: 14px; line-height: 1.5;
-    color: #1a1a1a; white-space: pre; tab-size: 4;
+
+  /* Split layout: editor left + SCAD pane right */
+  .editor-split { display: flex; flex-direction: row; }
+  .editor-left { flex: 1; min-width: 0; }
+  .editor-right {
+    width: 380px; flex-shrink: 0;
+    border-left: 2px solid #ddd;
+    background: #fff;
+    overflow-x: hidden;
+  }
+  .scad-line {
+    font-family: "Courier New", monospace; font-size: 13px;
+    min-height: 24px;
+    padding: 1px 8px;
+    white-space: pre;
+    color: #000;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex; align-items: center;
+  }
+  .scad-line.scad-virtual { min-height: 24px; background: #eee; }
+  .scad-raw-group {
+    font-family: "Courier New", monospace; font-size: 13px;
+    line-height: 22px;
+    padding: 1px 8px;
+    white-space: pre;
+    color: #000;
+    border-bottom: 1px solid #f0f0f0;
+    overflow: hidden;
   }
 
+  .welcome {
+    display: flex; flex-direction: column; align-items: center;
+    height: 100%; gap: 8px; padding-top: 60px; overflow-y: auto;
+  }
+  .welcome-title {
+    margin: 0; font-size: 36px; font-weight: 700; color: #6c3483;
+  }
+  .welcome-subtitle {
+    margin: 0 0 24px; font-size: 16px; color: #888;
+  }
+  .welcome-actions {
+    display: flex; flex-direction: column; gap: 12px; width: 360px;
+  }
+  .welcome-new-group {
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .welcome-card {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 14px 18px; text-align: left;
+    border: 1px solid #bbb; border-radius: 6px;
+    background: white; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .welcome-card:hover {
+    background: #f3e5f5; border-color: #6c3483;
+  }
+  .welcome-card-title {
+    font-size: 15px; font-weight: 600; color: #2c3e50;
+  }
+  .welcome-card-desc {
+    font-size: 12px; color: #888; line-height: 1.4;
+  }
+  .welcome-btn {
+    padding: 12px 24px; font-size: 16px; font-weight: 600;
+    border: 1px solid #bbb; border-radius: 6px;
+    background: white; color: #2c3e50; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .welcome-btn:hover:not(:disabled) {
+    background: #f3e5f5; border-color: #6c3483;
+  }
+  .welcome-btn:disabled {
+    opacity: 0.5; cursor: default;
+  }
+  .welcome-btn-primary {
+    background: #6c3483; color: white; border-color: #6c3483;
+  }
+  .welcome-btn-primary:hover:not(:disabled) {
+    background: #7d3c98; border-color: #7d3c98;
+  }
+  .welcome-btn-secondary {
+    font-size: 14px; padding: 8px 16px; color: #666; border-color: #ddd;
+  }
+  .welcome-hint {
+    text-align: center; color: #888; font-size: 14px; margin: 0; line-height: 1.5;
+  }
+  .welcome-status {
+    text-align: center; color: #6c3483; font-size: 13px; margin: 0;
+    max-width: 260px; word-break: break-word;
+  }
+  .welcome-columns { display: flex; gap: 40px; max-width: 780px; width: 100%; align-items: flex-start; }
+  .welcome-col-left { flex: 0 0 360px; }
+  .welcome-col-right { flex: 1; min-width: 240px; max-height: 500px; display: flex; flex-direction: column; }
+  .welcome-library-title { font-size: 18px; font-weight: 600; color: #2c3e50; margin: 0 0 12px; }
+  .welcome-library-empty { color: #999; font-size: 14px; }
+  .welcome-library-scroll { overflow-y: auto; flex: 1; padding-right: 8px; }
+  .welcome-library-publisher { margin-bottom: 14px; }
+  .welcome-library-publisher-name { font-size: 12px; font-weight: 600; color: #6c3483; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 4px; }
+  .welcome-library-game {
+    display: block; width: 100%; text-align: left;
+    padding: 5px 10px; border: none; border-radius: 4px;
+    background: transparent; color: #2c3e50; font-size: 14px; cursor: pointer;
+  }
+  .welcome-library-game:hover { background: #f3e5f5; color: #6c3483; }
   .line-row {
     display: flex; align-items: center; gap: 6px;
-    padding: 3px 8px; min-height: 28px;
-    font-family: "Courier New", monospace; font-size: 15px; font-weight: 500;
-    border-bottom: 1px solid #f0f0f0;
+    padding: 1px 8px; min-height: 24px;
+    font-family: "Courier New", monospace; font-size: 15px; font-weight: 400;
+    border-bottom: 1px solid #f5f5f3;
+    background: var(--bracket-bg, #fafaf8);
   }
   .line-row.muted { opacity: 0.35; font-style: italic; }
-  .line-row.make-row { background: #e8eaf6; border-left: 3px solid #7986cb; }
-  /* Real tier: materialized KV, globals, struct open/close */
-  .line-row.kv { background: #e8f4e8; border-left: 3px solid #66bb6a; }
-  .line-row.struct { background: #e8f4e8; border-left: 3px solid #66bb6a; }
-  .line-row.struct.close { opacity: 0.6; }
-  /* Virtual tier: defaults at schema value */
-  .line-row.kv.virtual { background: #f0ecf5; border-left: none; font-style: italic; }
-  .line-row.kv.virtual:hover { background: #e8e2f0; }
-  .line-row.kv.virtual .kv-key { font-weight: 500; color: #7b6b8a; }
-  .line-row.struct.virtual { background: #f0ecf5; border-left: none; font-style: italic; opacity: 0.7; }
+  /* Virtual tier: defaults at schema value — visible, just styled differently */
+  .line-row.kv.virtual .kv-key { font-weight: 400; font-style: italic; }
+  .line-row.kv.virtual { color: #999; }
+  .line-row.struct.virtual { color: #999; }
   .virtual-key { font-style: italic; }
-  .line-row.raw { background: white; }
 
   .collapse-btn {
     background: none; border: none; cursor: pointer;
     padding: 0 2px; font-size: 12px; color: #888; flex-shrink: 0;
   }
   .collapse-btn:hover { color: #6c3483; }
-  .struct-label { font-weight: 700; color: #6c3483; }
-  .struct-label.inferred { font-style: italic; font-weight: 500; color: #9b7fb8; }
-  .struct-bracket { color: #999; font-weight: 700; }
+  .struct-label { font-weight: 700; color: var(--bracket-color, #6c3483); }
+  .struct-label.inferred { font-style: italic; font-weight: 400; opacity: 0.6; }
+  .struct-bracket { color: var(--bracket-color, #999); font-weight: 700; }
   .debug-toggle {
     background: none; border: none; cursor: pointer;
     margin-left: 4px; padding: 0 2px;
@@ -1265,12 +1963,12 @@
 
   .kv-key { font-weight: 700; color: #2c3e50; min-width: 220px; flex-shrink: 0; }
   .kv-control { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-  .kv-num { font-family: "Courier New", monospace; font-size: 15px; font-weight: 500; padding: 3px 6px; border: 1px solid #ddd; border-radius: 2px; width: 80px; background: white; }
+  .kv-num { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; width: 80px; background: white; }
   .kv-num.sm { width: 60px; }
   .kv-num.xs { width: 48px; }
-  .kv-str { font-family: "Courier New", monospace; font-size: 15px; font-weight: 500; padding: 3px 6px; border: 1px solid #ddd; border-radius: 2px; width: 180px; background: white; }
+  .kv-str { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; width: 180px; background: white; }
   .kv-str.sm { width: 80px; }
-  .kv-control select { font-family: "Courier New", monospace; font-size: 15px; font-weight: 500; padding: 3px 4px; border: 1px solid #ddd; border-radius: 2px; }
+  .kv-control select { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; }
   .kv-control input[type="checkbox"] { width: 18px; height: 18px; }
   .kv-fallback { color: #999; font-size: 13px; }
   .side-label { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; }
@@ -1280,39 +1978,34 @@
   .raw-block {
     position: relative;
     width: 100%;
-    border-bottom: 1px solid #f0f0f0;
-    background: #fdf8ef;
-    border-left: 3px solid #e0c87a;
+    border-bottom: 1px solid #f5f5f3;
+    background: var(--bracket-bg, #fafaf8);
   }
   .raw-textarea {
     display: block;
     width: 100%; box-sizing: border-box;
     resize: none; overflow: hidden;
-    font-family: "Courier New", monospace; font-size: 15px; font-weight: 500;
-    line-height: 28px;
-    padding: 3px 28px 3px 8px;
+    font-family: "Courier New", monospace; font-size: 15px; font-weight: 400;
+    line-height: 22px;
+    padding: 1px 8px;
     border: none;
-    background: transparent; color: #5a4a2a;
+    background: transparent; color: #1a1a1a;
     outline: none;
   }
-  .raw-textarea:focus { background: #fef6e0; }
-  .raw-delete {
-    position: absolute; top: 4px; right: 6px;
-    background: none; border: none; color: #ccc;
-    cursor: pointer; font-size: 16px; padding: 0 4px;
-  }
-  .raw-delete:hover { color: #e74c3c; }
+  .raw-textarea:focus { background: #f5f5f0; }
   .raw-input {
     flex: 1; min-width: 0;
-    font-family: "Courier New", monospace; font-size: 15px; font-weight: 500;
-    padding: 3px 6px; border: 1px solid #ddd; border-radius: 2px; background: white;
+    font-family: "Courier New", monospace; font-size: 15px; font-weight: 400;
+    padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; background: white;
   }
   .toggle-btn {
     background: none; border: 1px solid #ccc; color: #888;
     cursor: pointer; font-size: 11px; font-weight: 700;
     padding: 1px 5px; border-radius: 3px; flex-shrink: 0;
     font-family: "Courier New", monospace;
+    opacity: 0; transition: opacity 0.1s;
   }
+  .line-row:hover .toggle-btn { opacity: 1; }
   .toggle-btn:hover:not(:disabled) { border-color: #3498db; color: #3498db; }
   .toggle-btn:disabled, .toggle-btn.disabled { opacity: 0.3; cursor: default; }
   .add-btn {
@@ -1339,15 +2032,16 @@
   .comment-input {
     font-family: "Courier New", monospace; font-size: 13px; font-weight: 400;
     color: #27ae60; font-style: italic;
-    border: none; border-bottom: 1px solid #a3d9a5; background: transparent;
+    border: none; background: transparent;
     padding: 0 4px; width: 180px; outline: none;
   }
-  .comment-input:focus { border-bottom-color: #27ae60; }
-  .delete-btn { background: none; border: none; color: #ccc; cursor: pointer; font-size: 16px; padding: 0 4px; }
+  .comment-input:focus { border-bottom: 1px solid #27ae60; }
+  .delete-btn { background: none; border: none; color: #ccc; cursor: pointer; font-size: 16px; padding: 0 4px; opacity: 0; transition: opacity 0.1s; }
+  .line-row:hover .delete-btn { opacity: 1; }
   .delete-btn:hover { color: #e74c3c; }
   .scene-name-input {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 700;
-    color: #6c3483; background: transparent; border: none;
+    color: var(--bracket-color, #6c3483); background: transparent; border: none;
     border-bottom: 1px dashed #b39ddb; padding: 0 4px; width: 120px; outline: none;
   }
   .scene-name-input:focus { border-bottom: 1px solid #6c3483; background: #f3e5f5; }
@@ -1360,7 +2054,74 @@
     border-radius: 2px; padding: 1px 4px;
   }
 
+  /* Variable lines */
+  .var-name { font-weight: 700; color: var(--bracket-color, #2c3e50); }
+  .var-eq { color: #999; font-weight: 700; margin: 0 4px; }
+  .var-value {
+    font-family: "Courier New", monospace; font-size: 15px;
+    border: none; border-bottom: 1px dashed #ccc; background: transparent;
+    padding: 0 4px; outline: none; flex: 1; min-width: 80px;
+  }
+  .var-value:focus { border-bottom: 1px solid var(--bracket-color, #2c3e50); }
+
+  /* Standalone comment lines */
+  .comment-standalone {
+    font-family: "Courier New", monospace; font-size: 15px; font-weight: 400;
+    color: #27ae60; font-style: italic;
+    border: none; background: transparent;
+    padding: 0 4px; flex: 1; outline: none;
+  }
+  .comment-standalone:focus { border-bottom: 1px solid #27ae60; }
+
+  /* Add row */
+  .line-row.add-row { min-height: 20px; }
+
+  /* Raw parse-back button */
+  .raw-parse-btn {
+    position: absolute; right: 8px; top: 2px;
+    opacity: 0; transition: opacity 0.1s;
+  }
+  .raw-block { position: relative; }
+  .raw-block:hover .raw-parse-btn { opacity: 1; }
+
   .status-bar { display: flex; justify-content: space-between; padding: 3px 12px; background: #ecf0f1; border-top: 1px solid #ddd; font-size: 13px; color: #666; }
+  .status-bar.status-error { background: #fdecea; color: #c0392b; font-weight: 700; }
   .intent-pane { background: #1a1a2e; padding: 6px 12px; border-top: 2px solid #e74c3c; }
   .intent-pane input { width: 100%; box-sizing: border-box; background: #16213e; border: 1px solid #444; color: #e0e0e0; padding: 4px 8px; font-family: "Courier New", monospace; font-size: 13px; border-radius: 2px; }
+
+  /* Preferences modal */
+  .prefs-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  .prefs-modal {
+    background: white; border-radius: 8px; padding: 24px 28px;
+    min-width: 420px; max-width: 520px; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  }
+  .prefs-title { margin: 0 0 16px; font-size: 18px; color: #2c3e50; }
+  .prefs-row { margin-bottom: 14px; }
+  .prefs-label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 4px; }
+  .prefs-input-row { display: flex; gap: 6px; }
+  .prefs-input {
+    flex: 1; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px;
+    font-family: "Courier New", monospace; font-size: 13px;
+  }
+  .prefs-browse {
+    padding: 6px 12px; border: 1px solid #bbb; border-radius: 4px;
+    background: #f5f5f5; cursor: pointer; font-size: 13px;
+  }
+  .prefs-browse:hover { background: #eee; border-color: #999; }
+  .prefs-check-label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 14px; color: #333; cursor: pointer;
+  }
+  .prefs-check-label input[type="checkbox"] { width: 16px; height: 16px; }
+  .prefs-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+  .prefs-btn {
+    padding: 8px 18px; border: 1px solid #bbb; border-radius: 4px;
+    background: white; cursor: pointer; font-size: 14px;
+  }
+  .prefs-btn:hover { background: #f5f5f5; }
+  .prefs-btn.primary { background: #6c3483; color: white; border-color: #6c3483; }
+  .prefs-btn.primary:hover { background: #5b2c6f; }
 </style>
