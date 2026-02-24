@@ -2,7 +2,7 @@
 
 A visual desktop editor for creating parametric 3D-printable board game inserts using OpenSCAD libraries. No OpenSCAD coding required.
 
-![BGSD Welcome](images/bgsd_welcome.png)
+![BGSD Welcome](images/bgsd_welcome.png?v=2)
 
 ## Download
 
