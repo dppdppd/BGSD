@@ -1,0 +1,4 @@
+wait 1500
+ipc menu-toggle-show-scad [true]
+wait 500
+screenshot scad-resize-01-wider-default.png

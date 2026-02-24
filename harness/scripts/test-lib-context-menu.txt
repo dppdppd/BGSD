@@ -1,0 +1,6 @@
+wait app-root
+js (async () => { await new Promise(r => setTimeout(r, 3000)); })()
+shot lib_context_before
+js document.querySelector('.welcome-library-game')?.click()
+js (async () => { await new Promise(r => setTimeout(r, 500)); })()
+shot lib_context_menu

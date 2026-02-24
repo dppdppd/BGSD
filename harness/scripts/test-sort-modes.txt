@@ -1,0 +1,6 @@
+wait welcome-screen
+shot dir-mode
+click sort-date
+shot date-mode
+click sort-dir
+shot back-to-dir

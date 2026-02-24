@@ -625,8 +625,10 @@ ipcMain.handle("get-library-tree", () => {
           const folder = parts[0];
           const name = parts.slice(1).join("/").replace(/\.scad$/, "");
           const isRepo = !!manifest.files[relPath];
+          let mtime = 0;
+          try { mtime = fs.statSync(fullPath).mtimeMs; } catch (_) {}
           if (!publishers[folder]) publishers[folder] = [];
-          publishers[folder].push({ name, path: fullPath, isRepo });
+          publishers[folder].push({ name, path: fullPath, isRepo, mtime });
         }
       }
     }

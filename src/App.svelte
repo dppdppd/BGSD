@@ -44,6 +44,7 @@
   let libraryTreeRaw = $state<string>("{}");
   let libraryTree = $derived(JSON.parse(libraryTreeRaw) as Record<string, any>);
   let libMenu = $state<{x: number, y: number, path: string, isRepo: boolean} | null>(null);
+  let sortMode = $state<"dir" | "date">("dir");
 
   // Preferences modal state
   let showPrefs = $state(false);
@@ -432,6 +433,32 @@
 
   function formatGameName(slug: string): string {
     return slug.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  }
+
+  function dateBucket(mtime: number): string {
+    const now = Date.now();
+    const days = Math.floor((now - mtime) / 86400000);
+    if (days < 1) return "Today";
+    if (days < 2) return "Yesterday";
+    if (days < 7) return "This Week";
+    if (days < 30) return "This Month";
+    return "Older";
+  }
+
+  function filesByDate(pubs: Record<string, any[]>): { bucket: string; files: any[] }[] {
+    const all: any[] = [];
+    for (const files of Object.values(pubs || {})) {
+      for (const f of files) all.push(f);
+    }
+    all.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+    const order = ["Today", "Yesterday", "This Week", "This Month", "Older"];
+    const groups: Record<string, any[]> = {};
+    for (const f of all) {
+      const b = dateBucket(f.mtime || 0);
+      if (!groups[b]) groups[b] = [];
+      groups[b].push(f);
+    }
+    return order.filter(b => groups[b]).map(b => ({ bucket: b, files: groups[b] }));
   }
 
   async function openLibraryFile(filePath: string) {
@@ -1357,40 +1384,59 @@
             <p class="welcome-status">{setupStatus}</p>
           {/if}
 
+          <div class="welcome-sort-bar">
+            <button class="welcome-sort-btn" class:active={sortMode === "dir"} data-testid="sort-dir" onclick={() => sortMode = "dir"}>Directories</button>
+            <button class="welcome-sort-btn" class:active={sortMode === "date"} data-testid="sort-date" onclick={() => sortMode = "date"}>Modified</button>
+          </div>
+
           <div class="welcome-columns" data-testid="welcome-columns">
             {#each [["bit", "Board Game Inserts", "Box inserts with compartments, lids, and dividers"], ["ctd", "Counter Trays", "Counter trays sized for tokens, markers, and chits"]] as [profileId, profileLabel, profileDesc]}
             {@const tree = libraryTree[profileId]}
             {@const pubs = tree?.publishers}
             {@const designsDir = tree?.designsDir || "designs"}
             {@const pubKeys = pubs ? Object.keys(pubs).sort() : []}
-            <div class="welcome-col" class:welcome-col-right-align={profileId === "bit"} data-testid="welcome-col-{profileId}">
+            <div class="welcome-col" class:welcome-col-right-align={profileId === "bit" && sortMode === "dir"} data-testid="welcome-col-{profileId}">
               <h2 class="welcome-library-title">{profileLabel}</h2>
               <p class="welcome-library-desc">{profileDesc}</p>
               <div class="welcome-library-scroll">
-                {#if !pubKeys.includes(designsDir)}
-                  <div class="welcome-library-publisher">
-                    <div class="welcome-publisher-row">
-                      <h3 class="welcome-library-publisher-name">{formatPublisher(designsDir)}</h3>
-                      <button class="welcome-new-file" data-testid="new-{profileId}" onclick={() => newProject(profileId)}>+ New</button>
-                    </div>
-                    <p class="welcome-library-empty-folder">No designs yet.</p>
-                  </div>
-                {/if}
-                {#each pubKeys as pub}
-                  <div class="welcome-library-publisher">
-                    {#if pub === designsDir}
+                {#if sortMode === "dir"}
+                  {#if !pubKeys.includes(designsDir)}
+                    <div class="welcome-library-publisher">
                       <div class="welcome-publisher-row">
-                        <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
+                        <h3 class="welcome-library-publisher-name">{formatPublisher(designsDir)}</h3>
                         <button class="welcome-new-file" data-testid="new-{profileId}" onclick={() => newProject(profileId)}>+ New</button>
                       </div>
-                    {:else}
-                      <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
-                    {/if}
-                    {#each pubs[pub].sort((a: any, b: any) => a.name.localeCompare(b.name)) as game}
-                      <button class="welcome-library-game" onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
-                    {/each}
-                  </div>
-                {/each}
+                      <p class="welcome-library-empty-folder">No designs yet.</p>
+                    </div>
+                  {/if}
+                  {#each pubKeys as pub}
+                    <div class="welcome-library-publisher">
+                      {#if pub === designsDir}
+                        <div class="welcome-publisher-row">
+                          <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
+                          <button class="welcome-new-file" data-testid="new-{profileId}" onclick={() => newProject(profileId)}>+ New</button>
+                        </div>
+                      {:else}
+                        <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
+                      {/if}
+                      {#each pubs[pub].sort((a: any, b: any) => a.name.localeCompare(b.name)) as game}
+                        <button class="welcome-library-game" onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
+                      {/each}
+                    </div>
+                  {/each}
+                {:else}
+                  {#each filesByDate(pubs) as group}
+                    <div class="welcome-library-publisher">
+                      <h3 class="welcome-library-publisher-name">{group.bucket}</h3>
+                      {#each group.files as game}
+                        <button class="welcome-library-game" onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
+                      {/each}
+                    </div>
+                  {/each}
+                  {#if !pubs || Object.keys(pubs).length === 0}
+                    <p class="welcome-library-empty-folder">No designs yet.</p>
+                  {/if}
+                {/if}
               </div>
             </div>
             {/each}
@@ -2002,6 +2048,16 @@
   .welcome-actions {
     display: flex; flex-direction: column; gap: 12px; width: 360px;
   }
+  .welcome-sort-bar {
+    display: flex; gap: 4px; justify-content: center; margin-bottom: 12px;
+  }
+  .welcome-sort-btn {
+    padding: 4px 12px; font-size: 12px; font-weight: 500;
+    border: 1px solid #ddd; border-radius: 4px;
+    background: #fff; color: #888; cursor: pointer;
+  }
+  .welcome-sort-btn.active { background: #6c3483; color: #fff; border-color: #6c3483; }
+  .welcome-sort-btn:hover:not(.active) { background: #f3e5f5; color: #6c3483; border-color: #6c3483; }
   .welcome-icon-bar {
     position: absolute; top: 12px; right: 16px;
     display: flex; gap: 6px;

@@ -1,0 +1,3 @@
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+wait 500
+shot ctd-bottom

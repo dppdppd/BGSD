@@ -1,0 +1,4 @@
+shot dup-before
+js document.querySelector('.dup-btn').click()
+wait 500
+shot dup-after
