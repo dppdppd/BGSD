@@ -1,0 +1,5 @@
+wait welcome-screen
+shot welcome-no-toolbar
+ipc menu-open
+wait toolbar
+shot editor-with-toolbar

@@ -1,0 +1,7 @@
+wait welcome-screen
+shot welcome-page
+wait welcome-columns
+shot two-columns
+wait welcome-col-bit
+wait welcome-col-ctd
+shot both-cols-visible

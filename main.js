@@ -18,6 +18,8 @@ const MAX_RECENT = 10;
 const PREFS_FILE = path.join(app.getPath("userData"), "preferences.json");
 const DEFAULT_PREFS = { openScadPath: "", autoOpenInOpenScad: true, reuseOpenScad: true, workingDir: "" };
 let openScadAlive = false;
+let openScadProc = null;
+let openScadFile = null;
 
 function loadPrefs() {
   try {
@@ -264,15 +266,21 @@ ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, prof
   }
 });
 
-ipcMain.handle("save-file-as", async (_event, scadText, profileId) => {
+ipcMain.handle("save-file-as", async (_event, scadText, profileId, currentPath) => {
+  const defaultPath = currentPath ? path.join(path.dirname(currentPath), "design.scad") : "design.scad";
   const result = await dialog.showSaveDialog(mainWindow, {
     title: "Save SCAD File",
     filters: [{ name: "OpenSCAD", extensions: ["scad"] }],
-    defaultPath: "design.scad",
+    defaultPath,
   });
   if (result.canceled) return { ok: false };
   try {
-    atomicWrite(result.filePath, scadText);
+    // If we have an existing on-disk file, copy it (preserves includes, comments, etc.)
+    if (currentPath && fs.existsSync(currentPath)) {
+      fs.copyFileSync(currentPath, result.filePath);
+    } else {
+      atomicWrite(result.filePath, scadText);
+    }
     let libraryError = null;
     const saPrefs = loadPrefs();
     if (profileId && !isInsideWorkingDir(result.filePath, saPrefs.workingDir)) {
@@ -286,6 +294,68 @@ ipcMain.handle("save-file-as", async (_event, scadText, profileId) => {
     return { ok: false, error: err.message };
   }
 });
+
+ipcMain.handle("copy-template", async (_event, sourcePath) => {
+  if (!sourcePath || !fs.existsSync(sourcePath)) {
+    return { ok: false, error: "Template not found" };
+  }
+  const prefs = loadPrefs();
+  const sourceDir = path.dirname(sourcePath);
+  const sourceName = path.basename(sourcePath);
+  // Default to working dir designs folder if set, otherwise template's folder
+  let defaultDir = sourceDir;
+  if (prefs.workingDir) {
+    // Detect profile from source path to pick the right designs subfolder
+    const profileId = isRepoFile(sourcePath, prefs.workingDir);
+    if (profileId && profiles[profileId]) {
+      const designsDir = path.join(prefs.workingDir, profileId, profiles[profileId].designsDir || "designs");
+      if (fs.existsSync(designsDir)) defaultDir = designsDir;
+    }
+  }
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: "Save Copy As",
+    filters: [{ name: "OpenSCAD", extensions: ["scad"] }],
+    defaultPath: path.join(defaultDir, sourceName),
+  });
+  if (result.canceled) return { ok: false };
+  try {
+    fs.copyFileSync(sourcePath, result.filePath);
+    return { ok: true, filePath: result.filePath };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// --- OpenSCAD path resolution ---
+
+function findOpenScad() {
+  const prefs = loadPrefs();
+
+  // 1. Check user-configured path from preferences
+  if (prefs.openScadPath && fs.existsSync(prefs.openScadPath)) {
+    return prefs.openScadPath;
+  }
+
+  // 2. Platform-specific candidate paths
+  let platformCandidates;
+  if (process.platform === "win32") {
+    platformCandidates = [
+      "C:\\Program Files\\OpenSCAD\\openscad.exe",
+      "C:\\Program Files (x86)\\OpenSCAD\\openscad.exe",
+      "C:\\Program Files\\OpenSCAD (Nightly)\\openscad.exe",
+    ];
+  } else if (process.platform === "darwin") {
+    platformCandidates = ["/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD"];
+  } else {
+    platformCandidates = ["/usr/bin/openscad", "/usr/local/bin/openscad", "/snap/bin/openscad"];
+  }
+
+  const found = platformCandidates.find(c => fs.existsSync(c));
+  if (found) return found;
+
+  // 3. Fall back to bare "openscad" (PATH lookup)
+  return "openscad";
+}
 
 ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
   const { spawn } = require("child_process");
@@ -304,50 +374,42 @@ ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
     }
   }
 
-  // If reuse is enabled and an OpenSCAD instance is already running, skip respawn
-  if (prefs.reuseOpenScad && openScadAlive) {
+  // If reuse is enabled and OpenSCAD is already showing this exact file, skip
+  if (prefs.reuseOpenScad && openScadAlive && openScadFile === filePath) {
     return { ok: true, libraryError };
   }
 
+  // Kill the previous instance and wait for it to exit before spawning a new one
+  if (openScadAlive && openScadProc) {
+    const oldProc = openScadProc;
+    openScadAlive = false;
+    openScadProc = null;
+    openScadFile = null;
+    try {
+      await new Promise((resolve) => {
+        oldProc.on("exit", resolve);
+        oldProc.on("error", resolve);
+        const killed = oldProc.kill();
+        if (!killed) resolve(); // kill returned false — process already gone
+        setTimeout(resolve, 2000); // safety timeout
+      });
+    } catch (_) {}
+  }
+
   function spawnOpenScad(cmd, args) {
-    const proc = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    const proc = spawn(cmd, args, { stdio: "ignore" });
     proc.unref();
     openScadAlive = true;
-    proc.on("exit", () => { openScadAlive = false; });
-    proc.on("error", () => { openScadAlive = false; });
+    openScadProc = proc;
+    openScadFile = filePath;
+    proc.on("exit", () => { openScadAlive = false; openScadProc = null; openScadFile = null; });
+    proc.on("error", () => { openScadAlive = false; openScadProc = null; openScadFile = null; });
     return proc;
   }
 
-  // 1. Check user-configured path from preferences
-  if (prefs.openScadPath && fs.existsSync(prefs.openScadPath)) {
-    try {
-      spawnOpenScad(prefs.openScadPath, [filePath]);
-      return { ok: true, libraryError };
-    } catch (err) {
-      return { ok: false, error: err.message, libraryError };
-    }
-  }
+  const cmd = findOpenScad();
 
-  // 2. Platform-specific candidate paths
-  let platformCandidates;
-  if (process.platform === "win32") {
-    platformCandidates = [
-      "C:\\Program Files\\OpenSCAD\\openscad.exe",
-      "C:\\Program Files (x86)\\OpenSCAD\\openscad.exe",
-      "C:\\Program Files\\OpenSCAD (Nightly)\\openscad.exe",
-    ];
-  } else if (process.platform === "darwin") {
-    platformCandidates = ["/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD"];
-  } else {
-    platformCandidates = ["/usr/bin/openscad", "/usr/local/bin/openscad", "/snap/bin/openscad"];
-  }
-
-  let cmd = platformCandidates.find(c => fs.existsSync(c)) || null;
-
-  // 3. Fall back to bare "openscad" (PATH lookup)
-  if (!cmd) cmd = "openscad";
-
-  // 4. On Windows without a found path, use 'start' as last resort
+  // On Windows without a found path, use 'start' as last resort
   if (process.platform === "win32" && cmd === "openscad") {
     try {
       spawnOpenScad("cmd", ["/c", "start", "", filePath]);
@@ -363,6 +425,50 @@ ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
   } catch (err) {
     return { ok: false, error: "not-found", libraryError };
   }
+});
+
+ipcMain.handle("export-stl", async (_event, sourcePath) => {
+  const { execFile } = require("child_process");
+  if (!sourcePath || !fs.existsSync(sourcePath)) {
+    return { ok: false, error: `File not found: ${sourcePath || "(no path)"}` };
+  }
+
+  // Ensure library files are accessible
+  const prefs = loadPrefs();
+  if (!isInsideWorkingDir(sourcePath, prefs.workingDir)) {
+    // Detect profile from path to copy libs
+    const profileId = isRepoFile(sourcePath, prefs.workingDir);
+    if (profileId) {
+      try { await copyLibToDir(profileId, path.dirname(sourcePath)); } catch (_) {}
+    }
+  }
+
+  // Show Save dialog for .stl output
+  const defaultName = path.basename(sourcePath, ".scad") + ".stl";
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: "Export STL",
+    filters: [{ name: "STL Files", extensions: ["stl"] }],
+    defaultPath: path.join(path.dirname(sourcePath), defaultName),
+  });
+  if (result.canceled) return { ok: false };
+
+  const cmd = findOpenScad();
+
+  // Verify OpenSCAD is reachable before starting a long export
+  const canRun = await new Promise((resolve) => {
+    execFile(cmd, ["--version"], { timeout: 5000 }, (err) => resolve(!err));
+  });
+  if (!canRun) return { ok: false, error: "not-found" };
+
+  return new Promise((resolve) => {
+    execFile(cmd, ["-o", result.filePath, sourcePath], { timeout: 120000 }, (err, _stdout, stderr) => {
+      if (err) {
+        resolve({ ok: false, error: stderr || err.message });
+      } else {
+        resolve({ ok: true, filePath: result.filePath });
+      }
+    });
+  });
 });
 
 // --- Preferences IPC ---
@@ -494,24 +600,59 @@ ipcMain.handle("get-library-tree", () => {
   if (!prefs.workingDir) return { ok: false };
   const result = {};
   for (const [profileId, profile] of Object.entries(profiles)) {
-    const manifestPath = path.join(prefs.workingDir, profileId, ".manifest.json");
-    const manifest = loadManifest(manifestPath);
-    const designFiles = Object.keys(manifest.files || {}).filter(
-      f => !f.startsWith("lib/") && f.endsWith(".scad")
-    );
-    if (!designFiles.length) continue;
-    const publishers = {};
-    for (const fp of designFiles) {
-      const parts = fp.split("/");
-      if (parts.length < 2) continue;
-      const pub = parts[0];
-      const name = parts.slice(1).join("/").replace(/\.scad$/, "");
-      if (!publishers[pub]) publishers[pub] = [];
-      publishers[pub].push({ name, path: path.join(prefs.workingDir, profileId, fp) });
+    const profileDir = path.join(prefs.workingDir, profileId);
+    if (!fs.existsSync(profileDir)) {
+      result[profileId] = { name: profile.name, publishers: {} };
+      continue;
     }
-    result[profileId] = { name: profile.name, publishers };
+    const manifestPath = path.join(profileDir, ".manifest.json");
+    const manifest = loadManifest(manifestPath);
+    const publishers = {};
+    // Recursively walk profile directory for all .scad files
+    function walk(dir) {
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        const relPath = path.relative(profileDir, fullPath).replace(/\\/g, "/");
+        if (relPath.startsWith("lib/") || relPath === "lib") continue;
+        if (entry.name === ".manifest.json") continue;
+        if (entry.isDirectory()) {
+          walk(fullPath);
+        } else if (entry.isFile() && entry.name.endsWith(".scad")) {
+          const parts = relPath.split("/");
+          if (parts.length < 2) continue;
+          const folder = parts[0];
+          const name = parts.slice(1).join("/").replace(/\.scad$/, "");
+          const isRepo = !!manifest.files[relPath];
+          if (!publishers[folder]) publishers[folder] = [];
+          publishers[folder].push({ name, path: fullPath, isRepo });
+        }
+      }
+    }
+    walk(profileDir);
+    result[profileId] = { name: profile.name, publishers, designsDir: profile.designsDir || "designs" };
   }
   return { ok: true, tree: result };
+});
+
+ipcMain.handle("delete-file", (_event, filePath) => {
+  const prefs = loadPrefs();
+  if (!filePath || !fs.existsSync(filePath)) {
+    return { ok: false, error: "File not found" };
+  }
+  if (isRepoFile(filePath, prefs.workingDir)) {
+    return { ok: false, error: "Cannot delete library-tracked file" };
+  }
+  if (!prefs.workingDir || !isInsideWorkingDir(filePath, prefs.workingDir)) {
+    return { ok: false, error: "File is not inside the working directory" };
+  }
+  try {
+    fs.unlinkSync(filePath);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
 
 app.whenReady().then(createWindow);

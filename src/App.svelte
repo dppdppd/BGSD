@@ -6,6 +6,7 @@
     replaceLine,
     deleteLine,
     deleteBlock,
+    duplicateBlock,
     updateGlobal,
     updateGlobalWithDefault,
     materializeGlobal,
@@ -30,6 +31,8 @@
   let hideDefaults = $state(false);
   let showScad = $state(false);
   let showWelcome = $state(true);
+  let scadWidth = $state(500);
+  let dragging = $state(false);
 
   // Working directory state
   let workingDir = $state("");
@@ -40,6 +43,7 @@
   // Library browser state
   let libraryTreeRaw = $state<string>("{}");
   let libraryTree = $derived(JSON.parse(libraryTreeRaw) as Record<string, any>);
+  let libMenu = $state<{x: number, y: number, path: string, isRepo: boolean} | null>(null);
 
   // Preferences modal state
   let showPrefs = $state(false);
@@ -234,12 +238,14 @@
   async function saveFileAs() {
     const bgsd = (window as any).bgsd;
     if (!bgsd?.saveFileAs) return;
-    const res = await bgsd.saveFileAs(scadOutput, $project.libraryProfile);
+    const res = await bgsd.saveFileAs(scadOutput, $project.libraryProfile, getFilePath());
     if (!res.ok) return;
     setFilePath(res.filePath);
     setReadOnly(false);
     updateTitle(res.filePath);
     statusMsg = `Saved ${res.filePath.replace(/.*[/\\]/, "")}`;
+    // Keep OpenSCAD in sync with the new file
+    launchOpenScad(res.filePath);
   }
 
   async function launchOpenScad(filePath: string, profile?: string) {
@@ -430,9 +436,55 @@
 
   async function openLibraryFile(filePath: string) {
     const bgsd = (window as any).bgsd;
+    // Copy the template to a user-chosen location, then open the copy
+    const copy = await bgsd?.copyTemplate?.(filePath);
+    if (!copy?.ok) return; // user cancelled or error
+    const loaded = await bgsd?.loadFilePath?.(copy.filePath);
+    if (loaded?.ok) handleLoad(loaded);
+    else statusMsg = `Failed to open: ${loaded?.error || "unknown"}`;
+  }
+
+  function showLibMenu(e: MouseEvent, filePath: string, isRepo: boolean) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const menuW = 180;
+    const x = rect.right + menuW > window.innerWidth ? rect.left - menuW - 4 : rect.right + 4;
+    libMenu = { x, y: rect.top, path: filePath, isRepo };
+  }
+
+  async function editFile(filePath: string) {
+    libMenu = null;
+    const bgsd = (window as any).bgsd;
     const loaded = await bgsd?.loadFilePath?.(filePath);
     if (loaded?.ok) handleLoad(loaded);
     else statusMsg = `Failed to open: ${loaded?.error || "unknown"}`;
+  }
+
+  async function deleteLibraryFile(filePath: string) {
+    libMenu = null;
+    const name = filePath.replace(/.*[/\\]/, "");
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    const bgsd = (window as any).bgsd;
+    const result = await bgsd?.deleteFile?.(filePath);
+    if (!result) { statusMsg = "Delete unavailable"; return; }
+    if (result.ok) {
+      statusMsg = "Deleted";
+      setTimeout(() => { statusMsg = ""; }, 2000);
+      loadLibraryTree();
+    } else {
+      statusMsg = `Delete failed: ${result.error}`;
+    }
+  }
+
+  async function exportStl(filePath: string) {
+    libMenu = null;
+    statusMsg = "Exporting STL...";
+    const bgsd = (window as any).bgsd;
+    const result = await bgsd?.exportStl?.(filePath);
+    if (!result) { statusMsg = "Export unavailable"; return; }
+    if (result.ok) statusMsg = `Exported: ${result.filePath}`;
+    else if (result.error === "not-found") statusMsg = "OpenSCAD not found — set its path in Preferences";
+    else if (result.error) statusMsg = `Export failed: ${result.error}`;
+    else statusMsg = "Export cancelled";
   }
 
   // --- Schema lookup (reactive based on active profile) ---
@@ -653,11 +705,12 @@
   /** Generate SCAD-style indentation: 4 spaces per depth level */
   function scadIndent(depth: number): string { return "    ".repeat(depth); }
 
-  const BRACKET_COLORS = ["#546e7a","#2980b9","#27ae60","#e67e22","#8e44ad","#16a085"];
-  const BRACKET_BGS = ["#eceff1","#eef4fa","#eef8f0","#fef5ee","#f5eef8","#eef8f5"];
+  const BRACKET_COLORS = ["#546e7a","#546e7a","#546e7a","#546e7a","#546e7a","#546e7a"];
+  const BRACKET_BGS = ["#f0f4f8","#fdf2f8","#fef9f0","#f0fdf4","#faf5ff","#f0fdfa"];
   function bracketStyle(depth: number): string {
     const i = (depth ?? 0) % BRACKET_COLORS.length;
-    return `--bracket-color: ${BRACKET_COLORS[i]}; --bracket-bg: ${BRACKET_BGS[i]}`;
+    const indent = Math.max(0, (depth ?? 0) * DEPTH_PX);
+    return `--bracket-color: ${BRACKET_COLORS[i]}; --bracket-bg: ${BRACKET_BGS[i]}; --indent: ${indent}px`;
   }
 
   // --- Collapse/expand ---
@@ -667,6 +720,22 @@
     const next = new Set(collapsed);
     if (next.has(i)) next.delete(i); else next.add(i);
     collapsed = next;
+  }
+
+  function onSplitHandleDown(e: MouseEvent) {
+    e.preventDefault();
+    dragging = true;
+    const onMove = (ev: MouseEvent) => {
+      const newWidth = window.innerWidth - ev.clientX;
+      scadWidth = Math.max(200, Math.min(newWidth, window.innerWidth * 0.8));
+    };
+    const onUp = () => {
+      dragging = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
   }
 
   /** Find the matching close bracket index for an open at `openIdx`. */
@@ -759,6 +828,9 @@
     } else if (role === "object" && !line.mergedClose) {
       // Non-merged object close: children are direct (like params)
       ctx = "element";
+    } else if (role === "counter_set" && !line.mergedClose) {
+      // Non-merged counter_set close: children are direct (like counter_set_params)
+      ctx = "counter_set";
     }
     // If we resolved to "element", check if this is actually a divider
     if (ctx === "element" && closeIndex != null) {
@@ -965,7 +1037,7 @@
     if (line.role === "data_list") return { text: "data list", inferred: true };
     if (line.role === "object") {
       const rawLabel = line.label || "";
-      if (rawLabel.startsWith("OBJECT_")) {
+      if (rawLabel.startsWith("OBJECT_") || rawLabel === "TRAY") {
         return { text: `${label(rawLabel)}${nameSuffix(lineIndex)}`, inferred: false };
       }
       return { text: `object "${rawLabel}"`, inferred: false };
@@ -1241,6 +1313,25 @@
 {/snippet}
 
 <main data-testid="app-root">
+  {#if !showWelcome}
+  <nav class="toolbar" data-testid="toolbar">
+    <button class="toolbar-home" title="Welcome page" onclick={() => { showWelcome = true; loadLibraryTree(); }}>&#8962;</button>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
+      <label class="toolbar-check" title="Hide virtual default values">
+        <input type="checkbox" bind:checked={hideDefaults} /> Hide Defaults
+      </label>
+      <label class="toolbar-check" title="Show generated SCAD (Ctrl+U)">
+        <input type="checkbox" bind:checked={showScad} /> Show SCAD
+      </label>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
+      <button class="toolbar-btn" title="Open in OpenSCAD (Ctrl+E)" onclick={() => openInOpenScad()}>OpenSCAD</button>
+      <button class="toolbar-btn" title="Preferences... (Ctrl+,)" onclick={() => openPreferencesModal()}>Preferences</button>
+    </div>
+  </nav>
+  {/if}
   <section class="content" data-testid="content-area">
     {#if showWelcome}
       <div class="welcome" data-testid="welcome-screen">
@@ -1258,48 +1349,66 @@
             {/if}
           </div>
         {:else}
-          <div class="welcome-columns">
-            <div class="welcome-col-left">
-              <div class="welcome-actions">
-                <button class="welcome-btn" data-testid="welcome-open" onclick={() => openFile()}>Open...</button>
-                <div class="welcome-new-group">
-                  <button class="welcome-card" data-testid="welcome-new-bit" onclick={() => newProject("bit")}>
-                    <span class="welcome-card-title">New Board Game Insert</span>
-                    <span class="welcome-card-desc">Box inserts with compartments, lids, and dividers to organize cards, minis, and components.</span>
-                  </button>
-                  <button class="welcome-card" data-testid="welcome-new-ctd" onclick={() => newProject("ctd")}>
-                    <span class="welcome-card-title">New Counter Tray</span>
-                    <span class="welcome-card-desc">Flat trays with compartments sized for tokens, markers, and chits used in wargames.</span>
-                  </button>
-                </div>
-                <button class="welcome-btn welcome-btn-secondary" data-testid="welcome-update-libs" onclick={() => updateLibs()} disabled={setupBusy}>
-                  {setupBusy ? "Updating..." : "Update Libraries"}
-                </button>
-                <button class="welcome-btn welcome-btn-secondary" data-testid="welcome-change-dir" onclick={() => changeWorkingDir()}>Change current workspace directory</button>
-                {#if setupStatus}
-                  <p class="welcome-status">{setupStatus}</p>
+          <div class="welcome-top-actions">
+            <button class="welcome-btn welcome-btn-secondary" data-testid="welcome-update-libs" onclick={() => updateLibs()} disabled={setupBusy}>
+              {setupBusy ? "Updating..." : "Update Libraries"}
+            </button>
+            <button class="welcome-btn welcome-btn-secondary" data-testid="welcome-change-dir" onclick={() => changeWorkingDir()}>Change Workspace</button>
+          </div>
+          {#if setupStatus}
+            <p class="welcome-status">{setupStatus}</p>
+          {/if}
+
+          <div class="welcome-columns" data-testid="welcome-columns">
+            {#each [["bit", "Board Game Insert Toolkit"], ["ctd", "Counter Tray Designer"]] as [profileId, profileLabel]}
+            {@const tree = libraryTree[profileId]}
+            {@const pubs = tree?.publishers}
+            {@const designsDir = tree?.designsDir || "designs"}
+            {@const pubKeys = pubs ? Object.keys(pubs).sort() : []}
+            <div class="welcome-col" data-testid="welcome-col-{profileId}">
+              <h2 class="welcome-library-title">{profileLabel}</h2>
+              <div class="welcome-library-scroll">
+                {#if !pubKeys.includes(designsDir)}
+                  <div class="welcome-library-publisher">
+                    <div class="welcome-publisher-row">
+                      <h3 class="welcome-library-publisher-name">{formatPublisher(designsDir)}</h3>
+                      <button class="welcome-new-file" data-testid="new-{profileId}" onclick={() => newProject(profileId)}>+ New</button>
+                    </div>
+                    <p class="welcome-library-empty-folder">No designs yet.</p>
+                  </div>
                 {/if}
+                {#each pubKeys as pub}
+                  <div class="welcome-library-publisher">
+                    {#if pub === designsDir}
+                      <div class="welcome-publisher-row">
+                        <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
+                        <button class="welcome-new-file" data-testid="new-{profileId}" onclick={() => newProject(profileId)}>+ New</button>
+                      </div>
+                    {:else}
+                      <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
+                    {/if}
+                    {#each pubs[pub].sort((a: any, b: any) => a.name.localeCompare(b.name)) as game}
+                      <button class="welcome-library-game" onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
+                    {/each}
+                  </div>
+                {/each}
               </div>
             </div>
-            {#if libraryTree.ctd?.publishers && Object.keys(libraryTree.ctd.publishers).length > 0}
-              <div class="welcome-col-right">
-                <h2 class="welcome-library-title">Start from an existing design...</h2>
-                <div class="welcome-library-scroll">
-                  {#each Object.keys(libraryTree.ctd.publishers).sort() as pub}
-                    <div class="welcome-library-publisher">
-                      <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
-                      {#each libraryTree.ctd.publishers[pub].sort((a: any, b: any) => a.name.localeCompare(b.name)) as game}
-                        <button class="welcome-library-game" onclick={() => openLibraryFile(game.path)}>{formatGameName(game.name)}</button>
-                      {/each}
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            {:else if workingDirSet}
-              <div class="welcome-col-right">
-                <h2 class="welcome-library-title">Start from an existing design...</h2>
-                <p class="welcome-library-empty">No designs found — click Update Libraries.</p>
-              </div>
+            {/each}
+          </div>
+        {/if}
+
+        {#if libMenu}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="lib-context-backdrop" onclick={() => libMenu = null} onkeydown={() => {}}></div>
+          <div class="lib-context-menu" style="left: {libMenu.x}px; top: {libMenu.y}px;">
+            {#if libMenu.isRepo}
+              <button class="lib-context-item" data-testid="ctx-edit-copy" onclick={() => { const p = libMenu!.path; libMenu = null; openLibraryFile(p); }}>Edit a Copy</button>
+              <button class="lib-context-item" data-testid="ctx-export-stl" onclick={() => exportStl(libMenu!.path)}>Export STL</button>
+            {:else}
+              <button class="lib-context-item" data-testid="ctx-edit" onclick={() => { const p = libMenu!.path; libMenu = null; editFile(p); }}>Edit</button>
+              <button class="lib-context-item" data-testid="ctx-delete" onclick={() => deleteLibraryFile(libMenu!.path)}>Delete</button>
+              <button class="lib-context-item" data-testid="ctx-export-stl" onclick={() => exportStl(libMenu!.path)}>Export STL</button>
             {/if}
           </div>
         {/if}
@@ -1349,6 +1458,7 @@
           {@render commentBtn(line, i)}
           <span class="spacer"></span>
           {#if deletable}
+            <button class="dup-btn" title="Duplicate block" onclick={() => duplicateBlock(i)}>⧉</button>
             <button class="delete-btn" title="Delete block" onclick={() => deleteBlock(i)}>✕</button>
           {/if}
         </div>
@@ -1680,7 +1790,9 @@
     {/each}
     </div>
     {#if showScad}
-    <div class="editor-right" data-testid="scad-pane">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="split-handle" onmousedown={onSplitHandleDown}></div>
+    <div class="editor-right" data-testid="scad-pane" style="width: {scadWidth}px">
     {#each $project.lines as line, i (i)}
       {#if hiddenLines.has(i)}
         <!-- hidden -->
@@ -1821,17 +1933,42 @@
     font-size: 14px; color: #1a1a1a; background: #f5f5f5;
   }
   main { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  .toolbar {
+    display: flex; align-items: center; gap: 2px;
+    padding: 3px 8px; background: #e8e8e8; border-bottom: 1px solid #ccc;
+    flex-shrink: 0; font-size: 12px;
+  }
+  .toolbar-home {
+    background: none; border: none; cursor: pointer; font-size: 18px; line-height: 1;
+    padding: 1px 4px; color: #555; border-radius: 3px;
+  }
+  .toolbar-home:hover { background: #ddd; color: #333; }
+  .toolbar-group { display: flex; align-items: center; gap: 4px; }
+  .toolbar-btn {
+    padding: 3px 8px; border: 1px solid #bbb; border-radius: 3px;
+    background: #f8f8f8; cursor: pointer; font-size: 12px; color: #333;
+  }
+  .toolbar-btn:hover { background: #fff; border-color: #999; }
+  .toolbar-btn:active { background: #ddd; }
+  .toolbar-check { display: flex; align-items: center; gap: 3px; cursor: pointer; color: #333; font-size: 12px; }
+  .toolbar-check input { margin: 0; }
+  .toolbar-sep { width: 1px; height: 18px; background: #bbb; margin: 0 6px; }
   .content { flex: 1; overflow-y: auto; padding: 4px 0; }
 
   /* Split layout: editor left + SCAD pane right */
   .editor-split { display: flex; flex-direction: row; }
   .editor-left { flex: 1; min-width: 0; }
   .editor-right {
-    width: 380px; flex-shrink: 0;
-    border-left: 2px solid #ddd;
+    width: 500px; flex-shrink: 0;
     background: #fff;
     overflow-x: hidden;
   }
+  .split-handle {
+    width: 6px; flex-shrink: 0;
+    background: #ddd;
+    cursor: col-resize;
+  }
+  .split-handle:hover { background: #bbb; }
   .scad-line {
     font-family: "Courier New", monospace; font-size: 13px;
     min-height: 24px;
@@ -1865,24 +2002,8 @@
   .welcome-actions {
     display: flex; flex-direction: column; gap: 12px; width: 360px;
   }
-  .welcome-new-group {
-    display: flex; flex-direction: column; gap: 10px;
-  }
-  .welcome-card {
-    display: flex; flex-direction: column; gap: 4px;
-    padding: 14px 18px; text-align: left;
-    border: 1px solid #bbb; border-radius: 6px;
-    background: white; cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .welcome-card:hover {
-    background: #f3e5f5; border-color: #6c3483;
-  }
-  .welcome-card-title {
-    font-size: 15px; font-weight: 600; color: #2c3e50;
-  }
-  .welcome-card-desc {
-    font-size: 12px; color: #888; line-height: 1.4;
+  .welcome-top-actions {
+    display: flex; gap: 12px; justify-content: center; margin-bottom: 8px;
   }
   .welcome-btn {
     padding: 12px 24px; font-size: 16px; font-weight: 600;
@@ -1910,15 +2031,22 @@
   }
   .welcome-status {
     text-align: center; color: #6c3483; font-size: 13px; margin: 0;
-    max-width: 260px; word-break: break-word;
+    max-width: 260px; word-break: break-word; align-self: center;
   }
-  .welcome-columns { display: flex; gap: 40px; max-width: 780px; width: 100%; align-items: flex-start; }
-  .welcome-col-left { flex: 0 0 360px; }
-  .welcome-col-right { flex: 1; min-width: 240px; max-height: 500px; display: flex; flex-direction: column; }
+  .welcome-columns { display: flex; gap: 40px; max-width: 900px; width: 100%; align-items: flex-start; }
+  .welcome-col { flex: 1; min-width: 240px; max-height: 500px; display: flex; flex-direction: column; }
   .welcome-library-title { font-size: 18px; font-weight: 600; color: #2c3e50; margin: 0 0 12px; }
-  .welcome-library-empty { color: #999; font-size: 14px; }
   .welcome-library-scroll { overflow-y: auto; flex: 1; padding-right: 8px; }
   .welcome-library-publisher { margin-bottom: 14px; }
+  .welcome-publisher-row { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; }
+  .welcome-publisher-row .welcome-library-publisher-name { margin: 0; }
+  .welcome-new-file {
+    padding: 1px 8px; font-size: 11px; font-weight: 600;
+    border: 1px dashed #6c3483; border-radius: 3px;
+    background: transparent; color: #6c3483; cursor: pointer;
+  }
+  .welcome-new-file:hover { background: #f3e5f5; }
+  .welcome-library-empty-folder { color: #bbb; font-size: 13px; font-style: italic; margin: 0; padding: 2px 10px; }
   .welcome-library-publisher-name { font-size: 12px; font-weight: 600; color: #6c3483; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 4px; }
   .welcome-library-game {
     display: block; width: 100%; text-align: left;
@@ -1926,28 +2054,43 @@
     background: transparent; color: #2c3e50; font-size: 14px; cursor: pointer;
   }
   .welcome-library-game:hover { background: #f3e5f5; color: #6c3483; }
+  .lib-context-backdrop {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 999;
+  }
+  .lib-context-menu {
+    position: fixed; z-index: 1000;
+    background: #fff; border: 1px solid #ddd; border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15); min-width: 160px;
+    padding: 4px 0; display: flex; flex-direction: column;
+  }
+  .lib-context-item {
+    display: block; width: 100%; text-align: left;
+    padding: 8px 16px; border: none; background: transparent;
+    font-size: 14px; color: #2c3e50; cursor: pointer;
+  }
+  .lib-context-item:hover { background: #f3e5f5; color: #6c3483; }
   .line-row {
     display: flex; align-items: center; gap: 6px;
     padding: 1px 8px; min-height: 24px;
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 400;
     border-bottom: 1px solid #f5f5f3;
-    background: var(--bracket-bg, #fafaf8);
+    background: linear-gradient(to right, transparent var(--indent, 0px), var(--bracket-bg, #fafaf8) var(--indent, 0px));
   }
   .line-row.muted { opacity: 0.35; font-style: italic; }
-  /* Virtual tier: defaults at schema value — visible, just styled differently */
-  .line-row.kv.virtual .kv-key { font-weight: 400; font-style: italic; }
-  .line-row.kv.virtual { color: #999; }
-  .line-row.struct.virtual { color: #999; }
-  .virtual-key { font-style: italic; }
+  /* Virtual tier: defaults at schema value — lower contrast, not italic */
+  .line-row.kv.virtual .kv-key { font-weight: 400; }
+  .line-row.kv.virtual { color: #b0b8c0; }
+  .line-row.struct.virtual { color: #b0b8c0; }
+  .virtual-key { }
 
   .collapse-btn {
     background: none; border: none; cursor: pointer;
     padding: 0 2px; font-size: 12px; color: #888; flex-shrink: 0;
   }
-  .collapse-btn:hover { color: #6c3483; }
-  .struct-label { font-weight: 700; color: var(--bracket-color, #6c3483); }
-  .struct-label.inferred { font-style: italic; font-weight: 400; opacity: 0.6; }
-  .struct-bracket { color: var(--bracket-color, #999); font-weight: 700; }
+  .collapse-btn:hover { color: #555; }
+  .struct-label { font-weight: 700; color: #2c3e50; }
+  .struct-label.inferred { font-weight: 400; opacity: 0.6; }
+  .struct-bracket { color: #546e7a; font-weight: 700; }
   .debug-toggle {
     background: none; border: none; cursor: pointer;
     margin-left: 4px; padding: 0 2px;
@@ -1963,13 +2106,13 @@
 
   .kv-key { font-weight: 700; color: #2c3e50; min-width: 220px; flex-shrink: 0; }
   .kv-control { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-  .kv-num { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; width: 80px; background: white; }
-  .kv-num.sm { width: 60px; }
-  .kv-num.xs { width: 48px; }
-  .kv-str { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; width: 180px; background: white; }
-  .kv-str.sm { width: 80px; }
-  .kv-control select { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; }
-  .kv-control input[type="checkbox"] { width: 18px; height: 18px; }
+  .kv-num { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; width: 120px; background: white; }
+  .kv-num.sm { width: 80px; }
+  .kv-num.xs { width: 60px; }
+  .kv-str { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; width: 240px; background: white; }
+  .kv-str.sm { width: 120px; }
+  .kv-control select { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; background: white; }
+  .kv-control input[type="checkbox"] { width: 18px; height: 18px; accent-color: #333; }
   .kv-fallback { color: #999; font-size: 13px; }
   .side-label { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; }
   .side-tag { color: #999; font-size: 11px; font-weight: 600; width: 12px; text-align: center; }
@@ -1979,7 +2122,7 @@
     position: relative;
     width: 100%;
     border-bottom: 1px solid #f5f5f3;
-    background: var(--bracket-bg, #fafaf8);
+    background: linear-gradient(to right, transparent var(--indent, 0px), var(--bracket-bg, #fafaf8) var(--indent, 0px));
   }
   .raw-textarea {
     display: block;
@@ -2022,56 +2165,57 @@
     opacity: 0; transition: opacity 0.15s;
   }
   .line-row:hover .comment-btn { opacity: 1; }
-  .comment-btn:hover { color: #27ae60; }
+  .comment-btn:hover { color: #4a9960; }
   .comment-area {
     display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0;
   }
   .comment-slash {
-    color: #27ae60; font-family: "Courier New", monospace; font-size: 13px; font-weight: 700;
+    color: #4a9960; font-family: "Courier New", monospace; font-size: 13px; font-weight: 700;
   }
   .comment-input {
     font-family: "Courier New", monospace; font-size: 13px; font-weight: 400;
-    color: #27ae60; font-style: italic;
+    color: #4a9960; font-style: italic;
     border: none; background: transparent;
     padding: 0 4px; width: 180px; outline: none;
   }
-  .comment-input:focus { border-bottom: 1px solid #27ae60; }
-  .delete-btn { background: none; border: none; color: #ccc; cursor: pointer; font-size: 16px; padding: 0 4px; opacity: 0; transition: opacity 0.1s; }
-  .line-row:hover .delete-btn { opacity: 1; }
+  .comment-input:focus { border-bottom: 1px solid #4a9960; }
+  .delete-btn, .dup-btn { background: none; border: none; color: #ccc; cursor: pointer; font-size: 16px; padding: 0 4px; opacity: 0; transition: opacity 0.1s; }
+  .line-row:hover .delete-btn, .line-row:hover .dup-btn { opacity: 1; }
   .delete-btn:hover { color: #e74c3c; }
+  .dup-btn:hover { color: #546e7a; }
   .scene-name-input {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 700;
-    color: var(--bracket-color, #6c3483); background: transparent; border: none;
-    border-bottom: 1px dashed #b39ddb; padding: 0 4px; width: 120px; outline: none;
+    color: #2c3e50; background: transparent; border: none;
+    border-bottom: 1px dashed #b0bec5; padding: 0 4px; width: 120px; outline: none;
   }
-  .scene-name-input:focus { border-bottom: 1px solid #6c3483; background: #f3e5f5; }
+  .scene-name-input:focus { border-bottom: 1px solid #546e7a; background: #f0f4f8; }
   .make-text {
-    font-family: "Courier New", monospace; font-size: 15px; font-weight: 700; color: #5c6bc0;
+    font-family: "Courier New", monospace; font-size: 15px; font-weight: 700; color: #2c3e50;
   }
   .make-select {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 700;
-    color: #5c6bc0; background: white; border: 1px solid #c5cae9;
+    color: #2c3e50; background: white; border: 1px solid #cfd8dc;
     border-radius: 2px; padding: 1px 4px;
   }
 
   /* Variable lines */
-  .var-name { font-weight: 700; color: var(--bracket-color, #2c3e50); }
+  .var-name { font-weight: 700; color: #2c3e50; }
   .var-eq { color: #999; font-weight: 700; margin: 0 4px; }
   .var-value {
     font-family: "Courier New", monospace; font-size: 15px;
     border: none; border-bottom: 1px dashed #ccc; background: transparent;
     padding: 0 4px; outline: none; flex: 1; min-width: 80px;
   }
-  .var-value:focus { border-bottom: 1px solid var(--bracket-color, #2c3e50); }
+  .var-value:focus { border-bottom: 1px solid #546e7a; }
 
   /* Standalone comment lines */
   .comment-standalone {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 400;
-    color: #27ae60; font-style: italic;
+    color: #4a9960; font-style: italic;
     border: none; background: transparent;
     padding: 0 4px; flex: 1; outline: none;
   }
-  .comment-standalone:focus { border-bottom: 1px solid #27ae60; }
+  .comment-standalone:focus { border-bottom: 1px solid #4a9960; }
 
   /* Add row */
   .line-row.add-row { min-height: 20px; }

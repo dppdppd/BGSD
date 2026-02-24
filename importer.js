@@ -74,10 +74,10 @@ const KV_LINE_RE = /^\s*\[\s*([_A-Z][A-Z0-9_]*)\s*,\s*(.*?)\s*\]\s*,?\s*(?:\/\/.
 const VAR_ASSIGN_RE = /^\s*([A-Za-z_$]\w*)\s*=\s*(.+?)\s*;\s*(?:\/\/.*)?$/;
 const COMMENT_RE = /^\s*\/\/(.*)$/;
 
-// New-style OBJECT_* element type constants
-const OBJECT_TYPES = new Set(["OBJECT_BOX", "OBJECT_DIVIDERS", "OBJECT_SPACER"]);
-const OBJECT_OPEN_RE = /^\s*\[\s*(OBJECT_BOX|OBJECT_DIVIDERS|OBJECT_SPACER)\s*,\s*(?:\/\/.*)?$/;
-const OBJECT_OPEN_MERGED_RE = /^\s*\[\s*(OBJECT_BOX|OBJECT_DIVIDERS|OBJECT_SPACER)\s*,\s*\[\s*(?:\/\/.*)?$/;
+// New-style OBJECT_* element type constants (includes CTD TRAY)
+const OBJECT_TYPES = new Set(["OBJECT_BOX", "OBJECT_DIVIDERS", "OBJECT_SPACER", "TRAY"]);
+const OBJECT_OPEN_RE = /^\s*\[\s*(OBJECT_BOX|OBJECT_DIVIDERS|OBJECT_SPACER|TRAY)\s*,\s*(?:\/\/.*)?$/;
+const OBJECT_OPEN_MERGED_RE = /^\s*\[\s*(OBJECT_BOX|OBJECT_DIVIDERS|OBJECT_SPACER|TRAY)\s*,\s*\[\s*(?:\/\/.*)?$/;
 
 // Structural patterns — all allow optional trailing // comments
 const DATA_ASSIGN_RE = /^\s*([A-Za-z_]\w*)\s*=\s*\[\s*(?:\/\/.*)?$/;           // identifier = [
@@ -184,18 +184,12 @@ function collapseMultilineValues(text) {
     }
 
     // Join continuation lines until brackets balance
-    // First join inserts before any trailing comment; subsequent appends are plain
+    // Always insert before trailing // comment so content doesn't get swallowed
     let cumDelta = delta;
     let joined = line;
-    let firstJoin = true;
     i++;
     while (i < lines.length && cumDelta > 0) {
-      if (firstJoin) {
-        joined = insertBeforeComment(joined, lines[i].trim());
-        firstJoin = false;
-      } else {
-        joined = joined.trimEnd() + " " + lines[i].trim();
-      }
+      joined = insertBeforeComment(joined, lines[i].trim());
       cumDelta += bracketDeltaOf(lines[i]);
       i++;
     }
@@ -814,6 +808,27 @@ function renderEntryLines(node, indent, needsComma, outLines) {
 
     // [ "name", [ ... ] ] or [ OBJECT_*, [ ... ] ]  => object entry (merged brackets)
     if (a.type === "atom" && (a.text.trim().startsWith('"') || OBJECT_TYPES.has(a.text.trim())) && b.type === "array") {
+      // For OBJECT_TYPES: flatten b's children as siblings so structural keys keep their brackets
+      // e.g. [TRAY, [COUNTER_SET, [...]]] → [ TRAY, [ COUNTER_SET, [...] ], ]
+      if (OBJECT_TYPES.has(a.text.trim())) {
+        const comment = node.commentAfterFirst || b.elements.find(e => e.type === "comment")?.text || "";
+        outLines.push(`${indent}[ ${a.text.trim()},` + (comment ? ` //${comment}` : ""));
+        const childIndent = indent + " ".repeat(4);
+        const bVals = b.elements.filter(e => e.type !== "comment");
+        // Re-wrap: if first non-comment child is a structural key atom, group it with
+        // its following siblings as [ KEY, child1, child2, ... ]
+        if (bVals.length >= 2 && bVals[0].type === "atom" && FORMAT_STRUCTURAL_KEYS.has(bVals[0].text.trim())) {
+          const wrappedNode = { type: "array", elements: bVals };
+          renderEntryLines(wrappedNode, childIndent, true, outLines);
+        } else {
+          for (const child of b.elements) {
+            if (child.type === "comment") continue;
+            renderEntryLines(child, childIndent, true, outLines);
+          }
+        }
+        outLines.push(`${indent}]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
+        return;
+      }
       outLines.push(`${indent}[ ${a.text.trim()}, [` + (node.commentAfterFirst ? ` //${node.commentAfterFirst}` : ""));
       const childIndent = indent + " ".repeat(4);
       for (const child of b.elements) {

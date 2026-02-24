@@ -16,6 +16,10 @@ export function generateScad(project: Project): string {
   for (const line of project.lines) {
     switch (line.kind) {
       case "include":
+        // Skip the primary library include (regenerated above); preserve others verbatim
+        if (line.includeFile === project.libraryInclude) break;
+        out.push(line.raw);
+        break;
       case "marker":
         // Skip — regenerated above.
         break;

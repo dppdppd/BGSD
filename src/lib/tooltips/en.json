@@ -2,6 +2,7 @@
   "NAME":              { "label": "Name",             "tooltip": "Display name for the element (shown in UI, used by g_isolated_print_box)" },
   "BOX_SIZE_XYZ":      { "label": "Box Size",         "tooltip": "Box outer dimensions [width, depth, height] in mm. Note: inset-lid boxes are taller by 2x wall thickness." },
   "BOX_FEATURE":       { "label": "Feature",          "tooltip": "Feature — defines one set of compartments inside the box" },
+  "TRAY":              { "label": "Tray",             "tooltip": "Tray — one physical tray in the counter tray set" },
   "BOX_LID":           { "label": "Lid",              "tooltip": "Lid parameters — controls lid style, pattern, and labels" },
   "BOX_NO_LID_B":      { "label": "No Lid",           "tooltip": "If checked, no lid is generated and no inset lip is formed" },
   "BOX_STACKABLE_B":   { "label": "Stackable",        "tooltip": "If checked, box base is cut to stack on identical boxes (requires 45 degree overhang capability)" },

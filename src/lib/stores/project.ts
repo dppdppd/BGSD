@@ -32,6 +32,8 @@ export interface Line {
   /** For "kv" lines: recognized BIT key-value pair */
   kvKey?: string;
   kvValue?: any;
+  /** For "include" lines: the file path inside angle brackets */
+  includeFile?: string;
   /** Trailing comment (without the //) */
   comment?: string;
   /** For "open": true when this line opens two bracket levels (e.g. `[ "name", [`) */
@@ -126,6 +128,36 @@ export function deleteBlock(index: number) {
     }
 
     p.lines.splice(index, endIdx - index);
+    return { ...p };
+  });
+}
+
+/**
+ * Duplicate a block: clone from the open bracket at `index` through its matching close,
+ * and insert the copy immediately after the original.
+ */
+export function duplicateBlock(index: number) {
+  project.update((p) => {
+    const line = p.lines[index];
+    if (line?.kind !== "open") return p;
+
+    // Find matching close
+    let depth = 0;
+    let closeIdx = -1;
+    for (let i = index; i < p.lines.length; i++) {
+      if (p.lines[i].kind === "open") depth += p.lines[i].mergedOpen ? 2 : 1;
+      if (p.lines[i].kind === "close") {
+        depth -= p.lines[i].mergedClose ? 2 : 1;
+        if (depth <= 0) { closeIdx = i; break; }
+      }
+    }
+    if (closeIdx < 0) return p;
+
+    // Deep-clone the block lines
+    const cloned = p.lines.slice(index, closeIdx + 1).map(l => ({ ...l }));
+
+    // Insert after the close bracket
+    p.lines.splice(closeIdx + 1, 0, ...cloned);
     return { ...p };
   });
 }

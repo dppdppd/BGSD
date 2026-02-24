@@ -8,12 +8,15 @@ contextBridge.exposeInMainWorld("bgsd", {
   setTitle: (title) => ipcRenderer.send("set-title", title),
   openFile: () => ipcRenderer.invoke("open-file"),
   saveFile: (filePath, scadText, needsBackup, profileId) => ipcRenderer.invoke("save-file", filePath, scadText, needsBackup, profileId),
-  saveFileAs: (scadText, profileId) => ipcRenderer.invoke("save-file-as", scadText, profileId),
+  saveFileAs: (scadText, profileId, currentPath) => ipcRenderer.invoke("save-file-as", scadText, profileId, currentPath),
   openInOpenScad: (filePath, profileId) => ipcRenderer.invoke("open-in-openscad", filePath, profileId),
   loadFilePath: (filePath) => ipcRenderer.invoke("load-file-path", filePath),
   newProjectToPath: (profile) => ipcRenderer.invoke("new-project-to-path", profile),
 
+  copyTemplate: (sourcePath) => ipcRenderer.invoke("copy-template", sourcePath),
+  exportStl: (sourcePath) => ipcRenderer.invoke("export-stl", sourcePath),
   checkRepoFile: (filePath) => ipcRenderer.invoke("check-repo-file", filePath),
+  deleteFile: (filePath) => ipcRenderer.invoke("delete-file", filePath),
   getLibraryTree: () => ipcRenderer.invoke("get-library-tree"),
 
   // Working directory

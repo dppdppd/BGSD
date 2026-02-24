@@ -1,0 +1,6 @@
+wait welcome-screen
+shot welcome
+click welcome-col-ctd
+shot clicked-ctd-area
+js document.querySelector('[data-testid="welcome-col-ctd"] .welcome-library-game').click()
+shot context-menu
