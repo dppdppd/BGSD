@@ -1349,11 +1349,9 @@
             {/if}
           </div>
         {:else}
-          <div class="welcome-top-actions">
-            <button class="welcome-btn welcome-btn-secondary" data-testid="welcome-update-libs" onclick={() => updateLibs()} disabled={setupBusy}>
-              {setupBusy ? "Updating..." : "Update Libraries"}
-            </button>
-            <button class="welcome-btn welcome-btn-secondary" data-testid="welcome-change-dir" onclick={() => changeWorkingDir()}>Change Workspace</button>
+          <div class="welcome-icon-bar">
+            <button class="welcome-icon-btn" data-testid="welcome-update-libs" title={setupBusy ? "Updating..." : "Update Libraries"} onclick={() => updateLibs()} disabled={setupBusy}>&#x21BB;</button>
+            <button class="welcome-icon-btn" data-testid="welcome-change-dir" title="Change Workspace" onclick={() => changeWorkingDir()}>&#x2699;</button>
           </div>
           {#if setupStatus}
             <p class="welcome-status">{setupStatus}</p>
@@ -1990,6 +1988,7 @@
   }
 
   .welcome {
+    position: relative;
     display: flex; flex-direction: column; align-items: center;
     height: 100%; gap: 8px; padding-top: 60px; overflow-y: auto;
   }
@@ -2002,9 +2001,18 @@
   .welcome-actions {
     display: flex; flex-direction: column; gap: 12px; width: 360px;
   }
-  .welcome-top-actions {
-    display: flex; gap: 12px; justify-content: center; margin-bottom: 8px;
+  .welcome-icon-bar {
+    position: absolute; top: 12px; right: 16px;
+    display: flex; gap: 6px;
   }
+  .welcome-icon-btn {
+    width: 32px; height: 32px; font-size: 18px; line-height: 1;
+    border: 1px solid #ddd; border-radius: 6px;
+    background: #fff; color: #666; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .welcome-icon-btn:hover:not(:disabled) { background: #f3e5f5; color: #6c3483; border-color: #6c3483; }
+  .welcome-icon-btn:disabled { opacity: 0.4; cursor: default; }
   .welcome-btn {
     padding: 12px 24px; font-size: 16px; font-weight: 600;
     border: 1px solid #bbb; border-radius: 6px;
@@ -2033,8 +2041,12 @@
     text-align: center; color: #6c3483; font-size: 13px; margin: 0;
     max-width: 260px; word-break: break-word; align-self: center;
   }
-  .welcome-columns { display: flex; gap: 40px; max-width: 900px; width: 100%; align-items: flex-start; }
-  .welcome-col { flex: 1; min-width: 240px; max-height: 500px; display: flex; flex-direction: column; }
+  .welcome-columns { display: flex; gap: 24px; justify-content: center; width: 100%; align-items: flex-start; }
+  .welcome-col {
+    width: 280px; flex: 0 0 280px; max-height: 500px;
+    display: flex; flex-direction: column; overflow: hidden;
+    border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 16px;
+  }
   .welcome-library-title { font-size: 18px; font-weight: 600; color: #2c3e50; margin: 0 0 12px; }
   .welcome-library-scroll { overflow-y: auto; flex: 1; padding-right: 8px; }
   .welcome-library-publisher { margin-bottom: 14px; }
