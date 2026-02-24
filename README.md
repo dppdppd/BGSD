@@ -1,26 +1,44 @@
 # BGSD — Board Game Storage Designer
 
-A visual desktop editor for creating parametric 3D-printable board game inserts using OpenSCAD libraries.
-
-BGSD provides a GUI for editing `.scad` data structures — no OpenSCAD coding required. It generates valid OpenSCAD files that can be rendered and exported to STL for 3D printing.
+A visual desktop editor for creating parametric 3D-printable board game inserts using OpenSCAD libraries. No OpenSCAD coding required.
 
 ![BGSD Overview](images/bgsd_overview.png)
 
-## Supported Libraries
+## Download
 
-| Library | Repo | Status |
-|---------|------|--------|
-| [Boardgame Insert Toolkit](https://github.com/dppdppd/The-Boardgame-Insert-Toolkit) | `dppdppd/The-Boardgame-Insert-Toolkit` | Supported |
+Grab the latest release for your platform:
 
-BGSD automatically downloads the required library files from GitHub and places them next to your `.scad` file on save.
+**[Download BGSD](https://github.com/dppdppd/BGSD/releases/latest)**
+
+| Platform | Format |
+|----------|--------|
+| Windows  | Installer (.exe) + portable |
+| Linux    | AppImage |
+| macOS    | .zip |
+
+You will also need [OpenSCAD](https://openscad.org/) installed to render and export your designs to STL.
+
+## How to Use
+
+1. **Create or open a file** — start a new project or open an existing `.scad` file
+2. **Edit visually** — modify box sizes, features, lids, labels, dividers, and globals through the UI
+3. **Save** — generates valid OpenSCAD code and automatically downloads the required library files
+4. **Open in OpenSCAD** — launches OpenSCAD with your file for rendering and STL export
+
+BGSD preserves your comments, formatting, and any hand-written code when round-tripping `.scad` files.
 
 ## Features
 
-- **Schema-driven UI** — all controls generated from a JSON schema
-- **Round-trip editing** — open existing `.scad` files, edit visually, save back without losing comments or formatting
-- **Live preview** — edit parameters and see the generated SCAD update in real time
-- **Library profiles** — pluggable support for multiple parametric SCAD libraries
-- **On-demand library fetch** — downloads library `.scad` files from GitHub, caches locally
+- **Visual parameter editing** — all controls generated from the library schema, no need to memorize parameter names
+- **Round-trip fidelity** — open existing `.scad` files, edit visually, save back without losing comments or formatting
+- **Live SCAD preview** — see the generated code update as you edit
+- **Automatic library management** — downloads library `.scad` files from GitHub on save, no manual setup needed
+
+## Supported Libraries
+
+| Library | Status |
+|---------|--------|
+| [Boardgame Insert Toolkit](https://github.com/dppdppd/The-Boardgame-Insert-Toolkit) | Supported |
 
 ## Screenshots
 
@@ -28,12 +46,14 @@ BGSD automatically downloads the required library files from GitHub and places t
 |--------------|---------------|
 | ![Imported](images/bgsd_imported.png) | ![Scrolled](images/bgsd_scrolled.png) |
 
-## Getting Started
+---
+
+## Development
 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) 18+
-- [OpenSCAD](https://openscad.org/) (for rendering)
+- [OpenSCAD](https://openscad.org/)
 
 ### Install and Run
 
@@ -43,7 +63,7 @@ npm run build
 npm start
 ```
 
-### Development
+### Dev Mode
 
 ```bash
 npm run dev    # Vite watch + Electron with hot reload
@@ -57,25 +77,13 @@ npm run dist:win     # NSIS installer + portable
 npm run dist:mac     # zip
 ```
 
-## How It Works
-
-1. **New file** — creates a starter `.scad` with a basic box definition
-2. **Open file** — parses an existing `.scad` file into editable parameters
-3. **Edit** — modify box sizes, features, lids, labels, dividers, and globals through the UI
-4. **Save** — generates valid OpenSCAD code, downloads library files if needed
-5. **Open in OpenSCAD** — launches OpenSCAD with your file for rendering/export
-
-## Architecture
+### Architecture
 
 - **Electron** — desktop shell with file system access
-- **Svelte 5** — reactive UI with runes (`$state`, `$derived`, `$effect`)
+- **Svelte 5** — reactive UI with runes
 - **Vite** — build toolchain
 - **Line-based model** — preserves raw SCAD text for round-trip fidelity
 
-## Related Projects
-
-- [Boardgame Insert Toolkit](https://github.com/dppdppd/The-Boardgame-Insert-Toolkit) — the OpenSCAD parametric library for board game inserts
-
 ## License
 
-MIT
+CC BY-NC-SA 4.0
