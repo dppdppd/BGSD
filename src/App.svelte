@@ -1363,7 +1363,7 @@
             {@const pubs = tree?.publishers}
             {@const designsDir = tree?.designsDir || "designs"}
             {@const pubKeys = pubs ? Object.keys(pubs).sort() : []}
-            <div class="welcome-col" data-testid="welcome-col-{profileId}">
+            <div class="welcome-col" class:welcome-col-right-align={profileId === "bit"} data-testid="welcome-col-{profileId}">
               <h2 class="welcome-library-title">{profileLabel}</h2>
               <div class="welcome-library-scroll">
                 {#if !pubKeys.includes(designsDir)}
@@ -2047,6 +2047,10 @@
     display: flex; flex-direction: column; overflow: hidden;
     border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 16px;
   }
+  .welcome-col-right-align { text-align: right; }
+  .welcome-col-right-align .welcome-publisher-row { flex-direction: row-reverse; }
+  .welcome-col-right-align .welcome-library-game { text-align: right; }
+  .welcome-col-right-align .welcome-library-empty-folder { text-align: right; }
   .welcome-library-title { font-size: 18px; font-weight: 600; color: #2c3e50; margin: 0 0 12px; }
   .welcome-library-scroll { overflow-y: auto; flex: 1; padding-right: 8px; }
   .welcome-library-publisher { margin-bottom: 14px; }
