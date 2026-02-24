@@ -39,6 +39,7 @@
   let workingDirSet = $state(false);
   let setupBusy = $state(false);
   let setupStatus = $state("");
+  let setupLog = $state<string[]>([]);
 
   // Library browser state
   let libraryTreeRaw = $state<string>("{}");
@@ -145,7 +146,10 @@
     }
 
     // Listen for working dir progress messages
-    bgsd?.onWorkingDirProgress?.((msg: string) => { setupStatus = msg; });
+    bgsd?.onWorkingDirProgress?.((msg: string) => {
+      setupStatus = msg;
+      setupLog = [...setupLog, msg];
+    });
 
     // Check for pending auto-load (CLI arg / env var)
     for (let i = 0; i < 50; i++) {
@@ -354,6 +358,7 @@
     if (!result?.ok || !result.path) return;
 
     setupBusy = true;
+    setupLog = [];
     setupStatus = "Initializing...";
     try {
       const res = await bgsd.initWorkingDir(result.path);
@@ -361,6 +366,7 @@
         workingDir = result.path;
         workingDirSet = true;
         setupStatus = "";
+        setupLog = [];
         loadLibraryTree();
       } else {
         setupStatus = `Setup failed: ${res.error}`;
@@ -375,12 +381,13 @@
     const bgsd = (window as any).bgsd;
     if (!bgsd?.updateLibraries) return;
     setupBusy = true;
+    setupLog = [];
     setupStatus = "Updating libraries...";
     try {
       const res = await bgsd.updateLibraries();
       if (res.ok) {
         setupStatus = "Libraries updated.";
-        setTimeout(() => { setupStatus = ""; }, 3000);
+        setTimeout(() => { setupStatus = ""; setupLog = []; }, 3000);
         loadLibraryTree();
       } else {
         setupStatus = `Update failed: ${res.error}`;
@@ -398,6 +405,7 @@
     if (!result?.ok || !result.path) return;
 
     setupBusy = true;
+    setupLog = [];
     setupStatus = "Initializing new directory...";
     try {
       const res = await bgsd.initWorkingDir(result.path);
@@ -405,6 +413,7 @@
         workingDir = result.path;
         workingDirSet = true;
         setupStatus = "";
+        setupLog = [];
         loadLibraryTree();
       } else {
         setupStatus = `Setup failed: ${res.error}`;
@@ -423,6 +432,11 @@
     if (res?.ok) {
       libraryTreeRaw = JSON.stringify(res.tree || {});
     }
+  }
+
+  function scrollBottom(node: HTMLElement, _deps: any) {
+    node.scrollTop = node.scrollHeight;
+    return { update() { node.scrollTop = node.scrollHeight; } };
   }
 
   function formatPublisher(slug: string): string {
@@ -1371,8 +1385,14 @@
             <button class="welcome-btn welcome-btn-primary" data-testid="welcome-choose-dir" onclick={() => chooseAndInitWorkingDir()} disabled={setupBusy}>
               {setupBusy ? "Setting up..." : "Choose Folder..."}
             </button>
-            {#if setupStatus}
-              <p class="welcome-status">{setupStatus}</p>
+            {#if setupBusy || setupStatus}
+              <div class="welcome-progress">
+                {#if setupBusy}<span class="welcome-spinner"></span>{/if}
+                <span class="welcome-progress-msg">{setupStatus}</span>
+              </div>
+              {#if setupLog.length > 1}
+                <div class="welcome-log" use:scrollBottom={setupLog}>{#each setupLog as line}<div class="welcome-log-line">{line}</div>{/each}</div>
+              {/if}
             {/if}
           </div>
         {:else}
@@ -1380,8 +1400,14 @@
             <button class="welcome-icon-btn" data-testid="welcome-update-libs" title={setupBusy ? "Updating..." : "Update Libraries"} onclick={() => updateLibs()} disabled={setupBusy}>&#x21BB;</button>
             <button class="welcome-icon-btn" data-testid="welcome-change-dir" title="Change Workspace" onclick={() => changeWorkingDir()}>&#x2699;</button>
           </div>
-          {#if setupStatus}
-            <p class="welcome-status">{setupStatus}</p>
+          {#if setupBusy || setupStatus}
+            <div class="welcome-progress">
+              {#if setupBusy}<span class="welcome-spinner"></span>{/if}
+              <span class="welcome-progress-msg">{setupStatus}</span>
+            </div>
+            {#if setupLog.length > 1}
+              <div class="welcome-log" use:scrollBottom={setupLog}>{#each setupLog as line}<div class="welcome-log-line">{line}</div>{/each}</div>
+            {/if}
           {/if}
 
           <div class="welcome-sort-bar">
@@ -2097,6 +2123,29 @@
   .welcome-status {
     text-align: center; color: #6c3483; font-size: 13px; margin: 0;
     max-width: 260px; word-break: break-word; align-self: center;
+  }
+  .welcome-progress {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    margin: 8px 0 4px; align-self: center;
+  }
+  .welcome-progress-msg {
+    color: #6c3483; font-size: 12px; font-weight: 500;
+  }
+  .welcome-spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid #e0cfe8; border-top-color: #6c3483;
+    border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .welcome-log {
+    align-self: center; max-height: 120px; overflow-y: auto;
+    font-family: "Courier New", monospace; font-size: 11px; color: #888;
+    background: #f8f8f8; border: 1px solid #eee; border-radius: 4px;
+    padding: 6px 10px; margin: 4px 0 8px; width: 420px; max-width: 90%;
+  }
+  .welcome-log-line {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    line-height: 1.5;
   }
   .welcome-columns { display: flex; gap: 24px; justify-content: center; width: 100%; align-items: flex-start; }
   .welcome-col {
