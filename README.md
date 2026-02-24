@@ -39,12 +39,11 @@ BGSD preserves your comments, formatting, and any hand-written code when round-t
 | Library | Status |
 |---------|--------|
 | [Boardgame Insert Toolkit](https://github.com/dppdppd/The-Boardgame-Insert-Toolkit) | Supported |
+| [Counter Tray Designer](https://github.com/dppdppd/Counter-Tray-Designer) | Supported |
 
 ## Screenshots
 
-| Imported file | Scrolled view |
-|--------------|---------------|
-| ![Imported](images/bgsd_imported.png) | ![Scrolled](images/bgsd_scrolled.png) |
+![Imported file](images/bgsd_imported.png)
 
 ---
 
