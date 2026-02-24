@@ -62,5 +62,8 @@
       ],
       "category": "public.app-category.utilities"
     }
+  },
+  "dependencies": {
+    "tar": "^7.5.9"
   }
 }
