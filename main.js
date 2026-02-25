@@ -86,7 +86,7 @@ function rebuildMenu() {
           label: "New",
           submenu: [
             {
-              label: "BIT — Board Game Insert",
+              label: "BIT — Storage Insert",
               accelerator: "CmdOrCtrl+N",
               click: () => mainWindow.webContents.send("menu-new", "bit"),
             },
@@ -169,6 +169,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width,
     height,
+    autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -179,6 +180,7 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "dist", "index.html"));
 
   rebuildMenu();
+  mainWindow.setMenuBarVisibility(false);
 
   // Auto-load file from env or CLI arg
   const autoLoad = process.env.BGSD_OPEN || process.argv.find(a => a.endsWith(".scad"));
@@ -614,13 +616,12 @@ ipcMain.handle("get-library-tree", () => {
       let entries;
       try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
       for (const entry of entries) {
+        if (entry.name === "lib" || entry.name === ".manifest.json") continue;
         const fullPath = path.join(dir, entry.name);
-        const relPath = path.relative(profileDir, fullPath).replace(/\\/g, "/");
-        if (relPath.startsWith("lib/") || relPath === "lib") continue;
-        if (entry.name === ".manifest.json") continue;
         if (entry.isDirectory()) {
           walk(fullPath);
         } else if (entry.isFile() && entry.name.endsWith(".scad")) {
+          const relPath = path.relative(profileDir, fullPath).replace(/\\/g, "/");
           const parts = relPath.split("/");
           if (parts.length < 2) continue;
           const folder = parts[0];

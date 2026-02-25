@@ -265,13 +265,44 @@ function formatScadOnLoad(scadText) {
   const headerLine = `${baseIndent}${varName || "data"} = [` + (headerComment ? ` //${headerComment}` : "");
   out.push(headerLine);
 
-  // Root array elements (boxes/dividers)
+  // Sort root elements: KV params before structural blocks (TRAY, OBJECT_BOX, etc.)
+  // Group comments with the following non-comment element
+  const groups = [];
+  let pendingComments = [];
   for (const el of root.elements) {
     if (el.type === "comment") {
-      out.push(`${baseIndent}${" ".repeat(4)}//${el.text}`);
-      continue;
+      pendingComments.push(el);
+    } else {
+      groups.push({ comments: pendingComments, el });
+      pendingComments = [];
     }
-    renderEntryLines(el, baseIndent + " ".repeat(4), true, out);
+  }
+  // Trailing comments (no following element)
+  if (pendingComments.length > 0) {
+    groups.push({ comments: pendingComments, el: null });
+  }
+
+  function isStructural(g) {
+    if (!g.el || g.el.type !== "array") return false;
+    const vals = g.el.elements.filter(e => e.type !== "comment");
+    if (vals.length >= 2 && vals[0].type === "atom") {
+      const key = vals[0].text.trim();
+      return OBJECT_TYPES.has(key) || key.startsWith('"');
+    }
+    return false;
+  }
+
+  const params = groups.filter(g => g.el && !isStructural(g));
+  const blocks = groups.filter(g => !g.el || isStructural(g));
+  const sorted = [...params, ...blocks];
+
+  for (const g of sorted) {
+    for (const c of g.comments) {
+      out.push(`${baseIndent}${" ".repeat(4)}//${c.text}`);
+    }
+    if (g.el) {
+      renderEntryLines(g.el, baseIndent + " ".repeat(4), true, out);
+    }
   }
 
   out.push(`${baseIndent}];` + (footerComment ? ` //${footerComment}` : ""));
@@ -614,8 +645,8 @@ function tokenizeScad(s) {
       continue;
     }
 
-    // number
-    if (/[0-9]/.test(ch) || (ch === "-" && /[0-9]/.test(next))) {
+    // number (including .4 style decimals)
+    if (/[0-9]/.test(ch) || (ch === "-" && /[0-9.]/.test(next)) || (ch === "." && next && /[0-9]/.test(next))) {
       let j = i + 1;
       while (j < s.length && /[0-9.]/.test(s[j])) j++;
       toks.push({ type: "number", value: s.slice(i, j) });
@@ -930,7 +961,7 @@ function parseSimpleValue(text) {
   if (t in KNOWN_CONSTANTS) return { value: KNOWN_CONSTANTS[t], ok: true };
   const strMatch = t.match(/^"([^"]*)"$/);
   if (strMatch) return { value: strMatch[1], ok: true };
-  if (/^-?\d+(\.\d+)?$/.test(t)) return { value: parseFloat(t), ok: true };
+  if (/^-?\d+(\.\d+)?$/.test(t) || /^\.\d+$/.test(t)) return { value: parseFloat(t), ok: true };
   const arrMatch = t.match(/^\[(.+)\]$/);
   if (arrMatch) {
     const inner = arrMatch[1];
@@ -1013,7 +1044,7 @@ function importScad(scadText) {
   }
 
   for (const raw of rawLines) {
-    if (!raw.trim()) continue;
+    if (!raw.trim()) { lines.push({ raw: "", kind: "blank", depth }); continue; }
 
     // --- If inside an unrecognized block, everything is raw ---
     if (rawDepth > 0) {
@@ -1335,7 +1366,7 @@ function reimportBlock(text, baseDepth) {
   }
 
   for (const raw of rawLines) {
-    if (!raw.trim()) continue;
+    if (!raw.trim()) { lines.push({ raw: "", kind: "blank", depth }); continue; }
 
     if (rawDepth > 0) {
       rawDepth += bracketDeltaLocal(raw);

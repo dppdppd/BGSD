@@ -1,0 +1,5 @@
+wait welcome-screen
+shot welcome-bottom-idle
+click welcome-update-libs
+shot welcome-bottom-active
+exit

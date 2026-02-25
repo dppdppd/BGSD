@@ -9,19 +9,11 @@ import type { Project, Line } from "./stores/project";
 export function generateScad(project: Project): string {
   const out: string[] = [];
 
-  // Always start with marker + library include
-  out.push("// BGSD");
-  out.push(`include <${project.libraryInclude || "boardgame_insert_toolkit_lib.4.scad"}>;`);
-
   for (const line of project.lines) {
     switch (line.kind) {
       case "include":
-        // Skip the primary library include (regenerated above); preserve others verbatim
-        if (line.includeFile === project.libraryInclude) break;
-        out.push(line.raw);
-        break;
       case "marker":
-        // Skip — regenerated above.
+        out.push(line.raw);
         break;
       case "makeall":
         out.push(`Make(${line.varName || "data"});`);
@@ -45,6 +37,9 @@ export function generateScad(project: Project): string {
         }
         break;
       }
+      case "blank":
+        out.push("");
+        break;
       case "variable":
       case "comment":
         out.push(line.raw);

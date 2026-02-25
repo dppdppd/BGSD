@@ -1,4 +1,4 @@
-# BGSD (Boardgame SCAD Designer) — Agent Instructions
+# BGSD (Board Game Solutions Designer) — Agent Instructions
 
 ## Project Overview
 

@@ -1,4 +1,4 @@
-# BGSD — Board Game Storage Designer
+# BGSD — Board Game Solutions Designer
 
 A visual desktop editor for creating parametric 3D-printable board game inserts using OpenSCAD libraries. No OpenSCAD coding required.
 

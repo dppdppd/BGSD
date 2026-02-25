@@ -1,0 +1,7 @@
+wait welcome-screen
+js document.querySelector('[data-testid="welcome-col-bit"] .welcome-library-game')?.click()
+js await new Promise(r => setTimeout(r, 500))
+js document.querySelector('[data-testid="ctx-edit-copy"]')?.click()
+js await new Promise(r => setTimeout(r, 1000))
+shot editor-check
+exit

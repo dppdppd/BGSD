@@ -49,6 +49,7 @@
 
   // Preferences modal state
   let showPrefs = $state(false);
+  let prefsWorkingDir = $state("");
   let prefsOpenScadPath = $state("");
   let prefsAutoOpen = $state(true);
   let prefsReuseOpenScad = $state(true);
@@ -330,6 +331,7 @@
   async function openPreferencesModal() {
     const bgsd = (window as any).bgsd;
     const prefs = await bgsd?.getPreferences?.() || { openScadPath: "", autoOpenInOpenScad: true };
+    prefsWorkingDir = workingDir || "";
     prefsOpenScadPath = prefs.openScadPath || "";
     prefsAutoOpen = prefs.autoOpenInOpenScad !== false;
     prefsReuseOpenScad = prefs.reuseOpenScad !== false;
@@ -340,6 +342,15 @@
   async function savePreferences() {
     const bgsd = (window as any).bgsd;
     await bgsd?.setPreferences?.({ openScadPath: prefsOpenScadPath, autoOpenInOpenScad: prefsAutoOpen, reuseOpenScad: prefsReuseOpenScad, proxy: prefsProxy });
+    // Handle working directory change
+    if (prefsWorkingDir && prefsWorkingDir !== workingDir && bgsd?.initWorkingDir) {
+      const res = await bgsd.initWorkingDir(prefsWorkingDir);
+      if (res.ok) {
+        workingDir = prefsWorkingDir;
+        workingDirSet = true;
+        loadLibraryTree();
+      }
+    }
     showPrefs = false;
   }
 
@@ -348,6 +359,14 @@
     const result = await bgsd?.browseOpenScad?.();
     if (result?.ok && result.path) {
       prefsOpenScadPath = result.path;
+    }
+  }
+
+  async function browseWorkingDirPref() {
+    const bgsd = (window as any).bgsd;
+    const result = await bgsd?.browseWorkingDir?.();
+    if (result?.ok && result.path) {
+      prefsWorkingDir = result.path;
     }
   }
 
@@ -393,35 +412,11 @@
         loadLibraryTree();
       } else {
         setupStatus = `Update failed: ${res.error}`;
+        setTimeout(() => { setupStatus = ""; setupLog = []; }, 5000);
       }
     } catch (err: any) {
       setupStatus = `Update failed: ${err.message}`;
-    }
-    setupBusy = false;
-  }
-
-  async function changeWorkingDir() {
-    const bgsd = (window as any).bgsd;
-    if (!bgsd?.browseWorkingDir) return;
-    const result = await bgsd.browseWorkingDir();
-    if (!result?.ok || !result.path) return;
-
-    setupBusy = true;
-    setupLog = [];
-    setupStatus = "Initializing new directory...";
-    try {
-      const res = await bgsd.initWorkingDir(result.path);
-      if (res.ok) {
-        workingDir = result.path;
-        workingDirSet = true;
-        setupStatus = "";
-        setupLog = [];
-        loadLibraryTree();
-      } else {
-        setupStatus = `Setup failed: ${res.error}`;
-      }
-    } catch (err: any) {
-      setupStatus = `Setup failed: ${err.message}`;
+      setTimeout(() => { setupStatus = ""; setupLog = []; }, 5000);
     }
     setupBusy = false;
   }
@@ -1325,6 +1320,23 @@
     });
   }
 
+  /** Insert a TRAY block before `closeIndex` (CTD profile). */
+  function addTray(closeIndex: number, depth: number) {
+    const d = depth + 1;
+    const ind = (n: number) => "    ".repeat(n);
+    const lines: Line[] = [
+      { raw: `${ind(d)}[ TRAY,`, kind: "open", depth: d, role: "object", label: "TRAY" },
+      { raw: `${ind(d+1)}[ COUNTER_SET,`, kind: "open", depth: d + 1, role: "counter_set", label: "COUNTER_SET" },
+      { raw: `${ind(d+2)}[ COUNTER_SIZE_XYZ, [13.3, 13.3, 3] ],`, kind: "kv", depth: d + 2, kvKey: "COUNTER_SIZE_XYZ", kvValue: [13.3, 13.3, 3] },
+      { raw: `${ind(d+1)}],`, kind: "close", depth: d + 1, role: "counter_set", label: "COUNTER_SET" },
+      { raw: `${ind(d)}],`, kind: "close", depth: d, role: "object", label: "TRAY" },
+    ];
+    project.update((p) => {
+      p.lines.splice(closeIndex, 0, ...lines);
+      return { ...p };
+    });
+  }
+
   /** Insert a COUNTER_SET block before `closeIndex` (CTD profile). */
   function addCounterSet(closeIndex: number, depth: number) {
     const d = depth + 1;
@@ -1379,7 +1391,7 @@
     {#if showWelcome}
       <div class="welcome" data-testid="welcome-screen">
         <h1 class="welcome-title">BGSD</h1>
-        <p class="welcome-subtitle">Board Game Storage Designer</p>
+        <p class="welcome-subtitle">Board Game Solutions Designer</p>
 
         {#if !workingDirSet}
           <div class="welcome-actions">
@@ -1392,38 +1404,38 @@
                 {#if setupBusy}<span class="welcome-spinner"></span>{/if}
                 <span class="welcome-progress-msg">{setupStatus}</span>
               </div>
-              {#if setupLog.length > 1}
-                <div class="welcome-log" use:scrollBottom={setupLog}>{#each setupLog as line}<div class="welcome-log-line">{line}</div>{/each}</div>
-              {/if}
             {/if}
           </div>
         {:else}
           <div class="welcome-icon-bar">
-            <button class="welcome-icon-btn" data-testid="welcome-update-libs" title={setupBusy ? "Updating..." : "Update Libraries"} onclick={() => updateLibs()} disabled={setupBusy}>&#x21BB;</button>
-            <button class="welcome-icon-btn" data-testid="welcome-change-dir" title="Change Workspace" onclick={() => changeWorkingDir()}>&#x2699;</button>
-          </div>
-          {#if setupBusy || setupStatus}
-            <div class="welcome-progress">
-              {#if setupBusy}<span class="welcome-spinner"></span>{/if}
-              <span class="welcome-progress-msg">{setupStatus}</span>
+            <div class="update-btn-wrap">
+              <button class="welcome-icon-btn" data-testid="welcome-update-libs" title={setupBusy ? "Updating..." : "Update Libraries"} onclick={() => updateLibs()} disabled={setupBusy}><span class:spinning={setupBusy}>&#x21BB;</span></button>
+              {#if setupBusy || setupLog.length > 0}
+                <div class="update-toast" data-testid="update-toast" use:scrollBottom={setupLog}>
+                  {#if setupBusy}<span class="welcome-spinner"></span>{/if}
+                  <div class="update-toast-lines">
+                    {#if setupLog.length > 0}
+                      {#each setupLog as line}<div class="update-toast-line">{line}</div>{/each}
+                    {:else}
+                      <div class="update-toast-line">{setupStatus || "Working..."}</div>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
             </div>
-            {#if setupLog.length > 1}
-              <div class="welcome-log" use:scrollBottom={setupLog}>{#each setupLog as line}<div class="welcome-log-line">{line}</div>{/each}</div>
-            {/if}
-          {/if}
-
+          </div>
           <div class="welcome-sort-bar">
             <button class="welcome-sort-btn" class:active={sortMode === "dir"} data-testid="sort-dir" onclick={() => sortMode = "dir"}>Directories</button>
             <button class="welcome-sort-btn" class:active={sortMode === "date"} data-testid="sort-date" onclick={() => sortMode = "date"}>Modified</button>
           </div>
 
           <div class="welcome-columns" data-testid="welcome-columns">
-            {#each [["bit", "Board Game Inserts", "Box inserts with compartments, lids, and dividers"], ["ctd", "Counter Trays", "Counter trays sized for tokens, markers, and chits"]] as [profileId, profileLabel, profileDesc]}
+            {#each [["bit", "Storage Inserts", "Box inserts with compartments, lids, and dividers"], ["ctd", "Counter Trays", "Counter trays sized for tokens, markers, and chits"]] as [profileId, profileLabel, profileDesc]}
             {@const tree = libraryTree[profileId]}
             {@const pubs = tree?.publishers}
             {@const designsDir = tree?.designsDir || "designs"}
-            {@const pubKeys = pubs ? Object.keys(pubs).sort() : []}
-            <div class="welcome-col" class:welcome-col-right-align={profileId === "bit" && sortMode === "dir"} data-testid="welcome-col-{profileId}">
+            {@const pubKeys = pubs ? Object.keys(pubs).sort((a, b) => a === designsDir ? -1 : b === designsDir ? 1 : a.localeCompare(b)) : []}
+            <div class="welcome-col" class:welcome-col-right-align={profileId === "bit"} data-testid="welcome-col-{profileId}">
               <h2 class="welcome-library-title">{profileLabel}</h2>
               <p class="welcome-library-desc">{profileDesc}</p>
               <div class="welcome-library-scroll">
@@ -1448,21 +1460,33 @@
                         <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
                       {/if}
                       {#each pubs[pub].sort((a: any, b: any) => a.name.localeCompare(b.name)) as game}
-                        <button class="welcome-library-game" onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
+                        <button class="welcome-library-game" class:user-file={!game.isRepo} onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
                       {/each}
                     </div>
                   {/each}
                 {:else}
-                  {#each filesByDate(pubs) as group}
+                  {@const dateGroups = filesByDate(pubs)}
+                  {#each dateGroups as group, gi}
                     <div class="welcome-library-publisher">
-                      <h3 class="welcome-library-publisher-name">{group.bucket}</h3>
+                      <div class="welcome-publisher-row">
+                        <h3 class="welcome-library-publisher-name">{group.bucket}</h3>
+                        {#if gi === 0}
+                          <button class="welcome-new-file" data-testid="new-{profileId}-date" onclick={() => newProject(profileId)}>+ New</button>
+                        {/if}
+                      </div>
                       {#each group.files as game}
-                        <button class="welcome-library-game" onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
+                        <button class="welcome-library-game" class:user-file={!game.isRepo} onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
                       {/each}
                     </div>
                   {/each}
                   {#if !pubs || Object.keys(pubs).length === 0}
-                    <p class="welcome-library-empty-folder">No designs yet.</p>
+                    <div class="welcome-library-publisher">
+                      <div class="welcome-publisher-row">
+                        <h3 class="welcome-library-publisher-name">Today</h3>
+                        <button class="welcome-new-file" data-testid="new-{profileId}-date" onclick={() => newProject(profileId)}>+ New</button>
+                      </div>
+                      <p class="welcome-library-empty-folder">No designs yet.</p>
+                    </div>
                   {/if}
                 {/if}
               </div>
@@ -1485,6 +1509,7 @@
             {/if}
           </div>
         {/if}
+
       </div>
     {:else}
     <div class="editor-split" class:split-active={showScad}>
@@ -1510,7 +1535,9 @@
           {/if}
           {#if line.role === "data"}
             <input class="scene-name-input" type="text" value={line.varName || "data"}
+              size={Math.max(4, (line.varName || "data").length + 1)}
               onblur={(e) => handleSceneNameBlur(i, e.currentTarget.value)}
+              oninput={(e) => { e.currentTarget.size = Math.max(4, e.currentTarget.value.length + 1); }}
               onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
             />
             <span class="struct-bracket">=</span>
@@ -1694,10 +1721,12 @@
           <div class="line-row add-row virtual" style="{padDepth(addDepth)}; {bracketStyle(addDepth)}" data-testid="add-{i}">
             {#if line.role === "data"}
               {#if $project.libraryProfile === "ctd"}
-                <button class="add-btn" title="Add counter set" onclick={() => addCounterSet(i, line.depth ?? 0)}>+ Counter Set</button>
+                <button class="add-btn" title="Add tray" onclick={() => addTray(i, line.depth ?? 0)}>+ Tray</button>
               {:else}
                 <button class="add-btn" title="Add object" onclick={() => addObject(i, line.depth ?? 0)}>+ Object</button>
               {/if}
+            {:else if line.role === "object" && $project.libraryProfile === "ctd"}
+              <button class="add-btn" title="Add counter set" onclick={() => addCounterSet(i, line.depth ?? 0)}>+ Counter Set</button>
             {:else if line.role === "params" && $project.libraryProfile !== "ctd"}
               <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, (line.depth ?? 0) + 1)}>+ Label</button>
               <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, (line.depth ?? 0) + 1)}>+ Feature</button>
@@ -1803,6 +1832,9 @@
           </select>
           <span class="make-text">);</span>
         </div>
+
+      {:else if line.kind === "blank"}
+        <div class="line-row blank" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">&nbsp;</div>
 
       {:else if line.kind === "include" || line.kind === "marker"}
         <div class="line-row muted" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
@@ -1929,6 +1961,9 @@
       {:else if line.kind === "makeall"}
         <div class="scad-line">Make({line.varName || "data"});</div>
 
+      {:else if line.kind === "blank"}
+        <div class="scad-line">&nbsp;</div>
+
       {:else if line.kind === "include" || line.kind === "marker"}
         <div class="scad-line">{line.raw}</div>
 
@@ -1963,6 +1998,13 @@
     <div class="prefs-overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) showPrefs = false; }}>
       <div class="prefs-modal" data-testid="prefs-modal">
         <h2 class="prefs-title">Preferences</h2>
+        <div class="prefs-row">
+          <label class="prefs-label" for="prefs-working-dir">Working directory</label>
+          <div class="prefs-input-row">
+            <input class="prefs-input" id="prefs-working-dir" type="text" bind:value={prefsWorkingDir} placeholder="(not set)" data-testid="prefs-working-dir" />
+            <button class="prefs-browse" onclick={browseWorkingDirPref} data-testid="prefs-browse-working-dir">Browse...</button>
+          </div>
+        </div>
         <div class="prefs-row">
           <label class="prefs-label" for="prefs-openscad-path">OpenSCAD path</label>
           <div class="prefs-input-row">
@@ -2030,7 +2072,7 @@
   .toolbar-check { display: flex; align-items: center; gap: 3px; cursor: pointer; color: #333; font-size: 12px; }
   .toolbar-check input { margin: 0; }
   .toolbar-sep { width: 1px; height: 18px; background: #bbb; margin: 0 6px; }
-  .content { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .content { flex: 1; overflow-y: auto; padding: 4px 0; display: flex; flex-direction: column; min-height: 0; }
 
   /* Split layout: editor left + SCAD pane right */
   .editor-split { display: flex; flex-direction: row; }
@@ -2069,10 +2111,10 @@
   .welcome {
     position: relative;
     display: flex; flex-direction: column; align-items: center;
-    height: 100%; gap: 8px; padding-top: 60px; overflow-y: auto;
+    flex: 1; min-height: 0; gap: 8px; padding-top: 60px; overflow: hidden;
   }
   .welcome-title {
-    margin: 0; font-size: 36px; font-weight: 700; color: #6c3483;
+    margin: 0; font-size: 36px; font-weight: 700; color: #2d5a7b;
   }
   .welcome-subtitle {
     margin: 0 0 24px; font-size: 16px; color: #888;
@@ -2088,8 +2130,8 @@
     border: 1px solid #ddd; border-radius: 4px;
     background: #fff; color: #888; cursor: pointer;
   }
-  .welcome-sort-btn.active { background: #6c3483; color: #fff; border-color: #6c3483; }
-  .welcome-sort-btn:hover:not(.active) { background: #f3e5f5; color: #6c3483; border-color: #6c3483; }
+  .welcome-sort-btn.active { background: #2d5a7b; color: #fff; border-color: #2d5a7b; }
+  .welcome-sort-btn:hover:not(.active) { background: #e8f0f6; color: #2d5a7b; border-color: #2d5a7b; }
   .welcome-icon-bar {
     position: absolute; top: 12px; right: 16px;
     display: flex; gap: 6px;
@@ -2100,8 +2142,28 @@
     background: #fff; color: #666; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
   }
-  .welcome-icon-btn:hover:not(:disabled) { background: #f3e5f5; color: #6c3483; border-color: #6c3483; }
+  .welcome-icon-btn:hover:not(:disabled) { background: #e8f0f6; color: #2d5a7b; border-color: #2d5a7b; }
   .welcome-icon-btn:disabled { opacity: 0.4; cursor: default; }
+  .spinning { display: inline-block; animation: spin 0.8s linear infinite; }
+  .update-btn-wrap { position: relative; }
+  .update-toast {
+    position: absolute; top: 100%; right: 0; margin-top: 6px;
+    width: calc(100vw - 48px); max-width: 700px; max-height: 140px; overflow-y: auto;
+    background: #fff; border: 1px solid #cbd5e1; border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    padding: 8px 10px; box-sizing: border-box;
+    display: flex; gap: 8px; align-items: flex-start;
+    z-index: 100;
+  }
+  .update-toast-lines {
+    flex: 1; min-width: 0;
+    font-family: "Courier New", monospace; font-size: 11px; color: #555;
+    line-height: 1.5;
+  }
+  .update-toast-line {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    direction: rtl; text-align: left;
+  }
   .welcome-btn {
     padding: 12px 24px; font-size: 16px; font-weight: 600;
     border: 1px solid #bbb; border-radius: 6px;
@@ -2109,16 +2171,16 @@
     transition: background 0.15s, border-color 0.15s;
   }
   .welcome-btn:hover:not(:disabled) {
-    background: #f3e5f5; border-color: #6c3483;
+    background: #e8f0f6; border-color: #2d5a7b;
   }
   .welcome-btn:disabled {
     opacity: 0.5; cursor: default;
   }
   .welcome-btn-primary {
-    background: #6c3483; color: white; border-color: #6c3483;
+    background: #2d5a7b; color: white; border-color: #2d5a7b;
   }
   .welcome-btn-primary:hover:not(:disabled) {
-    background: #7d3c98; border-color: #7d3c98;
+    background: #3a6d91; border-color: #3a6d91;
   }
   .welcome-btn-secondary {
     font-size: 14px; padding: 8px 16px; color: #666; border-color: #ddd;
@@ -2127,7 +2189,7 @@
     text-align: center; color: #888; font-size: 14px; margin: 0; line-height: 1.5;
   }
   .welcome-status {
-    text-align: center; color: #6c3483; font-size: 13px; margin: 0;
+    text-align: center; color: #2d5a7b; font-size: 13px; margin: 0;
     max-width: 260px; word-break: break-word; align-self: center;
   }
   .welcome-progress {
@@ -2135,27 +2197,17 @@
     margin: 8px 0 4px; align-self: center;
   }
   .welcome-progress-msg {
-    color: #6c3483; font-size: 12px; font-weight: 500;
+    color: #2d5a7b; font-size: 12px; font-weight: 500;
   }
   .welcome-spinner {
     display: inline-block; width: 14px; height: 14px;
-    border: 2px solid #e0cfe8; border-top-color: #6c3483;
+    border: 2px solid #c8d9e6; border-top-color: #2d5a7b;
     border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .welcome-log {
-    align-self: center; max-height: 120px; overflow-y: auto;
-    font-family: "Courier New", monospace; font-size: 11px; color: #888;
-    background: #f8f8f8; border: 1px solid #eee; border-radius: 4px;
-    padding: 6px 10px; margin: 4px 0 8px; width: 420px; max-width: 90%;
-  }
-  .welcome-log-line {
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    line-height: 1.5;
-  }
-  .welcome-columns { display: flex; gap: 24px; justify-content: center; width: 100%; align-items: flex-start; }
+  .welcome-columns { display: flex; gap: 24px; justify-content: center; width: 100%; align-items: stretch; flex: 1; min-height: 0; }
   .welcome-col {
-    width: 280px; flex: 0 0 280px; max-height: 500px;
+    width: 280px; flex: 0 0 280px;
     display: flex; flex-direction: column; overflow: hidden;
     border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 16px;
   }
@@ -2171,18 +2223,20 @@
   .welcome-publisher-row .welcome-library-publisher-name { margin: 0; }
   .welcome-new-file {
     padding: 1px 8px; font-size: 11px; font-weight: 600;
-    border: 1px dashed #6c3483; border-radius: 3px;
-    background: transparent; color: #6c3483; cursor: pointer;
+    border: 1px dashed #2d5a7b; border-radius: 3px;
+    background: transparent; color: #2d5a7b; cursor: pointer;
   }
-  .welcome-new-file:hover { background: #f3e5f5; }
+  .welcome-new-file:hover { background: #e8f0f6; }
   .welcome-library-empty-folder { color: #bbb; font-size: 13px; font-style: italic; margin: 0; padding: 2px 10px; }
-  .welcome-library-publisher-name { font-size: 12px; font-weight: 600; color: #6c3483; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 4px; }
+  .welcome-library-publisher-name { font-size: 12px; font-weight: 600; color: #2d5a7b; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 4px; }
   .welcome-library-game {
     display: block; width: 100%; text-align: left;
     padding: 5px 10px; border: none; border-radius: 4px;
     background: transparent; color: #2c3e50; font-size: 14px; cursor: pointer;
   }
-  .welcome-library-game:hover { background: #f3e5f5; color: #6c3483; }
+  .welcome-library-game:hover { background: #e8f0f6; color: #2d5a7b; }
+  .welcome-library-game.user-file { font-weight: 600; }
+  .welcome-library-game.user-file::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #d4800e; margin-right: 6px; flex-shrink: 0; vertical-align: middle; }
   .lib-context-backdrop {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 999;
   }
@@ -2197,7 +2251,7 @@
     padding: 8px 16px; border: none; background: transparent;
     font-size: 14px; color: #2c3e50; cursor: pointer;
   }
-  .lib-context-item:hover { background: #f3e5f5; color: #6c3483; }
+  .lib-context-item:hover { background: #e8f0f6; color: #2d5a7b; }
   .line-row {
     display: flex; align-items: center; gap: 6px;
     padding: 1px 8px; min-height: 24px;
@@ -2233,13 +2287,12 @@
   .line-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .line-badge { font-size: 11px; color: #999; background: #eee; padding: 1px 5px; border-radius: 2px; font-weight: 500; }
 
-  .kv-key { font-weight: 700; color: #2c3e50; min-width: 220px; flex-shrink: 0; }
-  .kv-control { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-  .kv-num { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; width: 120px; background: white; }
-  .kv-num.sm { width: 80px; }
-  .kv-num.xs { width: 60px; }
-  .kv-str { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; width: 240px; background: white; }
-  .kv-str.sm { width: 120px; }
+  .kv-key { font-weight: 700; color: #2c3e50; min-width: 180px; flex-shrink: 0; }
+  .kv-control { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .kv-num { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; width: 56px; background: white; }
+  .kv-num.xs { width: 44px; }
+  .kv-str { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; width: 160px; background: white; }
+  .kv-str.sm { width: 56px; }
   .kv-control select { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #ddd; border-radius: 2px; background: white; }
   .kv-control input[type="checkbox"] { width: 18px; height: 18px; accent-color: #333; }
   .kv-fallback { color: #999; font-size: 13px; }
@@ -2315,7 +2368,8 @@
   .scene-name-input {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 700;
     color: #2c3e50; background: transparent; border: none;
-    border-bottom: 1px dashed #b0bec5; padding: 0 4px; width: 120px; outline: none;
+    border-bottom: 1px dashed #b0bec5; padding: 0 4px; outline: none;
+    width: auto; min-width: 60px;
   }
   .scene-name-input:focus { border-bottom: 1px solid #546e7a; background: #f0f4f8; }
   .make-text {
@@ -2369,7 +2423,7 @@
   }
   .prefs-modal {
     background: white; border-radius: 8px; padding: 24px 28px;
-    min-width: 420px; max-width: 520px; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    min-width: 520px; max-width: 680px; width: 680px; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
   }
   .prefs-title { margin: 0 0 16px; font-size: 18px; color: #2c3e50; }
   .prefs-row { margin-bottom: 14px; }
@@ -2395,6 +2449,6 @@
     background: white; cursor: pointer; font-size: 14px;
   }
   .prefs-btn:hover { background: #f5f5f5; }
-  .prefs-btn.primary { background: #6c3483; color: white; border-color: #6c3483; }
-  .prefs-btn.primary:hover { background: #5b2c6f; }
+  .prefs-btn.primary { background: #2d5a7b; color: white; border-color: #2d5a7b; }
+  .prefs-btn.primary:hover { background: #1e3f5a; }
 </style>
