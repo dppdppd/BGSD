@@ -52,6 +52,7 @@
   let prefsOpenScadPath = $state("");
   let prefsAutoOpen = $state(true);
   let prefsReuseOpenScad = $state(true);
+  let prefsProxy = $state("");
 
   let scadOutput = $derived(generateScad($project));
 
@@ -332,12 +333,13 @@
     prefsOpenScadPath = prefs.openScadPath || "";
     prefsAutoOpen = prefs.autoOpenInOpenScad !== false;
     prefsReuseOpenScad = prefs.reuseOpenScad !== false;
+    prefsProxy = prefs.proxy || "";
     showPrefs = true;
   }
 
   async function savePreferences() {
     const bgsd = (window as any).bgsd;
-    await bgsd?.setPreferences?.({ openScadPath: prefsOpenScadPath, autoOpenInOpenScad: prefsAutoOpen, reuseOpenScad: prefsReuseOpenScad });
+    await bgsd?.setPreferences?.({ openScadPath: prefsOpenScadPath, autoOpenInOpenScad: prefsAutoOpen, reuseOpenScad: prefsReuseOpenScad, proxy: prefsProxy });
     showPrefs = false;
   }
 
@@ -1979,6 +1981,10 @@
             <input type="checkbox" bind:checked={prefsReuseOpenScad} data-testid="prefs-reuse-openscad" />
             Reuse OpenSCAD window (don't spawn new instances)
           </label>
+        </div>
+        <div class="prefs-row">
+          <label class="prefs-label" for="prefs-proxy">HTTP proxy</label>
+          <input class="prefs-input" id="prefs-proxy" type="text" bind:value={prefsProxy} placeholder="e.g. http://proxy:8080" data-testid="prefs-proxy" />
         </div>
         <div class="prefs-buttons">
           <button class="prefs-btn" onclick={() => showPrefs = false}>Cancel</button>

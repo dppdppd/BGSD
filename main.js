@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { importScad } = require("./importer");
-const { ensureLibrary, copyLibToDir, initWorkingDir, updateLibraries, isInsideWorkingDir, isRepoFile, loadManifest, profiles } = require("./lib/library-manager");
+const { ensureLibrary, copyLibToDir, initWorkingDir, updateLibraries, isInsideWorkingDir, isRepoFile, loadManifest, profiles, setProxy, getProxy } = require("./lib/library-manager");
 
 // Prevent GPU-related crashes on Windows (packaged exe doesn't get --disable-gpu)
 app.disableHardwareAcceleration();
@@ -16,7 +16,7 @@ const MAX_RECENT = 10;
 
 // --- Preferences ---
 const PREFS_FILE = path.join(app.getPath("userData"), "preferences.json");
-const DEFAULT_PREFS = { openScadPath: "", autoOpenInOpenScad: true, reuseOpenScad: true, workingDir: "" };
+const DEFAULT_PREFS = { openScadPath: "", autoOpenInOpenScad: true, reuseOpenScad: true, workingDir: "", proxy: "" };
 let openScadAlive = false;
 let openScadProc = null;
 let openScadFile = null;
@@ -478,6 +478,7 @@ ipcMain.handle("get-preferences", () => loadPrefs());
 ipcMain.handle("set-preferences", (_event, prefs) => {
   const merged = { ...loadPrefs(), ...prefs };
   savePrefs(merged);
+  if ("proxy" in prefs) setProxy(merged.proxy);
   return merged;
 });
 
@@ -657,7 +658,11 @@ ipcMain.handle("delete-file", (_event, filePath) => {
   }
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  const prefs = loadPrefs();
+  if (prefs.proxy) setProxy(prefs.proxy);
+  createWindow();
+});
 app.on("window-all-closed", () => app.quit());
 
 // Surface errors as a dialog instead of a silent crash
