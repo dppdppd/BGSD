@@ -64,6 +64,27 @@ npm start              # Launch Electron app
 npm run dev            # Watch + launch (concurrent)
 ```
 
+## Release & Deploy
+
+```bash
+./build-release.sh [win|linux|mac|all] [patch|minor|major]
+```
+
+This bumps the version, builds the frontend, and produces platform binaries in `release/`.
+
+**Push code + binaries:**
+```bash
+git push origin master
+gh release create v<VERSION> \
+  "release/BGSD-<VERSION>.AppImage" \
+  "release/BGSD <VERSION>.exe" \
+  "release/BGSD Setup <VERSION>.exe" \
+  "release/BGSD-<VERSION>-mac.zip" \
+  --title "v<VERSION>" --notes "<changelog>"
+```
+
+Binaries are distributed via GitHub Releases using the `gh` CLI.
+
 ## Dev Loop
 
 ```
