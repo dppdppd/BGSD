@@ -674,6 +674,18 @@
     return startOf;
   });
 
+  /** True if this close line is the last block of its kind in a sibling series. */
+  function isLastOfKind(i: number): boolean {
+    const line = $project.lines[i];
+    if (!line || line.kind !== "close") return false;
+    for (let j = i + 1; j < $project.lines.length; j++) {
+      const next = $project.lines[j];
+      if (next.kind === "blank" || next.kind === "comment") continue;
+      return !(next.kind === "open" && next.label === line.label);
+    }
+    return true;
+  }
+
   function isRawGroupStart(i: number): boolean {
     return i in rawGroups;
   }
@@ -865,7 +877,7 @@
       if (innerRole) ctx = ROLE_TO_CONTEXT[innerRole];
     } else if (role === "object" && !line.mergedClose) {
       // Non-merged object close: children are direct (like params)
-      ctx = "element";
+      ctx = $project.libraryProfile === "ctd" ? "tray" : "element";
     } else if (role === "counter_set" && !line.mergedClose) {
       // Non-merged counter_set close: children are direct (like counter_set_params)
       ctx = "counter_set";
@@ -941,6 +953,15 @@
     // Sort alphabetically
     rows.sort((a, b) => a.key.localeCompare(b.key));
     return rows;
+  }
+
+  /** Get sorted schema rows for an open bracket (delegates to its matching close). */
+  function getSortedSchemaRowsForOpen(openIndex: number): {
+    key: string; def: any; lineIndex: number | null; value: any; isReal: boolean; depth: number;
+  }[] {
+    const closeIdx = findMatchingClose(openIndex);
+    if (closeIdx < 0) return [];
+    return getSortedSchemaRows(closeIdx);
   }
 
   /**
@@ -1603,16 +1624,15 @@
             {/if}
           {/each}
         {/if}
-
-      {:else if line.kind === "close"}
-        <!-- Sorted schema rows (real + virtual) before close bracket -->
-        {#each getSortedSchemaRows(i) as row (row.key)}
+        <!-- Sorted schema rows (real + virtual) after open bracket -->
+        {#each getSortedSchemaRowsForOpen(i) as row (row.key)}
           {#if hideDefaults && !row.isReal}{:else}
           {@const rkt = getKeyType(row.key)}
           {@const rks = getKeySchema(row.key)}
+          {@const closeIdx = findMatchingClose(i)}
           {@const onChange = row.isReal
             ? (v) => updateKv(row.lineIndex, v, row.def.default)
-            : (v) => onVirtualChange(i, row.key, row.def, v)}
+            : (v) => onVirtualChange(closeIdx, row.key, row.def, v)}
           {@const val = row.value}
           <div class="line-row kv" class:virtual={!row.isReal} style="{padDepth(row.depth)}; {bracketStyle(row.depth)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
             <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
@@ -1671,6 +1691,8 @@
           </div>
           {/if}
         {/each}
+
+      {:else if line.kind === "close"}
         <!-- Virtual BOX_LID block for OBJECT_BOX without a lid (BIT only) -->
         {#if !hideDefaults && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
           {@const lidDepth = (line.depth ?? 0) + 1}
@@ -1716,7 +1738,7 @@
           </div>
         {/if}
         <!-- Add buttons on their own line, indented inside the block -->
-        {#if line.role === "data" || line.role === "params" || line.role === "object" || line.role === "lid" || line.role === "lid_params"}
+        {#if line.role === "data" || (line.role === "params" && $project.libraryProfile !== "ctd") || (line.role === "object" && $project.libraryProfile !== "ctd") || ((line.role === "lid" || line.role === "lid_params") && $project.libraryProfile !== "ctd")}
           {@const addDepth = (line.depth ?? 0) + 1}
           <div class="line-row add-row virtual" style="{padDepth(addDepth)}; {bracketStyle(addDepth)}" data-testid="add-{i}">
             {#if line.role === "data"}
@@ -1725,16 +1747,14 @@
               {:else}
                 <button class="add-btn" title="Add object" onclick={() => addObject(i, line.depth ?? 0)}>+ Object</button>
               {/if}
-            {:else if line.role === "object" && $project.libraryProfile === "ctd"}
-              <button class="add-btn" title="Add counter set" onclick={() => addCounterSet(i, line.depth ?? 0)}>+ Counter Set</button>
-            {:else if line.role === "params" && $project.libraryProfile !== "ctd"}
+            {:else if line.role === "params"}
               <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, (line.depth ?? 0) + 1)}>+ Label</button>
               <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, (line.depth ?? 0) + 1)}>+ Feature</button>
-            {:else if line.role === "object" && $project.libraryProfile !== "ctd"}
+            {:else if line.role === "object"}
               {@const childDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, childDepth)}>+ Label</button>
               <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, childDepth)}>+ Feature</button>
-            {:else if (line.role === "lid" || line.role === "lid_params") && $project.libraryProfile !== "ctd"}
+            {:else if line.role === "lid" || line.role === "lid_params"}
               {@const lidChildDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add LABEL block inside lid" onclick={() => addLabel(i, lidChildDepth)}>+ Label</button>
             {/if}
@@ -1757,6 +1777,11 @@
           </div>
         {/if}
         <!-- Buttons that appear AFTER a close bracket (outside the block) -->
+        {#if line.role === "counter_set" && $project.libraryProfile === "ctd" && isLastOfKind(i)}
+          <div class="line-row add-row virtual" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="add-counter-set-{i}">
+            <button class="add-btn" title="Add counter set" onclick={() => addCounterSet(i + 1, (line.depth ?? 1) - 1)}>+ Counter Set</button>
+          </div>
+        {/if}
         {#if line.role === "data"}
           <div class="line-row add-scene-row" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="add-scene-{i}">
             <button class="add-btn" title="Add another scene" onclick={() => handleAddScene(i)}>+ Scene</button>
@@ -1919,9 +1944,7 @@
             {/if}
           {/each}
         {/if}
-
-      {:else if line.kind === "close"}
-        {#each getSortedSchemaRows(i) as row (row.key)}
+        {#each getSortedSchemaRowsForOpen(i) as row (row.key)}
           {#if hideDefaults && !row.isReal}{:else}
             {#if row.isReal && row.lineIndex !== null}
               <div class="scad-line">{$project.lines[row.lineIndex].raw}</div>
@@ -1930,6 +1953,8 @@
             {/if}
           {/if}
         {/each}
+
+      {:else if line.kind === "close"}
         {#if !hideDefaults && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
           {@const lidScalars = getScalarKeysForContext("lid")}
           <div class="scad-line scad-virtual"></div>
@@ -1939,7 +1964,10 @@
           <div class="scad-line scad-virtual"></div>
           <div class="scad-line scad-virtual"></div>
         {/if}
-        {#if line.role === "data" || line.role === "params" || line.role === "object" || line.role === "lid" || line.role === "lid_params"}
+        {#if line.role === "data" || (line.role === "params" && $project.libraryProfile !== "ctd") || (line.role === "object" && $project.libraryProfile !== "ctd") || ((line.role === "lid" || line.role === "lid_params") && $project.libraryProfile !== "ctd")}
+          <div class="scad-line scad-virtual"></div>
+        {/if}
+        {#if line.role === "counter_set" && $project.libraryProfile === "ctd" && isLastOfKind(i)}
           <div class="scad-line scad-virtual"></div>
         {/if}
         {#if line.mergedClose}

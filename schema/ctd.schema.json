@@ -13,6 +13,16 @@
     "tray": {
       "description": "Top-level tray element",
       "keys": {
+        "G_DIMENSIONS_XY": { "type": "xy", "default": [100, 100], "help": "Override tray dimensions [width, depth] in mm" },
+        "G_FLOOR_THICKNESS_N": { "type": "number", "default": 2, "help": "Floor thickness in mm" },
+        "G_FRAME_STYLE_N": { "type": "number", "default": 1, "help": "Frame style (1-4)" },
+        "G_MIN_PADDING_XY": { "type": "xy", "default": [1, 1], "help": "Minimum padding between counter slots [x, y] in mm" },
+        "COUNTER_SHAPE": { "type": "enum", "values": ["SHAPE_SQUARE", "SHAPE_CIRCLE", "SHAPE_TRIANGLE", "SHAPE_HEX"], "default": "SHAPE_SQUARE", "help": "Counter compartment shape" },
+        "COUNTER_MARGINS_XY": { "type": "xy", "default": [1, 1], "help": "Counter margins [x, y] in mm" },
+        "COUNTER_MARGINS_POST_LENGTH_FRACTION_N": { "type": "number", "default": 0.5, "help": "Margin post length fraction" },
+        "COUNTER_HOLE_FRACTION_N": { "type": "number", "default": 0.7, "help": "Finger hole fraction" },
+        "COUNTER_PEDESTAL_B": { "type": "bool", "default": false, "help": "Counters sit on pedestals" },
+        "COUNTER_PEDESTAL_MIN": { "type": "number", "default": 0.6, "help": "Minimum pedestal height in mm" },
         "COUNTER_SET": { "type": "table_list", "child_context": "counter_set", "help": "Counter set definition" }
       }
     },
@@ -33,8 +43,6 @@
   },
   "globals": {
     "G_DIMENSIONS_XY":     { "type": "xy",     "default": [100, 100], "help": "Tray dimensions [width, depth] in mm" },
-    "G_MAKE_TRAY_B":       { "type": "bool",   "default": true,  "help": "Generate tray body" },
-    "G_MAKE_LID_B":        { "type": "bool",   "default": true,  "help": "Generate tray lid" },
     "G_FLOOR_THICKNESS_N": { "type": "number", "default": 2,     "help": "Floor thickness in mm" },
     "G_LID_DEPTH_N":       { "type": "number", "default": 3,     "help": "Lid depth in mm" },
     "G_FRAME_STYLE_N":     { "type": "number", "default": 1,     "help": "Frame style (1-4)" },
