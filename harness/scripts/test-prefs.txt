@@ -1,0 +1,8 @@
+wait app-root
+shot welcome-page
+js document.querySelector('[data-testid="welcome-prefs"]')?.click()
+shot prefs-modal
+js document.querySelector('.prefs-overlay')?.click()
+new ctd
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot new-ctd-with-lid

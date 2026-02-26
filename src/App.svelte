@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import {
     project,
     updateLineRaw,
@@ -52,7 +52,6 @@
   let prefsWorkingDir = $state("");
   let prefsOpenScadPath = $state("");
   let prefsAutoOpen = $state(true);
-  let prefsReuseOpenScad = $state(true);
   let prefsProxy = $state("");
 
   let scadOutput = $derived(generateScad($project));
@@ -78,6 +77,8 @@
     updateTitle(filePath);
     fileLoaded = true;
     showWelcome = false;
+    collapsed = new Set();
+    editorPadBottom = 0;
 
     // Check if this is a repo-tracked library file (read-only)
     const bgsd = (window as any).bgsd;
@@ -213,10 +214,6 @@
       return;
     }
 
-    if (res.libraryError) {
-      statusMsg = `Library: ${res.libraryError}`;
-    }
-
     if (bgsd?.loadFilePath) {
       const loaded = await bgsd.loadFilePath(res.filePath);
       if (loaded.ok) {
@@ -265,9 +262,6 @@
     if (!prefs.autoOpenInOpenScad) return;
 
     const res = await bgsd.openInOpenScad(filePath, profile || $project.libraryProfile);
-    if (res?.libraryError) {
-      statusMsg = `Library: ${res.libraryError}`;
-    }
     if (res && !res.ok && res.error === "not-found") {
       statusMsg = "OpenSCAD not found";
       // Prompt user to locate OpenSCAD
@@ -306,9 +300,6 @@
 
     // For manual launch (Tools menu), bypass auto-open pref check
     const res = await bgsd.openInOpenScad(openPath, $project.libraryProfile);
-    if (res?.libraryError) {
-      statusMsg = `Library: ${res.libraryError}`;
-    }
     if (res && !res.ok && res.error === "not-found") {
       statusMsg = "OpenSCAD not found";
       const browse = await bgsd.browseOpenScad?.();
@@ -334,14 +325,13 @@
     prefsWorkingDir = workingDir || "";
     prefsOpenScadPath = prefs.openScadPath || "";
     prefsAutoOpen = prefs.autoOpenInOpenScad !== false;
-    prefsReuseOpenScad = prefs.reuseOpenScad !== false;
     prefsProxy = prefs.proxy || "";
     showPrefs = true;
   }
 
   async function savePreferences() {
     const bgsd = (window as any).bgsd;
-    await bgsd?.setPreferences?.({ openScadPath: prefsOpenScadPath, autoOpenInOpenScad: prefsAutoOpen, reuseOpenScad: prefsReuseOpenScad, proxy: prefsProxy });
+    await bgsd?.setPreferences?.({ openScadPath: prefsOpenScadPath, autoOpenInOpenScad: prefsAutoOpen, proxy: prefsProxy });
     // Handle working directory change
     if (prefsWorkingDir && prefsWorkingDir !== workingDir && bgsd?.initWorkingDir) {
       const res = await bgsd.initWorkingDir(prefsWorkingDir);
@@ -765,11 +755,32 @@
 
   // --- Collapse/expand ---
   let collapsed = $state(new Set<number>());
+  let editorPadBottom = $state(0);
 
-  function toggleCollapse(i: number) {
+  async function toggleCollapse(i: number) {
+    const container = document.querySelector('[data-testid="content-area"]') as HTMLElement | null;
+    const scrollBefore = container?.scrollTop ?? 0;
+    const heightBefore = container?.scrollHeight ?? 0;
+
     const next = new Set(collapsed);
-    if (next.has(i)) next.delete(i); else next.add(i);
+    const isCollapsing = !next.has(i);
+    if (isCollapsing) next.add(i); else next.delete(i);
     collapsed = next;
+
+    if (container) {
+      await tick();
+      const heightAfter = container.scrollHeight;
+      const shrink = heightBefore - heightAfter;
+      if (isCollapsing && shrink > 0) {
+        // Add padding so content above the collapsed block doesn't shift
+        editorPadBottom = Math.max(0, editorPadBottom + shrink);
+      } else if (!isCollapsing && editorPadBottom > 0) {
+        // Remove padding when expanding, but don't go negative
+        const grow = heightAfter - heightBefore;
+        editorPadBottom = Math.max(0, editorPadBottom - grow);
+      }
+      container.scrollTop = scrollBefore;
+    }
   }
 
   function onSplitHandleDown(e: MouseEvent) {
@@ -877,7 +888,12 @@
       if (innerRole) ctx = ROLE_TO_CONTEXT[innerRole];
     } else if (role === "object" && !line.mergedClose) {
       // Non-merged object close: children are direct (like params)
-      ctx = $project.libraryProfile === "ctd" ? "tray" : "element";
+      if ($project.libraryProfile === "ctd") {
+        const label = closeIndex != null ? findObjectLabel(closeIndex) : "";
+        ctx = label === "LID" ? "lid" : "tray";
+      } else {
+        ctx = "element";
+      }
     } else if (role === "counter_set" && !line.mergedClose) {
       // Non-merged counter_set close: children are direct (like counter_set_params)
       ctx = "counter_set";
@@ -1096,7 +1112,7 @@
     if (line.role === "data_list") return { text: "data list", inferred: true };
     if (line.role === "object") {
       const rawLabel = line.label || "";
-      if (rawLabel.startsWith("OBJECT_") || rawLabel === "TRAY") {
+      if (rawLabel.startsWith("OBJECT_") || rawLabel === "TRAY" || rawLabel === "LID") {
         return { text: `${label(rawLabel)}${nameSuffix(lineIndex)}`, inferred: false };
       }
       return { text: `object "${rawLabel}"`, inferred: false };
@@ -1358,6 +1374,20 @@
     });
   }
 
+  /** Insert a LID block before `closeIndex` (CTD profile). */
+  function addCtdLid(closeIndex: number, depth: number) {
+    const d = depth + 1;
+    const ind = (n: number) => "    ".repeat(n);
+    const lines: Line[] = [
+      { raw: `${ind(d)}[ LID,`, kind: "open", depth: d, role: "object", label: "LID" },
+      { raw: `${ind(d)}],`, kind: "close", depth: d, role: "object", label: "LID" },
+    ];
+    project.update((p) => {
+      p.lines.splice(closeIndex, 0, ...lines);
+      return { ...p };
+    });
+  }
+
   /** Insert a COUNTER_SET block before `closeIndex` (CTD profile). */
   function addCounterSet(closeIndex: number, depth: number) {
     const d = depth + 1;
@@ -1420,6 +1450,7 @@
             <button class="welcome-btn welcome-btn-primary" data-testid="welcome-choose-dir" onclick={() => chooseAndInitWorkingDir()} disabled={setupBusy}>
               {setupBusy ? "Setting up..." : "Choose Folder..."}
             </button>
+            <button class="welcome-btn" data-testid="welcome-prefs-init" onclick={() => openPreferencesModal()}>Preferences</button>
             {#if setupBusy || setupStatus}
               <div class="welcome-progress">
                 {#if setupBusy}<span class="welcome-spinner"></span>{/if}
@@ -1444,6 +1475,7 @@
                 </div>
               {/if}
             </div>
+            <button class="welcome-icon-btn" data-testid="welcome-prefs" title="Preferences" onclick={() => openPreferencesModal()}>&#x2699;</button>
           </div>
           <div class="welcome-sort-bar">
             <button class="welcome-sort-btn" class:active={sortMode === "dir"} data-testid="sort-dir" onclick={() => sortMode = "dir"}>Directories</button>
@@ -1534,7 +1566,7 @@
       </div>
     {:else}
     <div class="editor-split" class:split-active={showScad}>
-    <div class="editor-left">
+    <div class="editor-left" style={editorPadBottom ? `padding-bottom: ${editorPadBottom}px` : ''}>
     {#each $project.lines as line, i (i)}
 
       {#if hiddenLines.has(i)}
@@ -1583,6 +1615,7 @@
             <button class="delete-btn" title="Delete block" onclick={() => deleteBlock(i)}>✕</button>
           {/if}
         </div>
+        {#if !collapsed.has(i)}
         <!-- Virtual globals block inside data = [ (BIT only; CTD uses per-scene KVs) -->
         {#if line.role === "data" && $project.libraryProfile !== "ctd"}
           {#each getGlobalRows() as row (row.key)}
@@ -1691,6 +1724,7 @@
           </div>
           {/if}
         {/each}
+        {/if}
 
       {:else if line.kind === "close"}
         <!-- Virtual BOX_LID block for OBJECT_BOX without a lid (BIT only) -->
@@ -1744,6 +1778,7 @@
             {#if line.role === "data"}
               {#if $project.libraryProfile === "ctd"}
                 <button class="add-btn" title="Add tray" onclick={() => addTray(i, line.depth ?? 0)}>+ Tray</button>
+                <button class="add-btn" title="Add lid" onclick={() => addCtdLid(i, line.depth ?? 0)}>+ Lid</button>
               {:else}
                 <button class="add-btn" title="Add object" onclick={() => addObject(i, line.depth ?? 0)}>+ Object</button>
               {/if}
@@ -1933,6 +1968,7 @@
 
       {:else if line.kind === "open"}
         <div class="scad-line">{line.raw}</div>
+        {#if !collapsed.has(i)}
         {#if line.role === "data" && $project.libraryProfile !== "ctd"}
           {#each getGlobalRows() as row (row.key)}
             {#if hideDefaults && !row.isReal}{:else}
@@ -1953,6 +1989,7 @@
             {/if}
           {/if}
         {/each}
+        {/if}
 
       {:else if line.kind === "close"}
         {#if !hideDefaults && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
@@ -2043,18 +2080,12 @@
         <div class="prefs-row">
           <label class="prefs-check-label">
             <input type="checkbox" bind:checked={prefsAutoOpen} data-testid="prefs-auto-open" />
-            Auto-open in OpenSCAD on file load
-          </label>
-        </div>
-        <div class="prefs-row">
-          <label class="prefs-check-label">
-            <input type="checkbox" bind:checked={prefsReuseOpenScad} data-testid="prefs-reuse-openscad" />
-            Reuse OpenSCAD window (don't spawn new instances)
+            Auto-open in OpenSCAD when loading a file
           </label>
         </div>
         <div class="prefs-row">
           <label class="prefs-label" for="prefs-proxy">HTTP proxy</label>
-          <input class="prefs-input" id="prefs-proxy" type="text" bind:value={prefsProxy} placeholder="e.g. http://proxy:8080" data-testid="prefs-proxy" />
+          <input class="prefs-input" id="prefs-proxy" type="text" style="width: 100%; box-sizing: border-box;" bind:value={prefsProxy} placeholder="e.g. http://proxy:8080" data-testid="prefs-proxy" />
         </div>
         <div class="prefs-buttons">
           <button class="prefs-btn" onclick={() => showPrefs = false}>Cancel</button>

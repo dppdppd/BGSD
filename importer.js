@@ -74,10 +74,10 @@ const KV_LINE_RE = /^\s*\[\s*([_A-Z][A-Z0-9_]*)\s*,\s*(.*?)\s*\]\s*,?\s*(?:\/\/.
 const VAR_ASSIGN_RE = /^\s*([A-Za-z_$]\w*)\s*=\s*(.+?)\s*;\s*(?:\/\/.*)?$/;
 const COMMENT_RE = /^\s*\/\/(.*)$/;
 
-// New-style OBJECT_* element type constants (includes CTD TRAY)
-const OBJECT_TYPES = new Set(["OBJECT_BOX", "OBJECT_DIVIDERS", "OBJECT_SPACER", "TRAY"]);
-const OBJECT_OPEN_RE = /^\s*\[\s*(OBJECT_BOX|OBJECT_DIVIDERS|OBJECT_SPACER|TRAY)\s*,\s*(?:\/\/.*)?$/;
-const OBJECT_OPEN_MERGED_RE = /^\s*\[\s*(OBJECT_BOX|OBJECT_DIVIDERS|OBJECT_SPACER|TRAY)\s*,\s*\[\s*(?:\/\/.*)?$/;
+// New-style OBJECT_* element type constants (includes CTD TRAY and LID)
+const OBJECT_TYPES = new Set(["OBJECT_BOX", "OBJECT_DIVIDERS", "OBJECT_SPACER", "TRAY", "LID"]);
+const OBJECT_OPEN_RE = /^\s*\[\s*(OBJECT_BOX|OBJECT_DIVIDERS|OBJECT_SPACER|TRAY|LID)\s*,\s*(?:\/\/.*)?$/;
+const OBJECT_OPEN_MERGED_RE = /^\s*\[\s*(OBJECT_BOX|OBJECT_DIVIDERS|OBJECT_SPACER|TRAY|LID)\s*,\s*\[\s*(?:\/\/.*)?$/;
 
 // Structural patterns — all allow optional trailing // comments
 const DATA_ASSIGN_RE = /^\s*([A-Za-z_]\w*)\s*=\s*\[\s*(?:\/\/.*)?$/;           // identifier = [
@@ -285,9 +285,10 @@ function formatScadOnLoad(scadText) {
   function isStructural(g) {
     if (!g.el || g.el.type !== "array") return false;
     const vals = g.el.elements.filter(e => e.type !== "comment");
-    if (vals.length >= 2 && vals[0].type === "atom") {
+    if (vals.length >= 1 && vals[0].type === "atom") {
       const key = vals[0].text.trim();
-      return OBJECT_TYPES.has(key) || key.startsWith('"');
+      if (OBJECT_TYPES.has(key)) return true;
+      if (vals.length >= 2 && key.startsWith('"')) return true;
     }
     return false;
   }
@@ -919,6 +920,14 @@ function renderEntryLines(node, indent, needsComma, outLines) {
       outLines.push(`${indent}]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
       return;
     }
+  }
+
+  // Empty OBJECT_TYPE block (e.g. [ LID, ] — single atom, no children)
+  if (vals.length === 1 && vals[0].type === "atom" && OBJECT_TYPES.has(vals[0].text.trim())) {
+    const key = vals[0].text.trim();
+    outLines.push(`${indent}[ ${key},` + (node.trailingComment ? ` //${node.trailingComment}` : ""));
+    outLines.push(`${indent}]` + (needsComma ? "," : ""));
+    return;
   }
 
   // v4-style flat structural blocks: [ OBJECT_*, kv1, kv2, ... ]

@@ -1,0 +1,15 @@
+wait app-root
+js window.bgsd.updateLibraries()
+shot after-update
+open /tmp/bgsd-test-workspace/ctd/gmt/tomahawks_and_bayonets.scad
+js document.querySelector('[data-testid="content-area"]').scrollTop = 0
+shot tomahawks-top
+js document.querySelector('[data-testid="content-area"]').scrollTop = 400
+shot tomahawks-mid
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot tomahawks-bottom
+new ctd
+js document.querySelector('[data-testid="content-area"]').scrollTop = 0
+shot new-ctd-top
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot new-ctd-bottom

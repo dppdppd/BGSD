@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { importScad } = require("./importer");
-const { ensureLibrary, copyLibToDir, initWorkingDir, updateLibraries, isInsideWorkingDir, isRepoFile, loadManifest, profiles, setProxy, getProxy } = require("./lib/library-manager");
+const { ensureLibrary, initWorkingDir, updateLibraries, isInsideWorkingDir, isRepoFile, loadManifest, profiles, setProxy, getProxy } = require("./lib/library-manager");
 
 // Prevent GPU-related crashes on Windows (packaged exe doesn't get --disable-gpu)
 app.disableHardwareAcceleration();
@@ -16,7 +16,7 @@ const MAX_RECENT = 10;
 
 // --- Preferences ---
 const PREFS_FILE = path.join(app.getPath("userData"), "preferences.json");
-const DEFAULT_PREFS = { openScadPath: "", autoOpenInOpenScad: true, reuseOpenScad: true, workingDir: "", proxy: "" };
+const DEFAULT_PREFS = { openScadPath: "", autoOpenInOpenScad: true, workingDir: "", proxy: "" };
 let openScadAlive = false;
 let openScadProc = null;
 let openScadFile = null;
@@ -253,16 +253,7 @@ ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, prof
       }
     }
     atomicWrite(filePath, scadText);
-    // Copy library files next to saved .scad so OpenSCAD includes resolve
-    // Skip if the file is inside the working directory (libs already in lib/)
-    let libraryError = null;
-    if (profileId && !isInsideWorkingDir(filePath, prefs.workingDir)) {
-      try { await copyLibToDir(profileId, path.dirname(filePath)); } catch (e) {
-        libraryError = e.message;
-        console.warn("Library copy failed (non-fatal):", e.message);
-      }
-    }
-    return { ok: true, filePath, libraryError };
+    return { ok: true, filePath };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -283,15 +274,7 @@ ipcMain.handle("save-file-as", async (_event, scadText, profileId, currentPath) 
     } else {
       atomicWrite(result.filePath, scadText);
     }
-    let libraryError = null;
-    const saPrefs = loadPrefs();
-    if (profileId && !isInsideWorkingDir(result.filePath, saPrefs.workingDir)) {
-      try { await copyLibToDir(profileId, path.dirname(result.filePath)); } catch (e) {
-        libraryError = e.message;
-        console.warn("Library copy failed (non-fatal):", e.message);
-      }
-    }
-    return { ok: true, filePath: result.filePath, libraryError };
+    return { ok: true, filePath: result.filePath };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -365,20 +348,11 @@ ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
     return { ok: false, error: `File not found: ${filePath || "(no path)"}` };
   }
 
-  // Ensure library files are next to the .scad before launching OpenSCAD
-  // Skip if file is inside the working directory (libs already in lib/)
   const prefs = loadPrefs();
-  let libraryError = null;
-  if (profileId && !isInsideWorkingDir(filePath, prefs.workingDir)) {
-    try { await copyLibToDir(profileId, path.dirname(filePath)); } catch (e) {
-      libraryError = e.message;
-      console.warn("Library copy failed (non-fatal):", e.message);
-    }
-  }
 
-  // If reuse is enabled and OpenSCAD is already showing this exact file, skip
-  if (prefs.reuseOpenScad && openScadAlive && openScadFile === filePath) {
-    return { ok: true, libraryError };
+  // If OpenSCAD is already showing this exact file, skip
+  if (openScadAlive && openScadFile === filePath) {
+    return { ok: true };
   }
 
   // Kill the previous instance and wait for it to exit before spawning a new one
@@ -415,17 +389,17 @@ ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
   if (process.platform === "win32" && cmd === "openscad") {
     try {
       spawnOpenScad("cmd", ["/c", "start", "", filePath]);
-      return { ok: true, libraryError };
+      return { ok: true };
     } catch (_) {
-      return { ok: false, error: "not-found", libraryError };
+      return { ok: false, error: "not-found" };
     }
   }
 
   try {
     spawnOpenScad(cmd, [filePath]);
-    return { ok: true, libraryError };
+    return { ok: true };
   } catch (err) {
-    return { ok: false, error: "not-found", libraryError };
+    return { ok: false, error: "not-found" };
   }
 });
 
@@ -433,16 +407,6 @@ ipcMain.handle("export-stl", async (_event, sourcePath) => {
   const { execFile } = require("child_process");
   if (!sourcePath || !fs.existsSync(sourcePath)) {
     return { ok: false, error: `File not found: ${sourcePath || "(no path)"}` };
-  }
-
-  // Ensure library files are accessible
-  const prefs = loadPrefs();
-  if (!isInsideWorkingDir(sourcePath, prefs.workingDir)) {
-    // Detect profile from path to copy libs
-    const profileId = isRepoFile(sourcePath, prefs.workingDir);
-    if (profileId) {
-      try { await copyLibToDir(profileId, path.dirname(sourcePath)); } catch (_) {}
-    }
   }
 
   // Show Save dialog for .stl output
@@ -503,7 +467,7 @@ ipcMain.handle("new-project-to-path", async (_event, profile) => {
   const includeFile = profileObj ? profileObj.include : "boardgame_insert_toolkit_lib.4.scad";
   const templates = {
     bit: `// BGSD\ninclude <${includeFile}>;\ndata = [\n    [ OBJECT_BOX, [\n        [ NAME, "box 1" ],\n        [ BOX_SIZE_XYZ, [50, 50, 20] ],\n    ]],\n];\nMake(data);`,
-    ctd: `// BGSD\ninclude <${includeFile}>;\nscene_1 = [\n    [ COUNTER_SET,\n        [ COUNTER_SIZE_XYZ, [13.3, 13.3, 3] ],\n    ],\n];\nMake(scene_1);`,
+    ctd: `// BGSD\ninclude <${includeFile}>;\nscene_1 = [\n    [ TRAY,\n        [ COUNTER_SET,\n            [ COUNTER_SIZE_XYZ, [13.3, 13.3, 3] ],\n        ],\n    ],\n    [ LID,\n    ],\n];\nMake(scene_1);`,
   };
   const scad = templates[profile] || templates.bit;
 
@@ -520,10 +484,6 @@ ipcMain.handle("new-project-to-path", async (_event, profile) => {
 
   try {
     atomicWrite(filePath, scad);
-    // Only copy libs beside the file if NOT inside working dir
-    if (!prefs.workingDir || !isInsideWorkingDir(filePath, prefs.workingDir)) {
-      try { await copyLibToDir(profile, path.dirname(filePath)); } catch {}
-    }
     const project = importScad(fs.readFileSync(filePath, "utf-8"));
     addRecent(filePath);
     if (mainWindow) mainWindow.webContents.send("menu-open", { data: project, filePath });

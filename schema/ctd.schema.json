@@ -13,6 +13,7 @@
     "tray": {
       "description": "Top-level tray element",
       "keys": {
+        "PRINT_COUNT_N": { "type": "number", "default": 1, "help": "Number of copies of this tray to generate in the grid" },
         "G_DIMENSIONS_XY": { "type": "xy", "default": [100, 100], "help": "Override tray dimensions [width, depth] in mm" },
         "G_FLOOR_THICKNESS_N": { "type": "number", "default": 2, "help": "Floor thickness in mm" },
         "G_FRAME_STYLE_N": { "type": "number", "default": 1, "help": "Frame style (1-4)" },
@@ -24,6 +25,12 @@
         "COUNTER_PEDESTAL_B": { "type": "bool", "default": false, "help": "Counters sit on pedestals" },
         "COUNTER_PEDESTAL_MIN": { "type": "number", "default": 0.6, "help": "Minimum pedestal height in mm" },
         "COUNTER_SET": { "type": "table_list", "child_context": "counter_set", "help": "Counter set definition" }
+      }
+    },
+    "lid": {
+      "description": "Lid block — generates a lid for the preceding tray",
+      "keys": {
+        "PRINT_COUNT_N": { "type": "number", "default": 1, "help": "Number of copies of this lid to generate in the grid" }
       }
     },
     "counter_set": {

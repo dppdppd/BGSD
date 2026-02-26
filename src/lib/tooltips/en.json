@@ -3,6 +3,7 @@
   "BOX_SIZE_XYZ":      { "label": "Box Size",         "tooltip": "Box outer dimensions [width, depth, height] in mm. Note: inset-lid boxes are taller by 2x wall thickness." },
   "BOX_FEATURE":       { "label": "Feature",          "tooltip": "Feature — defines one set of compartments inside the box" },
   "TRAY":              { "label": "Tray",             "tooltip": "Tray — one physical tray in the counter tray set" },
+  "LID":               { "label": "Lid",              "tooltip": "Lid — generates a lid for the counter tray set" },
   "BOX_LID":           { "label": "Lid",              "tooltip": "Lid parameters — controls lid style, pattern, and labels" },
   "BOX_NO_LID_B":      { "label": "No Lid",           "tooltip": "If checked, no lid is generated and no inset lip is formed" },
   "BOX_STACKABLE_B":   { "label": "Stackable",        "tooltip": "If checked, box base is cut to stack on identical boxes (requires 45 degree overhang capability)" },
@@ -104,6 +105,7 @@
   "G_PRINT_MMU_LAYER":       { "label": "MMU Layer",          "tooltip": "Multi-material printing config" },
   "G_DEFAULT_FONT":          { "label": "Default Font",       "tooltip": "Default font for labels" },
 
+  "PRINT_COUNT_N":           { "label": "Print Count",         "tooltip": "Number of copies to generate in the grid layout" },
   "COUNTER_SET":             { "label": "Counter Set",         "tooltip": "Counter set — defines one group of counter slots in the tray" },
   "COUNTER_SIZE_XYZ":        { "label": "Counter Size",        "tooltip": "Counter dimensions [width, depth, thickness] in mm" },
   "ROWS_N":                  { "label": "Rows",                "tooltip": "Number of rows for this counter set" },
