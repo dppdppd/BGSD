@@ -1,12 +1,10 @@
 wait app-root
-shot welcome
 new ctd
-shot ctd-defaults-new
-js document.querySelector('[data-testid="content-area"]').scrollTop = 0
+wait content-area
 shot ctd-defaults-top
-js document.querySelector('[data-testid="content-area"]').scrollTop = 300
+js document.querySelector('[data-testid="content-area"]').scrollTop = 400
 shot ctd-defaults-mid
-js document.querySelector('[data-testid="content-area"]').scrollTop = 600
-shot ctd-defaults-lower
 js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
 shot ctd-defaults-bottom
+scad
+quit

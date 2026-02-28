@@ -1,0 +1,8 @@
+wait app-root
+new ctd
+wait content-area
+shot ctd-top
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot ctd-bottom
+scad
+quit

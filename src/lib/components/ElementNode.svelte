@@ -99,7 +99,7 @@
 <style>
   .element-node {
     background: white;
-    border: 1px solid #ddd;
+    border: 1px solid #c8d1da;
     border-radius: 3px;
     margin-bottom: 4px;
   }
@@ -119,7 +119,7 @@
     padding: 3px 6px;
     gap: 4px;
     background: #f8f9fa;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid #e0e7ee;
     border-radius: 3px 3px 0 0;
   }
   .toggle {
@@ -132,7 +132,7 @@
   .element-name:hover { text-decoration: underline; }
   .name-input {
     font-weight: 600; font-size: 12px;
-    border: 1px solid #3498db; border-radius: 2px;
+    border: 1px solid #2d5a7b; border-radius: 2px;
     padding: 0px 3px; width: 120px; height: 18px;
   }
   .element-type { color: #7f8c8d; font-size: 10px; }
@@ -141,7 +141,7 @@
     background: none; border: none; color: #999;
     cursor: pointer; font-size: 11px; padding: 0 3px;
   }
-  .action-btn:hover { color: #3498db; }
+  .action-btn:hover { color: #2d5a7b; }
   .delete-btn {
     background: none; border: none; color: #ccc;
     cursor: pointer; font-size: 14px; padding: 0 4px;
@@ -153,5 +153,5 @@
     background: none; border: 1px dashed #ccc; color: #999;
     padding: 1px 8px; border-radius: 2px; cursor: pointer; font-size: 10px;
   }
-  .add-node-btn:hover { border-color: #3498db; color: #3498db; }
+  .add-node-btn:hover { border-color: #2d5a7b; color: #2d5a7b; }
 </style>

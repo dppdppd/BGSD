@@ -1,0 +1,8 @@
+wait app-root
+new ctd
+wait content-area
+js document.querySelector('[data-testid="virtual-G_MAGNET_DIAMETER_N"] input[type="number"]').value = 6
+js document.querySelector('[data-testid="virtual-G_MAGNET_DIAMETER_N"] input[type="number"]').dispatchEvent(new Event('change', {bubbles: true}))
+shot after-set
+scad
+quit

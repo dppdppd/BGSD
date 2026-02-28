@@ -1,0 +1,8 @@
+wait app-root
+new ctd
+wait content-area
+shot before
+type kv-G_MAGNET_DIAMETER_N-editor "6"
+shot after-set
+scad
+quit

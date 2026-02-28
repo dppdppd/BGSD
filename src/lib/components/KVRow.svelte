@@ -252,7 +252,7 @@
     padding: 1px 8px;
     gap: 4px;
     font-size: 12px;
-    border-bottom: 1px solid #f5f5f5;
+    border-bottom: 1px solid #e8edf2;
     min-height: 20px;
   }
   .kv-row:hover { background: #f8f9fa; }
@@ -283,7 +283,7 @@
     font-family: "Courier New", monospace;
     font-size: 11px;
     padding: 0px 3px;
-    border: 1px solid #ddd;
+    border: 1px solid #c8d1da;
     border-radius: 2px;
     background: white;
     height: 18px;
@@ -341,7 +341,7 @@
     color: #666;
   }
   .badge {
-    background: #3498db;
+    background: #2d5a7b;
     color: white;
     border-radius: 8px;
     padding: 0 6px;
@@ -349,7 +349,7 @@
   }
   .add-btn {
     background: none;
-    border: 1px dashed #bbb;
+    border: 1px dashed #b4c0cb;
     color: #7f8c8d;
     padding: 0 6px;
     border-radius: 3px;
@@ -357,16 +357,16 @@
     font-size: 12px;
     line-height: 1.4;
   }
-  .add-btn:hover { border-color: #3498db; color: #3498db; }
+  .add-btn:hover { border-color: #2d5a7b; color: #2d5a7b; }
   .child-group {
-    border-left: 2px solid #e0e0e0;
+    border-left: 2px solid #c8d1da;
     margin: 1px 0;
   }
   .child-header {
     display: flex;
     align-items: center;
     font-size: 11px;
-    color: #7f8c8d;
+    color: #546e7a;
     font-weight: 600;
     padding: 1px 8px;
   }
@@ -383,7 +383,7 @@
     font-size: 11px;
     padding: 0 3px;
   }
-  .action-btn:hover { color: #3498db; }
+  .action-btn:hover { color: #2d5a7b; }
   .delete-btn {
     background: none;
     border: none;

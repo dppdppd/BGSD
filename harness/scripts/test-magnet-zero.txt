@@ -1,0 +1,7 @@
+wait app-root
+new ctd
+wait content-area
+js (() => { const el = document.querySelector('[data-testid="virtual-G_MAGNET_DIAMETER_N"] input[type="number"]'); if (!el) return 'NOT FOUND'; el.focus(); el.value = '0'; el.dispatchEvent(new Event('input', {bubbles: true})); el.dispatchEvent(new Event('change', {bubbles: true})); return 'SET TO 0'; })()
+shot after-zero
+scad
+quit

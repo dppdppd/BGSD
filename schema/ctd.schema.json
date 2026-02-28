@@ -14,16 +14,16 @@
       "description": "Top-level tray element",
       "keys": {
         "PRINT_COUNT_N": { "type": "number", "default": 1, "help": "Number of copies of this tray to generate in the grid" },
-        "G_DIMENSIONS_XY": { "type": "xy", "default": [100, 100], "help": "Override tray dimensions [width, depth] in mm" },
-        "G_FLOOR_THICKNESS_N": { "type": "number", "default": 2, "help": "Floor thickness in mm" },
+        "G_DIMENSIONS_XY": { "type": "xy", "default": [50, 50], "help": "Override tray dimensions [width, depth] in mm" },
+        "G_FLOOR_THICKNESS_N": { "type": "number", "default": 1.5, "help": "Floor thickness in mm" },
         "G_FRAME_STYLE_N": { "type": "number", "default": 1, "help": "Frame style (1-4)" },
         "G_MIN_PADDING_XY": { "type": "xy", "default": [1, 1], "help": "Minimum padding between counter slots [x, y] in mm" },
         "COUNTER_SHAPE": { "type": "enum", "values": ["SHAPE_SQUARE", "SHAPE_CIRCLE", "SHAPE_TRIANGLE", "SHAPE_HEX"], "default": "SHAPE_SQUARE", "help": "Counter compartment shape" },
-        "COUNTER_MARGINS_XY": { "type": "xy", "default": [1, 1], "help": "Counter margins [x, y] in mm" },
-        "COUNTER_MARGINS_POST_LENGTH_FRACTION_N": { "type": "number", "default": 0.5, "help": "Margin post length fraction" },
+        "COUNTER_MARGINS_XY": { "type": "xy", "default": [0.5, 0.5], "help": "Counter margins [x, y] in mm" },
+        "COUNTER_MARGINS_POST_LENGTH_FRACTION_N": { "type": "number", "default": 0.25, "help": "Margin post length fraction" },
         "COUNTER_HOLE_FRACTION_N": { "type": "number", "default": 0.7, "help": "Finger hole fraction" },
-        "COUNTER_PEDESTAL_B": { "type": "bool", "default": false, "help": "Counters sit on pedestals" },
-        "COUNTER_PEDESTAL_MIN": { "type": "number", "default": 0.6, "help": "Minimum pedestal height in mm" },
+        "COUNTER_PEDESTAL_B": { "type": "bool", "default": true, "help": "Counters sit on pedestals" },
+        "COUNTER_PEDESTAL_MIN": { "type": "number", "default": 0, "help": "Minimum pedestal height in mm" },
         "COUNTER_SET": { "type": "table_list", "child_context": "counter_set", "help": "Counter set definition" }
       }
     },
@@ -40,27 +40,27 @@
         "ROWS_N":               { "type": "number", "default": 1, "help": "Number of rows for this counter set" },
         "ENABLED_B":            { "type": "bool", "default": true, "help": "If false, counter set is skipped" },
         "COUNTER_SHAPE":        { "type": "enum", "values": ["SHAPE_SQUARE", "SHAPE_CIRCLE", "SHAPE_TRIANGLE", "SHAPE_HEX"], "default": "SHAPE_SQUARE", "help": "Counter compartment shape" },
-        "COUNTER_MARGINS_XY":   { "type": "xy", "default": [1, 1], "help": "Margin around each counter [x, y] in mm" },
-        "COUNTER_MARGINS_POST_LENGTH_FRACTION_N": { "type": "number", "default": 0.5, "help": "Fraction of counter size used for margin post length" },
+        "COUNTER_MARGINS_XY":   { "type": "xy", "default": [0.5, 0.5], "help": "Margin around each counter [x, y] in mm" },
+        "COUNTER_MARGINS_POST_LENGTH_FRACTION_N": { "type": "number", "default": 0.25, "help": "Fraction of counter size used for margin post length" },
         "COUNTER_HOLE_FRACTION_N": { "type": "number", "default": 0.7, "help": "Fraction of counter size used for finger hole" },
-        "COUNTER_PEDESTAL_B":   { "type": "bool", "default": false, "help": "If true, counters sit on pedestals" },
-        "COUNTER_PEDESTAL_MIN": { "type": "number", "default": 0.6, "help": "Minimum pedestal height in mm" }
+        "COUNTER_PEDESTAL_B":   { "type": "bool", "default": true, "help": "If true, counters sit on pedestals" },
+        "COUNTER_PEDESTAL_MIN": { "type": "number", "default": 0, "help": "Minimum pedestal height in mm" }
       }
     }
   },
   "globals": {
-    "G_DIMENSIONS_XY":     { "type": "xy",     "default": [100, 100], "help": "Tray dimensions [width, depth] in mm" },
-    "G_FLOOR_THICKNESS_N": { "type": "number", "default": 2,     "help": "Floor thickness in mm" },
-    "G_LID_DEPTH_N":       { "type": "number", "default": 3,     "help": "Lid depth in mm" },
+    "G_DIMENSIONS_XY":     { "type": "xy",     "default": [50, 50], "help": "Tray dimensions [width, depth] in mm" },
+    "G_FLOOR_THICKNESS_N": { "type": "number", "default": 1.5,   "help": "Floor thickness in mm" },
+    "G_LID_DEPTH_N":       { "type": "number", "default": 2.6,   "help": "Lid depth in mm" },
     "G_FRAME_STYLE_N":     { "type": "number", "default": 1,     "help": "Frame style (1-4)" },
-    "G_MAGNET_DIAMETER_N": { "type": "number", "default": 0,     "help": "Magnet diameter in mm (0 = no magnets)" },
+    "G_MAGNET_DIAMETER_N": { "type": "number", "default": 6.2,   "help": "Magnet diameter in mm (0 = no magnets)" },
     "G_MIN_PADDING_XY":    { "type": "xy",     "default": [1, 1], "help": "Minimum padding between counter slots [x, y] in mm" },
     "COUNTER_SHAPE":       { "type": "enum", "values": ["SHAPE_SQUARE", "SHAPE_CIRCLE", "SHAPE_TRIANGLE", "SHAPE_HEX"], "default": "SHAPE_SQUARE", "help": "Default counter shape (overridden per-set)" },
-    "COUNTER_MARGINS_XY":  { "type": "xy",     "default": [1, 1], "help": "Default counter margins [x, y] in mm" },
-    "COUNTER_MARGINS_POST_LENGTH_FRACTION_N": { "type": "number", "default": 0.5, "help": "Default margin post length fraction" },
+    "COUNTER_MARGINS_XY":  { "type": "xy",     "default": [0.5, 0.5], "help": "Default counter margins [x, y] in mm" },
+    "COUNTER_MARGINS_POST_LENGTH_FRACTION_N": { "type": "number", "default": 0.25, "help": "Default margin post length fraction" },
     "COUNTER_HOLE_FRACTION_N": { "type": "number", "default": 0.7, "help": "Default finger hole fraction" },
-    "COUNTER_PEDESTAL_B":  { "type": "bool",   "default": false, "help": "Default pedestal setting" },
-    "COUNTER_PEDESTAL_MIN":{ "type": "number", "default": 0.6,   "help": "Default minimum pedestal height in mm" }
+    "COUNTER_PEDESTAL_B":  { "type": "bool",   "default": true,  "help": "Default pedestal setting" },
+    "COUNTER_PEDESTAL_MIN":{ "type": "number", "default": 0,     "help": "Default minimum pedestal height in mm" }
   },
   "moduleVars": {
     "g_make_filler": { "type": "bool", "default": false, "help": "Generate filler pieces for empty tray space" },

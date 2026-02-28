@@ -1,0 +1,10 @@
+wait app-root
+shot welcome-page
+new bit
+wait content-area
+shot editor-top
+js document.querySelector('[data-testid="content-area"]').scrollTop = 800
+shot editor-mid
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot editor-bottom
+quit

@@ -1,0 +1,4 @@
+wait app-root
+shot loaded
+scad
+quit

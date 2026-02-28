@@ -1,0 +1,3 @@
+wait app-root
+shot library-icons
+quit
