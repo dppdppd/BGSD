@@ -17,7 +17,7 @@
     "name": "Counter Tray Designer",
     "repo": "dppdppd/counter-tray-designer",
     "branch": "master",
-    "files": ["release/lib/counter_tray_designer_lib.1.scad"],
+    "files": ["release/lib/counter_tray_designer_lib.1.scad", "release/lib/global_constants.scad"],
     "include": "../lib/counter_tray_designer_lib.1.scad",
     "entry": "Make",
     "schema": "schema/ctd.schema.json",

@@ -9,7 +9,7 @@
   "BOX_STACKABLE_B":   { "label": "Stackable",        "tooltip": "If checked, box base is cut to stack on identical boxes (requires 45 degree overhang capability)" },
   "BOX_WALL_THICKNESS":{ "label": "Wall Thickness",   "tooltip": "Wall thickness in mm (overrides the global g_wall_thickness)" },
   "ENABLED_B":         { "label": "Enabled",          "tooltip": "Uncheck to skip this item without deleting it" },
-  "_DEBUG_B":          { "label": "Debug",            "tooltip": "Highlight this item's geometry in transparent red (OpenSCAD # modifier) for debugging" },
+  "DEBUG_B":          { "label": "Debug",            "tooltip": "Highlight this item's geometry in transparent red (OpenSCAD # modifier) for debugging" },
   "LABEL":             { "label": "Label",            "tooltip": "Label block — add text or images to surfaces" },
   "ROTATION":          { "label": "Rotation",         "tooltip": "Rotation in degrees around the Z axis" },
   "POSITION_XY":       { "label": "Position",         "tooltip": "Position offset [x, y]. Use numbers for absolute mm, or CENTER / MAX for alignment." },

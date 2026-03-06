@@ -18,6 +18,7 @@
     spliceLines,
     updateSceneName,
     addScene,
+    formatKvValue,
     type Line,
   } from "./lib/stores/project";
   import { generateScad } from "./lib/scad";
@@ -168,30 +169,27 @@
   async function newProject(profile: string = "bit") {
     const bgsd = (window as any).bgsd;
 
-    // If working directory is set, create directly via IPC (no Save As dialog)
-    if (workingDirSet && bgsd?.newProjectToPath) {
-      const res = await bgsd.newProjectToPath(profile);
-      if (!res.ok) {
-        statusMsg = `New project failed: ${res.error || "unknown error"}`;
-        return;
-      }
-      // The IPC handler sends menu-open which triggers handleLoad
-      return;
-    }
-
-    // No working dir — fall back to Save As flow
+    // Always show Save As dialog so the user can choose a filename
     let templateProject: any;
     if (profile === "ctd") {
       templateProject = { version: 1, lines: [
+        { raw: "// BGSD", kind: "marker", depth: 0 },
+        { raw: "include <../lib/counter_tray_designer_lib.1.scad>;", kind: "include", depth: 0 },
         { raw: "scene_1 = [", kind: "open", depth: 0, role: "data", label: "scene_1", varName: "scene_1" },
-        { raw: "    [ COUNTER_SET,", kind: "open", depth: 1, role: "counter_set", label: "COUNTER_SET" },
-        { raw: "        [ COUNTER_SIZE_XYZ, [13.3, 13.3, 3] ],", kind: "kv", depth: 2, kvKey: "COUNTER_SIZE_XYZ", kvValue: [13.3, 13.3, 3] },
-        { raw: "    ],", kind: "close", depth: 1, role: "counter_set", label: "COUNTER_SET" },
+        { raw: "    [ TRAY,", kind: "open", depth: 1, role: "object", label: "TRAY" },
+        { raw: "        [ COUNTER_SET,", kind: "open", depth: 2, role: "counter_set", label: "COUNTER_SET" },
+        { raw: "            [ COUNTER_SIZE_XYZ, [13.3, 13.3, 3] ],", kind: "kv", depth: 3, kvKey: "COUNTER_SIZE_XYZ", kvValue: [13.3, 13.3, 3] },
+        { raw: "        ],", kind: "close", depth: 2, role: "counter_set", label: "COUNTER_SET" },
+        { raw: "    ],", kind: "close", depth: 1, role: "object", label: "TRAY" },
+        { raw: "    [ LID,", kind: "open", depth: 1, role: "object", label: "LID" },
+        { raw: "    ],", kind: "close", depth: 1, role: "object", label: "LID" },
         { raw: "];", kind: "close", depth: 0, role: "data", label: "scene_1", varName: "scene_1" },
         { raw: "Make(scene_1);", kind: "makeall", depth: 0, varName: "scene_1" },
-      ], hasMarker: false, libraryProfile: "ctd", libraryInclude: "counter_tray_designer_lib.1.scad" };
+      ], hasMarker: true, libraryProfile: "ctd", libraryInclude: "counter_tray_designer_lib.1.scad" };
     } else {
       templateProject = { version: 1, lines: [
+        { raw: "// BGSD", kind: "marker", depth: 0 },
+        { raw: "include <../lib/boardgame_insert_toolkit_lib.4.scad>;", kind: "include", depth: 0 },
         { raw: "data = [", kind: "open", depth: 0, role: "data", label: "data", varName: "data" },
         { raw: "    [ OBJECT_BOX, [", kind: "open", depth: 1, role: "object", label: "OBJECT_BOX", mergedOpen: true },
         { raw: '        [ NAME, "box 1" ],', kind: "kv", depth: 2, kvKey: "NAME", kvValue: "box 1" },
@@ -199,7 +197,7 @@
         { raw: "    ]],", kind: "close", depth: 1, role: "object", label: "OBJECT_BOX", mergedClose: true },
         { raw: "];", kind: "close", depth: 0, role: "data", label: "data", varName: "data" },
         { raw: "Make(data);", kind: "makeall", depth: 0, varName: "data" },
-      ], hasMarker: false, libraryProfile: "bit", libraryInclude: "boardgame_insert_toolkit_lib.4.scad" };
+      ], hasMarker: true, libraryProfile: "bit", libraryInclude: "boardgame_insert_toolkit_lib.4.scad" };
     }
 
     project.set(templateProject);
@@ -641,6 +639,44 @@
   }
   function toParsed(i: number) { const l = $project.lines[i]; if (!l) return; const c = classifyLocal(l.raw, l.depth); if (c.kind !== "raw") replaceLine(i, c); }
 
+  /** Set of line indices currently in raw-value editing mode (text input for value only). */
+  let rawValueEditing = $state(new Set<number>());
+
+  /** Toggle a line's value between structured controls and a raw text input. */
+  function toggleRawValueEdit(index: number) {
+    const next = new Set(rawValueEditing);
+    if (next.has(index)) next.delete(index);
+    else next.add(index);
+    rawValueEditing = next;
+  }
+
+  /** Materialize a virtual KV row and enter raw value editing mode. */
+  function materializeAndEditRawValue(closeIndex: number, key: string, def: any, depth: number) {
+    materializeKv(closeIndex, key, def.default, depth);
+    rawValueEditing = new Set([...rawValueEditing, closeIndex]);
+  }
+
+  /** Materialize a virtual global and enter raw value editing mode. */
+  function materializeGlobalAndEditRawValue(key: string, def: any) {
+    const idx = findGlobalInsertIndex();
+    materializeGlobal(idx, key, def.default);
+    rawValueEditing = new Set([...rawValueEditing, idx]);
+  }
+
+  /** Handle blur on a raw value text input: parse and update. */
+  function handleRawValueBlur(index: number, text: string, schemaDefault?: any, isGlobal: boolean = false) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const parsed = parseSimpleValue(trimmed);
+    if (parsed.ok) {
+      if (isGlobal) {
+        updateGlobalWithDefault(index, parsed.value, schemaDefault);
+      } else {
+        updateKv(index, parsed.value, schemaDefault);
+      }
+    }
+  }
+
   /**
    * For each line index, rawGroupStart[i] is:
    *  - i itself if line i is "raw" and is the first in a contiguous run of raw lines
@@ -721,7 +757,7 @@
     const closeIdx = findMatchingClose(openIdx);
     for (let j = openIdx + 1; j < closeIdx; j++) {
       const l = $project.lines[j];
-      if (l.kind === "kv" && l.kvKey === "_DEBUG_B") {
+      if (l.kind === "kv" && l.kvKey === "DEBUG_B") {
         return { active: l.kvValue === true, kvIndex: j };
       }
     }
@@ -734,7 +770,7 @@
       deleteLine(kvIndex);
     } else {
       const depth = ($project.lines[openIdx].depth ?? 0) + 1;
-      materializeKv(openIdx + 1, "_DEBUG_B", true, depth);
+      materializeKv(openIdx + 1, "DEBUG_B", true, depth);
     }
   }
 
@@ -1435,7 +1471,7 @@
     <div class="toolbar-sep"></div>
     <div class="toolbar-group">
       <button class="toolbar-btn" title="Open in OpenSCAD (Ctrl+E)" onclick={() => openInOpenScad()}>OpenSCAD</button>
-      <button class="toolbar-btn" title="Preferences... (Ctrl+,)" onclick={() => openPreferencesModal()}>Preferences</button>
+      <button class="toolbar-btn toolbar-gear" title="Preferences... (Ctrl+,)" onclick={() => openPreferencesModal()}>&#x2699;</button>
     </div>
   </nav>
   {/if}
@@ -1496,22 +1532,15 @@
                 {#if sortMode === "dir"}
                   {#if !pubKeys.includes(designsDir)}
                     <div class="welcome-library-publisher">
-                      <div class="welcome-publisher-row">
-                        <h3 class="welcome-library-publisher-name">{formatPublisher(designsDir)}</h3>
-                        <button class="welcome-new-file" data-testid="new-{profileId}" onclick={() => newProject(profileId)}>+ New</button>
-                      </div>
-                      <p class="welcome-library-empty-folder">No designs yet.</p>
+                      <h3 class="welcome-library-publisher-name">{formatPublisher(designsDir)}</h3>
+                      <button class="welcome-new-file" data-testid="new-{profileId}" onclick={() => newProject(profileId)}>+ New</button>
                     </div>
                   {/if}
                   {#each pubKeys as pub}
                     <div class="welcome-library-publisher">
+                      <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
                       {#if pub === designsDir}
-                        <div class="welcome-publisher-row">
-                          <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
-                          <button class="welcome-new-file" data-testid="new-{profileId}" onclick={() => newProject(profileId)}>+ New</button>
-                        </div>
-                      {:else}
-                        <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
+                        <button class="welcome-new-file" data-testid="new-{profileId}" onclick={() => newProject(profileId)}>+ New</button>
                       {/if}
                       {#each pubs[pub].sort((a: any, b: any) => a.name.localeCompare(b.name)) as game}
                         <button class="welcome-library-game" class:user-file={!game.isRepo} onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
@@ -1522,12 +1551,10 @@
                   {@const dateGroups = filesByDate(pubs)}
                   {#each dateGroups as group, gi}
                     <div class="welcome-library-publisher">
-                      <div class="welcome-publisher-row">
-                        <h3 class="welcome-library-publisher-name">{group.bucket}</h3>
-                        {#if gi === 0}
-                          <button class="welcome-new-file" data-testid="new-{profileId}-date" onclick={() => newProject(profileId)}>+ New</button>
-                        {/if}
-                      </div>
+                      <h3 class="welcome-library-publisher-name">{group.bucket}</h3>
+                      {#if gi === 0}
+                        <button class="welcome-new-file" data-testid="new-{profileId}-date" onclick={() => newProject(profileId)}>+ New</button>
+                      {/if}
                       {#each group.files as game}
                         <button class="welcome-library-game" class:user-file={!game.isRepo} onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
                       {/each}
@@ -1535,11 +1562,8 @@
                   {/each}
                   {#if !pubs || Object.keys(pubs).length === 0}
                     <div class="welcome-library-publisher">
-                      <div class="welcome-publisher-row">
-                        <h3 class="welcome-library-publisher-name">Today</h3>
-                        <button class="welcome-new-file" data-testid="new-{profileId}-date" onclick={() => newProject(profileId)}>+ New</button>
-                      </div>
-                      <p class="welcome-library-empty-folder">No designs yet.</p>
+                      <h3 class="welcome-library-publisher-name">Today</h3>
+                      <button class="welcome-new-file" data-testid="new-{profileId}-date" onclick={() => newProject(profileId)}>+ New</button>
                     </div>
                   {/if}
                 {/if}
@@ -1629,7 +1653,12 @@
             <div class="line-row kv" class:virtual={!row.isReal} style="{padDepth(1)}; {bracketStyle(1)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
               <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
               <span class="kv-control">
-                {#if gDef.type === "bool"}
+                {#if row.isReal && rawValueEditing.has(row.lineIndex!)}
+                  <input class="kv-raw-value" type="text" spellcheck="false"
+                    value={formatKvValue(gVal)}
+                    onblur={(e) => handleRawValueBlur(row.lineIndex!, e.currentTarget.value, gDef.default, true)}
+                    onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+                {:else if gDef.type === "bool"}
                   <input type="checkbox" checked={gVal === true} onchange={(e) => gOnChange(e.currentTarget.checked)} />
                 {:else if gDef.type === "enum"}
                   <select value={gVal} onchange={(e) => gOnChange(e.currentTarget.value)}>
@@ -1649,10 +1678,12 @@
               {#if row.isReal && row.lineIndex !== null}
                 {@render commentBtn($project.lines[row.lineIndex], row.lineIndex)}
                 <span class="spacer"></span>
-                <button class="toggle-btn" title="Edit as raw text" onclick={() => toRaw(row.lineIndex!)}>{"{}"}</button>
+                <button class="toggle-btn" class:active={rawValueEditing.has(row.lineIndex!)} title="Edit value as raw text" onclick={() => toggleRawValueEdit(row.lineIndex!)}>{"{}"}</button>
                 <button class="delete-btn" title="Reset to default" onclick={() => deleteLine(row.lineIndex!)}>✕</button>
               {:else}
+                <button class="comment-btn" title="Add comment" onclick={() => materializeVirtualGlobalWithComment(row.key, row.def)}>//</button>
                 <span class="spacer"></span>
+                <button class="toggle-btn" title="Edit value as raw text" onclick={() => materializeGlobalAndEditRawValue(row.key, row.def)}>{"{}"}</button>
               {/if}
             </div>
             {/if}
@@ -1671,7 +1702,12 @@
           <div class="line-row kv" class:virtual={!row.isReal} style="{padDepth(row.depth)}; {bracketStyle(row.depth)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
             <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
             <span class="kv-control">
-              {#if rkt === "bool"}
+              {#if row.isReal && rawValueEditing.has(row.lineIndex!)}
+                <input class="kv-raw-value" type="text" spellcheck="false"
+                  value={formatKvValue(val)}
+                  onblur={(e) => handleRawValueBlur(row.lineIndex!, e.currentTarget.value, row.def.default)}
+                  onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+              {:else if rkt === "bool"}
                 <input type="checkbox" checked={val === true} onchange={(e) => onChange(e.currentTarget.checked)} />
               {:else if rkt === "enum"}
                 <select value={val} onchange={(e) => onChange(e.currentTarget.value)}>
@@ -1717,10 +1753,12 @@
             {#if row.isReal && row.lineIndex !== null}
               {@render commentBtn($project.lines[row.lineIndex], row.lineIndex)}
               <span class="spacer"></span>
-              <button class="toggle-btn" title="Edit as raw text" onclick={() => toRaw(row.lineIndex!)}>{"{}"}</button>
+              <button class="toggle-btn" class:active={rawValueEditing.has(row.lineIndex!)} title="Edit value as raw text" onclick={() => toggleRawValueEdit(row.lineIndex!)}>{"{}"}</button>
               <button class="delete-btn" title="Reset to default" onclick={() => dematerializeKv(row.lineIndex)}>✕</button>
             {:else}
+              <button class="comment-btn" title="Add comment" onclick={() => materializeVirtualKvWithComment(closeIdx, row.key, row.def, row.depth)}>//</button>
               <span class="spacer"></span>
+              <button class="toggle-btn" title="Edit value as raw text" onclick={() => materializeAndEditRawValue(closeIdx, row.key, row.def, row.depth)}>{"{}"}</button>
             {/if}
           </div>
           {/if}
@@ -1831,7 +1869,12 @@
         <div class="line-row kv" class:is-default={isDefault(line.kvKey, line.kvValue)} style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
           <span class="kv-key" title={tip(line.kvKey || "")}>{label(line.kvKey || "")}</span>
           <span class="kv-control">
-            {#if kt === "bool"}
+            {#if rawValueEditing.has(i)}
+              <input class="kv-raw-value" type="text" spellcheck="false"
+                value={formatKvValue(line.kvValue)}
+                onblur={(e) => handleRawValueBlur(i, e.currentTarget.value, sd)}
+                onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+            {:else if kt === "bool"}
               <input type="checkbox" checked={line.kvValue === true}
                 onchange={(e) => updateKv(i, e.currentTarget.checked, sd)} />
             {:else if kt === "enum"}
@@ -1879,7 +1922,7 @@
           </span>
           {@render commentBtn(line, i)}
           <span class="spacer"></span>
-          <button class="toggle-btn" title="Edit as raw text" onclick={() => toRaw(i)}>{"{}"}</button>
+          <button class="toggle-btn" class:active={rawValueEditing.has(i)} title="Edit value as raw text" onclick={() => toggleRawValueEdit(i)}>{"{}"}</button>
         </div>
 
       {:else if line.kind === "makeall"}
@@ -1934,8 +1977,9 @@
             onblur={(e) => handleRawGroupEdit(i, e.currentTarget.value)}
             onchange={(e) => handleRawGroupEdit(i, e.currentTarget.value)}
           ></textarea>
-          {#if rawGroupLineCount(i) === 1 && canParse(line.raw)}
-            <button class="toggle-btn raw-parse-btn" title="Parse as structured" onclick={() => toParsed(i)}>{"{}"}</button>
+          {#if rawGroupLineCount(i) === 1}
+            {@const parsable = canParse(line.raw)}
+            <button class="toggle-btn raw-parse-btn" title={parsable ? "Parse as structured" : "Cannot parse this line"} disabled={!parsable} onclick={() => toParsed(i)}>{"{}"}</button>
           {/if}
         </div>
 
@@ -2091,6 +2135,17 @@
         <div class="prefs-buttons">
           <button class="prefs-btn" onclick={() => showPrefs = false}>Cancel</button>
           <button class="prefs-btn primary" onclick={savePreferences} data-testid="prefs-save">Save</button>
+        </div>
+        <div class="prefs-divider"></div>
+        <div class="prefs-about">
+          <div class="prefs-links">
+            <a href="#" onclick={(e) => { e.preventDefault(); (window as any).bgsd?.openExternal?.('https://github.com/dppdppd/bgsd'); }}>BGSD</a>
+            <span class="prefs-link-sep">&middot;</span>
+            <a href="#" onclick={(e) => { e.preventDefault(); (window as any).bgsd?.openExternal?.('https://github.com/dppdppd/The-Boardgame-Insert-Toolkit'); }}>Board Game Insert Toolkit</a>
+            <span class="prefs-link-sep">&middot;</span>
+            <a href="#" onclick={(e) => { e.preventDefault(); (window as any).bgsd?.openExternal?.('https://github.com/dppdppd/counter-tray-designer'); }}>Counter Tray Designer</a>
+          </div>
+          <p class="prefs-copyright">BGSD &copy; 2025–2026 dppdppd. Libraries are subject to their own licenses. Not affiliated with or endorsed by OpenSCAD.</p>
         </div>
       </div>
     </div>
@@ -2267,23 +2322,22 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .welcome-columns { display: flex; gap: 24px; justify-content: center; width: 100%; align-items: stretch; flex: 1; min-height: 0; }
   .welcome-col {
-    width: 280px; flex: 0 0 280px;
+    width: 350px; flex: 0 0 350px;
     display: flex; flex-direction: column; overflow: hidden;
     border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 16px;
   }
   .welcome-col-right-align { text-align: right; }
-  .welcome-col-right-align .welcome-publisher-row { flex-direction: row-reverse; }
+  .welcome-col-right-align .welcome-new-file { text-align: right; }
   .welcome-col-right-align .welcome-library-game { text-align: right; }
   .welcome-col-right-align .welcome-library-empty-folder { text-align: right; }
   .welcome-library-title { font-size: 18px; font-weight: 600; color: #2c3e50; margin: 0 0 4px; }
   .welcome-library-desc { font-size: 12px; color: #999; margin: 0 0 12px; line-height: 1.4; }
   .welcome-library-scroll { overflow-y: auto; flex: 1; padding-right: 8px; }
   .welcome-library-publisher { margin-bottom: 14px; }
-  .welcome-publisher-row { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; }
-  .welcome-publisher-row .welcome-library-publisher-name { margin: 0; }
   .welcome-new-file {
-    padding: 1px 8px; font-size: 11px; font-weight: 600;
-    border: 1px dashed #2d5a7b; border-radius: 3px;
+    display: block; width: 100%; text-align: left;
+    padding: 5px 10px; font-size: 14px; font-weight: 600;
+    border: 1px dashed #b4c0cb; border-radius: 4px;
     background: transparent; color: #2d5a7b; cursor: pointer;
   }
   .welcome-new-file:hover { background: #e8f0f6; }
@@ -2330,15 +2384,9 @@
   }
   .line-row.muted { opacity: 0.35; font-style: italic; }
   /* Virtual tier: defaults at schema value — subdued gray, not italic */
-  .line-row.kv.virtual .kv-key { font-weight: 400; color: #a0aab4; }
-  .line-row.kv.virtual { color: #a0aab4; }
-  .line-row.kv.virtual .kv-num,
-  .line-row.kv.virtual .kv-str,
-  .line-row.kv.virtual select { color: #a0aab4; border-color: #dde2e8; }
-  .line-row.kv.virtual input[type="checkbox"] { opacity: 0.35; }
-  .line-row.struct.virtual { color: #a0aab4; }
-  .line-row.struct.virtual .struct-label { color: #a0aab4; }
-  .line-row.struct.virtual .struct-bracket { color: #a0aab4; }
+  .line-row.kv.virtual .kv-key { font-weight: 400; font-style: italic; }
+  .line-row.struct.virtual .struct-label { font-style: italic; }
+  .line-row.struct.virtual .struct-bracket { font-style: italic; }
   .virtual-key { }
 
   .collapse-btn {
@@ -2415,6 +2463,12 @@
   .line-row:hover .toggle-btn { opacity: 1; }
   .toggle-btn:hover:not(:disabled) { border-color: #2d5a7b; color: #2d5a7b; }
   .toggle-btn:disabled, .toggle-btn.disabled { opacity: 0.3; cursor: default; }
+  .toggle-btn.active { opacity: 1; background: #2d5a7b; color: white; border-color: #2d5a7b; }
+  .kv-raw-value {
+    font-family: "Courier New", monospace; font-size: 15px; font-weight: 400;
+    padding: 1px 4px; border: 1px solid #2d5a7b; border-radius: 2px;
+    width: 280px; background: #f0f4f8;
+  }
   .add-btn {
     background: none; border: 1px dashed #b4c0cb; color: #546e7a;
     padding: 0 8px; border-radius: 3px; cursor: pointer;
@@ -2533,4 +2587,12 @@
   .prefs-btn:hover { background: #f5f5f5; }
   .prefs-btn.primary { background: #2d5a7b; color: white; border-color: #2d5a7b; }
   .prefs-btn.primary:hover { background: #1e3f5a; }
+  .prefs-divider { border-top: 1px solid #e0e0e0; margin: 16px 0 12px; }
+  .prefs-about { text-align: center; }
+  .prefs-links { display: flex; justify-content: center; gap: 6px; font-size: 13px; flex-wrap: wrap; }
+  .prefs-links a { color: #2d5a7b; text-decoration: none; }
+  .prefs-links a:hover { text-decoration: underline; }
+  .prefs-link-sep { color: #bbb; }
+  .prefs-copyright { font-size: 11px; color: #999; margin: 8px 0 0; }
+  .toolbar-gear { font-size: 18px; line-height: 1; }
 </style>

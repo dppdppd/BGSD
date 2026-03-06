@@ -346,7 +346,7 @@ export function addScene(afterIndex: number, sceneName: string) {
   });
 }
 
-function formatKvValue(value: any): string {
+export function formatKvValue(value: any): string {
   if (value === true) return "true";
   if (value === false) return "false";
   if (typeof value === "number") return String(value);

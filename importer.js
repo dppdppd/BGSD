@@ -867,7 +867,8 @@ function renderEntryLines(node, indent, needsComma, outLines) {
         if (child.type === "comment") { outLines.push(`${childIndent}//${child.text}`); continue; }
         renderEntryLines(child, childIndent, true, outLines);
       }
-      outLines.push(`${indent}]]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
+      outLines.push(`${indent}]`);
+      outLines.push(`${indent}]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
       return;
     }
 
@@ -895,14 +896,15 @@ function renderEntryLines(node, indent, needsComma, outLines) {
           renderEntryLines(b, childIndent, true, outLines);
           outLines.push(`${indent}]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
         } else {
-          // Wrapper format: [ KEY, [ <children>, ]]
+          // Wrapper format: [ KEY, [ <children> ] ]
           outLines.push(`${indent}[ ${key}, [` + (node.commentAfterFirst ? ` //${node.commentAfterFirst}` : ""));
           const childIndent = indent + " ".repeat(4);
           for (const child of b.elements) {
             if (child.type === "comment") { outLines.push(`${childIndent}//${child.text}`); continue; }
             renderEntryLines(child, childIndent, true, outLines);
           }
-          outLines.push(`${indent}]]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
+          outLines.push(`${indent}]`);
+          outLines.push(`${indent}]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
         }
         return;
       }

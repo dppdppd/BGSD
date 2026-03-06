@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld("bgsd", {
   updateLibraries: () => ipcRenderer.invoke("update-libraries"),
   getWorkingDirStatus: () => ipcRenderer.invoke("get-working-dir-status"),
 
+  // External links
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
+
   // Preferences
   getPreferences: () => ipcRenderer.invoke("get-preferences"),
   setPreferences: (prefs) => ipcRenderer.invoke("set-preferences", prefs),

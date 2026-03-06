@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { importScad } = require("./importer");
@@ -260,7 +260,20 @@ ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, prof
 });
 
 ipcMain.handle("save-file-as", async (_event, scadText, profileId, currentPath) => {
-  const defaultPath = currentPath ? path.join(path.dirname(currentPath), "design.scad") : "design.scad";
+  let defaultPath;
+  if (currentPath) {
+    defaultPath = path.join(path.dirname(currentPath), "design.scad");
+  } else {
+    // For new files, default to the profile's designs directory
+    const prefs = loadPrefs();
+    if (prefs.workingDir && profileId && profiles[profileId]) {
+      const designsDir = path.join(prefs.workingDir, profileId, profiles[profileId].designsDir || "designs");
+      fs.mkdirSync(designsDir, { recursive: true });
+      defaultPath = path.join(designsDir, `bgsd_${profileId}_${Date.now()}.scad`);
+    } else {
+      defaultPath = "design.scad";
+    }
+  }
   const result = await dialog.showSaveDialog(mainWindow, {
     title: "Save SCAD File",
     filters: [{ name: "OpenSCAD", extensions: ["scad"] }],
@@ -439,6 +452,10 @@ ipcMain.handle("export-stl", async (_event, sourcePath) => {
 
 // --- Preferences IPC ---
 
+ipcMain.handle("open-external", (_event, url) => {
+  if (typeof url === "string" && url.startsWith("https://")) shell.openExternal(url);
+});
+
 ipcMain.handle("get-preferences", () => loadPrefs());
 
 ipcMain.handle("set-preferences", (_event, prefs) => {
@@ -537,10 +554,28 @@ ipcMain.handle("update-libraries", async () => {
   if (!prefs.workingDir) return { ok: false, error: "No working directory set" };
   try {
     const messages = [];
-    await updateLibraries(prefs.workingDir, (msg) => {
+    const result = await updateLibraries(prefs.workingDir, (msg) => {
       messages.push(msg);
       if (mainWindow) mainWindow.webContents.send("working-dir-progress", msg);
     });
+
+    // Show dialog if user files were skipped
+    if (result?.skippedUserFiles?.length > 0 && mainWindow) {
+      const files = result.skippedUserFiles;
+      const dirs = [...new Set(files.map((f) => f.dir))];
+      const list = files.map((f) => `  ${f.profileName}: ${f.localPath}`).join("\n");
+      const resp = await dialog.showMessageBox(mainWindow, {
+        type: "info",
+        title: "Files not overwritten",
+        message: `${files.length} local file(s) were not overwritten because they have local modifications:\n\n${list}`,
+        buttons: ["OK", "Open Directory"],
+        defaultId: 0,
+      });
+      if (resp.response === 1 && dirs.length > 0) {
+        shell.openPath(dirs[0]);
+      }
+    }
+
     return { ok: true, messages };
   } catch (err) {
     return { ok: false, error: err.message };

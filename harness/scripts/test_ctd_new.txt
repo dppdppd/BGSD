@@ -1,0 +1,3 @@
+new ctd
+wait 500
+screenshot ctd_new_file
