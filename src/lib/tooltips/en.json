@@ -126,5 +126,11 @@
   "G_MIN_PADDING_XY":        { "label": "Min Padding",         "tooltip": "Minimum padding between counter slots [x, y] in mm" },
 
   "g_make_filler":           { "label": "Make Filler",         "tooltip": "Generate filler pieces for empty tray space" },
-  "g_make_svg":              { "label": "Make SVG",            "tooltip": "Generate SVG output for laser cutting" }
+  "g_make_svg":              { "label": "Make SVG",            "tooltip": "Generate SVG output for laser cutting" },
+
+  "_ui_share_title":         { "label": "Share your designs" },
+  "_ui_share_intro":         { "label": "Want to submit your designs to the official libraries? Start a guided conversation:" },
+  "_ui_share_help_bit":      { "label": "Submit a BIT design" },
+  "_ui_share_help_ctd":      { "label": "Submit a CTD design" },
+  "_ui_share_copyright":     { "label": "BGSD \u00a9 2025\u20132026 dppdppd. Libraries are subject to their own licenses. Not affiliated with or endorsed by OpenSCAD." }
 }

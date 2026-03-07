@@ -2146,7 +2146,17 @@
             <span class="prefs-link-sep">&middot;</span>
             <a href="#" onclick={(e) => { e.preventDefault(); (window as any).bgsd?.openExternal?.('https://github.com/dppdppd/counter-tray-designer'); }}>Counter Tray Designer</a>
           </div>
-          <p class="prefs-copyright">BGSD &copy; 2025–2026 dppdppd. Libraries are subject to their own licenses. Not affiliated with or endorsed by OpenSCAD.</p>
+          <div class="prefs-submit-designs">
+            <p class="prefs-submit-title">{i18n["_ui_share_title"]?.label}</p>
+            <p class="prefs-submit-help">{i18n["_ui_share_intro"]?.label}
+              <!-- svelte-ignore a11y_invalid_attribute -->
+              <a href="#" onclick={(e) => { e.preventDefault(); (window as any).bgsd?.openExternal?.('https://chatgpt.com/?q=' + encodeURIComponent('I want to submit a new design as a pull request to the Board Game Insert Toolkit (BIT) github project (https://github.com/dppdppd/The-Boardgame-Insert-Toolkit). This is one of two OpenSCAD libraries used by the BGSD editor — the other is Counter Tray Designer (CTD) at https://github.com/dppdppd/counter-tray-designer. I have no github experience. Walk me through the process step by step.')); }}>{i18n["_ui_share_help_bit"]?.label}</a>
+              <span class="prefs-link-sep">&middot;</span>
+              <!-- svelte-ignore a11y_invalid_attribute -->
+              <a href="#" onclick={(e) => { e.preventDefault(); (window as any).bgsd?.openExternal?.('https://chatgpt.com/?q=' + encodeURIComponent('I want to submit a new design as a pull request to the Counter Tray Designer (CTD) github project (https://github.com/dppdppd/counter-tray-designer). This is one of two OpenSCAD libraries used by the BGSD editor — the other is Board Game Insert Toolkit (BIT) at https://github.com/dppdppd/The-Boardgame-Insert-Toolkit. I have no github experience. Walk me through the process step by step.')); }}>{i18n["_ui_share_help_ctd"]?.label}</a>
+            </p>
+          </div>
+          <p class="prefs-copyright">{i18n["_ui_share_copyright"]?.label}</p>
         </div>
       </div>
     </div>
@@ -2594,6 +2604,11 @@
   .prefs-links a { color: #2d5a7b; text-decoration: none; }
   .prefs-links a:hover { text-decoration: underline; }
   .prefs-link-sep { color: #bbb; }
+  .prefs-submit-designs { text-align: left; margin: 12px 0 8px; padding: 10px 12px; background: #f5f8fb; border-radius: 6px; border: 1px solid #e0e8ef; }
+  .prefs-submit-title { font-size: 13px; font-weight: 600; color: #2d5a7b; margin: 0 0 4px; }
+  .prefs-submit-help { font-size: 12px; color: #555; margin: 4px 0; line-height: 1.6; }
+  .prefs-submit-help a { color: #2d5a7b; text-decoration: none; }
+  .prefs-submit-help a:hover { text-decoration: underline; }
   .prefs-copyright { font-size: 11px; color: #999; margin: 8px 0 0; }
   .toolbar-gear { font-size: 18px; line-height: 1; }
 </style>
