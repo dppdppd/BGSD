@@ -620,6 +620,7 @@
   function handleLineEdit(i: number, newRaw: string) { replaceLine(i, classifyLocal(newRaw, $project.lines[i]?.depth ?? 0)); }
   function getKeyType(k: string) { return KEY_TYPE_MAP[k] || "unknown"; }
   function getKeySchema(k: string) { return KEY_SCHEMA_MAP[k] || null; }
+  function getStep(k: string): string { return KEY_SCHEMA_MAP[k]?.step != null ? String(KEY_SCHEMA_MAP[k].step) : "any"; }
   function parseNum(s: string) { const n = parseFloat(s); return isNaN(n) ? 0 : n; }
   function smartParseNum(s: string) { const t = s.trim(); return /^-?\d+(\.\d+)?$/.test(t) ? parseFloat(t) : t; }
   function updateKvIdx(li: number, arr: any[], j: number, val: any) { const c = [...arr]; c[j] = val; updateKv(li, c); }
@@ -1665,7 +1666,7 @@
                     {#each gDef.values || [] as v}<option value={v}>{v}</option>{/each}
                   </select>
                 {:else if gDef.type === "number"}
-                  <input class="kv-num" type="number" step="any" value={gVal} onchange={(e) => gOnChange(parseNum(e.currentTarget.value))} />
+                  <input class="kv-num" type="number" step={getStep(row.key)} value={gVal} onchange={(e) => gOnChange(parseNum(e.currentTarget.value))} />
                 {:else if gDef.type === "xy" && Array.isArray(gVal)}
                   {#each [0,1] as j}
                     <input class="kv-str sm" type="text" value={gVal[j] ?? 0}
@@ -1714,7 +1715,7 @@
                   {#each rks?.values || [] as v}<option value={v}>{v}</option>{/each}
                 </select>
               {:else if rkt === "number"}
-                <input class="kv-num" type="number" step="any" value={val} onchange={(e) => onChange(parseNum(e.currentTarget.value))} />
+                <input class="kv-num" type="number" step={getStep(row.key)} value={val} onchange={(e) => onChange(parseNum(e.currentTarget.value))} />
               {:else if rkt === "string"}
                 <input class="kv-str" type="text" value={val ?? ""} onchange={(e) => onChange(e.currentTarget.value)} />
               {:else if rkt === "xyz" && Array.isArray(val)}
@@ -1742,7 +1743,7 @@
               {:else if rkt === "4num" && Array.isArray(val)}
                 {#each ["F","B","L","R"] as lb, j}
                   <label class="side-label"><span class="side-tag">{lb}</span>
-                    <input class="kv-num xs" type="number" step="any" value={val[j] ?? 0}
+                    <input class="kv-num xs" type="number" step={getStep(row.key)} value={val[j] ?? 0}
                       onchange={(e) => { const c = [...val]; c[j] = parseNum(e.currentTarget.value); onChange(c); }} />
                   </label>
                 {/each}
@@ -1785,7 +1786,7 @@
                 {#if rkt === "bool"}
                   <input type="checkbox" checked={val === true} onchange={(e) => onChange(e.currentTarget.checked)} />
                 {:else if rkt === "number"}
-                  <input class="kv-num" type="number" step="any" value={val} onchange={(e) => onChange(parseNum(e.currentTarget.value))} />
+                  <input class="kv-num" type="number" step={getStep(srow.key)} value={val} onchange={(e) => onChange(parseNum(e.currentTarget.value))} />
                 {:else if rkt === "string"}
                   <input class="kv-str" type="text" value={val ?? ""} onchange={(e) => onChange(e.currentTarget.value)} />
                 {:else if rkt === "4bool" && Array.isArray(val)}
@@ -1882,7 +1883,7 @@
                 {#each ks?.values || [] as v}<option value={v}>{v}</option>{/each}
               </select>
             {:else if kt === "number"}
-              <input class="kv-num" type="number" step="any" value={line.kvValue}
+              <input class="kv-num" type="number" step={getStep(line.kvKey)} value={line.kvValue}
                 onchange={(e) => updateKv(i, parseNum(e.currentTarget.value), sd)} />
             {:else if kt === "string"}
               <input class="kv-str" type="text" value={line.kvValue ?? ""}
@@ -1912,7 +1913,7 @@
             {:else if kt === "4num" && Array.isArray(line.kvValue)}
               {#each ["F","B","L","R"] as lb, j}
                 <label class="side-label"><span class="side-tag">{lb}</span>
-                  <input class="kv-num xs" type="number" step="any" value={line.kvValue[j] ?? 0}
+                  <input class="kv-num xs" type="number" step={getStep(line.kvKey)} value={line.kvValue[j] ?? 0}
                     onchange={(e) => updateKvIdx(i, line.kvValue, j, parseNum(e.currentTarget.value))} />
                 </label>
               {/each}
