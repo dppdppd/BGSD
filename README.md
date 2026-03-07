@@ -2,7 +2,7 @@
 
 A visual desktop editor for creating parametric 3D-printable board game inserts using OpenSCAD libraries. No OpenSCAD coding required.
 
-![BGSD Welcome](images/bgsd_welcome.png?v=3)
+![BGSD editing GMT Tomahawks & Bayonets counter trays](images/BGSD%20GMT_TnB.jpg)
 
 ## Download
 
