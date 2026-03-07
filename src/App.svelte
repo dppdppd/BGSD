@@ -1524,7 +1524,7 @@
             {#each [["bit", "Storage Inserts", "Box inserts with compartments, lids, and dividers"], ["ctd", "Counter Trays", "Counter trays sized for tokens, markers, and chits"]] as [profileId, profileLabel, profileDesc]}
             {@const tree = libraryTree[profileId]}
             {@const pubs = tree?.publishers}
-            {@const designsDir = tree?.designsDir || "designs"}
+            {@const designsDir = tree?.designsDir || "my_designs"}
             {@const pubKeys = pubs ? Object.keys(pubs).sort((a, b) => a === designsDir ? -1 : b === designsDir ? 1 : a.localeCompare(b)) : []}
             <div class="welcome-col" class:welcome-col-right-align={profileId === "bit"} data-testid="welcome-col-{profileId}">
               <h2 class="welcome-library-title">{profileLabel}</h2>

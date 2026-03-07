@@ -267,7 +267,7 @@ ipcMain.handle("save-file-as", async (_event, scadText, profileId, currentPath) 
     // For new files, default to the profile's designs directory
     const prefs = loadPrefs();
     if (prefs.workingDir && profileId && profiles[profileId]) {
-      const designsDir = path.join(prefs.workingDir, profileId, profiles[profileId].designsDir || "designs");
+      const designsDir = path.join(prefs.workingDir, profileId, profiles[profileId].designsDir || "my_designs");
       fs.mkdirSync(designsDir, { recursive: true });
       defaultPath = path.join(designsDir, `bgsd_${profileId}_${Date.now()}.scad`);
     } else {
@@ -306,7 +306,7 @@ ipcMain.handle("copy-template", async (_event, sourcePath) => {
     // Detect profile from source path to pick the right designs subfolder
     const profileId = isRepoFile(sourcePath, prefs.workingDir);
     if (profileId && profiles[profileId]) {
-      const designsDir = path.join(prefs.workingDir, profileId, profiles[profileId].designsDir || "designs");
+      const designsDir = path.join(prefs.workingDir, profileId, profiles[profileId].designsDir || "my_designs");
       if (fs.existsSync(designsDir)) defaultDir = designsDir;
     }
   }
@@ -492,7 +492,7 @@ ipcMain.handle("new-project-to-path", async (_event, profile) => {
   const prefs = loadPrefs();
   let filePath;
   if (prefs.workingDir && profileObj) {
-    const designsDir = path.join(prefs.workingDir, profile, profileObj.designsDir || "designs");
+    const designsDir = path.join(prefs.workingDir, profile, profileObj.designsDir || "my_designs");
     fs.mkdirSync(designsDir, { recursive: true });
     filePath = path.join(designsDir, `bgsd_${profile}_${Date.now()}.scad`);
   } else {
@@ -630,7 +630,7 @@ ipcMain.handle("get-library-tree", () => {
       }
     }
     walk(profileDir);
-    result[profileId] = { name: profile.name, publishers, designsDir: profile.designsDir || "designs" };
+    result[profileId] = { name: profile.name, publishers, designsDir: profile.designsDir || "my_designs" };
   }
   return { ok: true, tree: result };
 });

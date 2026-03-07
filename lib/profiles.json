@@ -11,7 +11,7 @@
     "dataVar": "data",
     "schema": "schema/bit.schema.json",
     "includePattern": "boardgame_insert_toolkit_lib\\.\\d+\\.scad",
-    "designsDir": "designs"
+    "designsDir": "my_designs"
   },
   "ctd": {
     "name": "Counter Tray Designer",
