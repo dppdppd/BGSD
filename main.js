@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const { importScad } = require("./importer");
 const { ensureLibrary, initWorkingDir, updateLibraries, isInsideWorkingDir, isRepoFile, loadManifest, profiles, setProxy, getProxy } = require("./lib/library-manager");
+const { parseConstantsFile } = require("./lib/constants-parser");
 
 // Prevent GPU-related crashes on Windows (packaged exe doesn't get --disable-gpu)
 app.disableHardwareAcceleration();
@@ -652,6 +653,33 @@ ipcMain.handle("delete-file", (_event, filePath) => {
   } catch (err) {
     return { ok: false, error: err.message };
   }
+});
+
+// --- Presets IPC ---
+
+ipcMain.handle("get-presets", (_event, publisherConstantsFile) => {
+  const prefs = loadPrefs();
+  if (!prefs.workingDir) return {};
+
+  const libDir = path.join(prefs.workingDir, "ctd", "lib");
+  let entries = [];
+
+  if (publisherConstantsFile) {
+    const constPath = path.join(libDir, publisherConstantsFile);
+    entries = parseConstantsFile(constPath);
+  } else {
+    // Fall back to global_constants.scad only
+    const globalPath = path.join(libDir, "global_constants.scad");
+    entries = parseConstantsFile(globalPath);
+  }
+
+  // Group by field name
+  const map = {};
+  for (const entry of entries) {
+    if (!map[entry.field]) map[entry.field] = [];
+    map[entry.field].push({ name: entry.name, label: entry.label, value: entry.value });
+  }
+  return map;
 });
 
 app.whenReady().then(() => {

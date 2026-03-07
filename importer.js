@@ -1326,6 +1326,7 @@ function importScad(scadText) {
   // Detect library profile from include lines
   let libraryProfile = "bit"; // default
   let libraryInclude = profiles.bit.include; // default
+  let publisherConstantsFile = null;
   for (const line of lines) {
     if (line.kind === "include" && line.includeFile) {
       for (const [id, profile] of Object.entries(profiles)) {
@@ -1337,10 +1338,19 @@ function importScad(scadText) {
           break;
         }
       }
+      // Detect publisher constants include (e.g. gmt_constants.scad)
+      const profile = profiles[libraryProfile];
+      if (profile?.libPattern) {
+        const constRe = new RegExp(profile.libPattern, "i");
+        const basename = line.includeFile.replace(/.*[/\\]/, "");
+        if (constRe.test(basename)) {
+          publisherConstantsFile = basename;
+        }
+      }
     }
   }
 
-  return { version: 4, lines, hasMarker, libraryProfile, libraryInclude };
+  return { version: 4, lines, hasMarker, libraryProfile, libraryInclude, publisherConstantsFile };
 }
 
 /**

@@ -19,6 +19,10 @@
     updateSceneName,
     addScene,
     formatKvValue,
+    presets,
+    knownConstants,
+    knownConstantsStore,
+    constantLabels,
     type Line,
   } from "./lib/stores/project";
   import { generateScad } from "./lib/scad";
@@ -95,6 +99,31 @@
       setNeedsBackup(!data.hasMarker);
       const name = filePath.replace(/.*[/\\]/, "");
       statusMsg = data.hasMarker ? name : `${name} (will backup .bak on first save)`;
+    }
+
+    // Load presets for CTD projects
+    if (data.libraryProfile === "ctd") {
+      try {
+        const presetMap = await bgsd?.getPresets?.(data.publisherConstantsFile || null);
+        if (presetMap && typeof presetMap === "object") {
+          presets.set(presetMap);
+          knownConstants.clear();
+          const labels: Record<string, string> = {};
+          for (const entries of Object.values(presetMap) as any[]) {
+            for (const e of entries) {
+              knownConstants.add(e.name);
+              if (!labels[e.name]) labels[e.name] = e.label;
+            }
+          }
+          knownConstantsStore.set(new Set(knownConstants));
+          constantLabels.set(labels);
+        }
+      } catch (_) {}
+    } else {
+      presets.set({});
+      knownConstants.clear();
+      knownConstantsStore.set(new Set());
+      constantLabels.set({});
     }
 
     // Auto-launch OpenSCAD after every load
@@ -639,6 +668,39 @@
     replaceLine(i, { raw: l.raw, kind: "raw", depth: l.depth });
   }
   function toParsed(i: number) { const l = $project.lines[i]; if (!l) return; const c = classifyLocal(l.raw, l.depth); if (c.kind !== "raw") replaceLine(i, c); }
+
+  /** Which preset dropdown is currently open (field key like "COUNTER_SIZE_XYZ"), or null. */
+  let presetOpen = $state<string | null>(null);
+
+  /** Close preset dropdown when clicking outside. */
+  $effect(() => {
+    if (!presetOpen) return;
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".preset-wrap")) presetOpen = null;
+    }
+    document.addEventListener("click", handleClick, true);
+    return () => document.removeEventListener("click", handleClick, true);
+  });
+
+  /** Look up a preset's display value by constant name. */
+  function resolvePresetValue(name: string): string {
+    for (const entries of Object.values($presets)) {
+      const found = entries.find((e: any) => e.name === name);
+      if (found) return found.value;
+    }
+    return name;
+  }
+
+  /** Derive the per-component preset field for axis j of a schema key.
+   *  e.g. componentPresetField("COUNTER_SIZE_XYZ", 0) → "COUNTER_SIZE_X" */
+  function componentPresetField(key: string, j: number): string | null {
+    const axes = ["X", "Y", "Z"];
+    const base = key.replace(/_(XYZ|XY)$/, "");
+    if (base === key) return null; // no suffix to strip
+    const field = `${base}_${axes[j]}`;
+    return ($presets[field]?.length) ? field : null;
+  }
 
   /** Set of line indices currently in raw-value editing mode (text input for value only). */
   let rawValueEditing = $state(new Set<number>());
@@ -1456,6 +1518,23 @@
   {/if}
 {/snippet}
 
+{#snippet presetBtn(key, onChange, id)}
+  {#if $presets[key]?.length}
+    <span class="preset-wrap">
+      <button class="preset-btn" title="Choose preset" data-testid="preset-{id}"
+        onclick={(e) => { e.stopPropagation(); presetOpen = presetOpen === id ? null : id; }}>&#9662;</button>
+      {#if presetOpen === id}
+        <div class="preset-menu">
+          {#each $presets[key] as p}
+            <button class="preset-item" title={p.value}
+              onclick={() => { onChange(p.name); presetOpen = null; }}>{p.label}</button>
+          {/each}
+        </div>
+      {/if}
+    </span>
+  {/if}
+{/snippet}
+
 <main data-testid="app-root">
   {#if !showWelcome}
   <nav class="toolbar" data-testid="toolbar">
@@ -1667,15 +1746,30 @@
                   </select>
                 {:else if gDef.type === "number"}
                   <input class="kv-num" type="number" step={getStep(row.key)} value={gVal} onchange={(e) => gOnChange(parseNum(e.currentTarget.value))} />
-                {:else if gDef.type === "xy" && Array.isArray(gVal)}
-                  {#each [0,1] as j}
-                    <input class="kv-str sm" type="text" value={gVal[j] ?? 0}
-                      onchange={(e) => { const c = [...gVal]; c[j] = smartParseNum(e.currentTarget.value); gOnChange(c); }} />
-                  {/each}
+                {:else if gDef.type === "xy"}
+                  {#if typeof gVal === "string" && $knownConstantsStore.has(gVal)}
+                    <span class="preset-pill" title={gVal + " → " + resolvePresetValue(gVal)}>{$constantLabels[gVal] || gVal}</span>
+                    <button class="preset-clear" title="Clear preset" onclick={() => gOnChange(gDef.default)}>✕</button>
+                  {:else if Array.isArray(gVal)}
+                    {#each [0,1] as j}
+                      {#if typeof gVal[j] === "string" && $knownConstantsStore.has(gVal[j])}
+                        <span class="preset-pill sm" title={gVal[j] + " → " + resolvePresetValue(gVal[j])}>{$constantLabels[gVal[j]] || gVal[j]}</span>
+                        <button class="preset-clear" title="Clear" onclick={() => { const c = [...gVal]; c[j] = gDef.default?.[j] ?? 0; gOnChange(c); }}>✕</button>
+                      {:else}
+                        <input class="kv-str sm" type="text" value={gVal[j] ?? 0}
+                          onchange={(e) => { const c = [...gVal]; c[j] = smartParseNum(e.currentTarget.value); gOnChange(c); }} />
+                      {/if}
+                      {@const cpf = componentPresetField(row.key, j)}
+                      {#if cpf}
+                        {@render presetBtn(cpf, (v) => { const c = Array.isArray(gVal) ? [...gVal] : [...(gDef.default || [0,0])]; c[j] = v; gOnChange(c); }, `comp-g-${row.key}-${j}`)}
+                      {/if}
+                    {/each}
+                  {/if}
                 {:else}
                   <input class="kv-str" type="text" value={gVal ?? ""} onchange={(e) => gOnChange(e.currentTarget.value)} />
                 {/if}
               </span>
+              {@render presetBtn(row.key, gOnChange, `global-${row.key}`)}
               {#if row.isReal && row.lineIndex !== null}
                 {@render commentBtn($project.lines[row.lineIndex], row.lineIndex)}
                 <span class="spacer"></span>
@@ -1718,16 +1812,44 @@
                 <input class="kv-num" type="number" step={getStep(row.key)} value={val} onchange={(e) => onChange(parseNum(e.currentTarget.value))} />
               {:else if rkt === "string"}
                 <input class="kv-str" type="text" value={val ?? ""} onchange={(e) => onChange(e.currentTarget.value)} />
-              {:else if rkt === "xyz" && Array.isArray(val)}
-                {#each [0,1,2] as j}
-                  <input class="kv-str sm" type="text" value={val[j] ?? 0}
-                    onchange={(e) => { const c = [...val]; c[j] = smartParseNum(e.currentTarget.value); onChange(c); }} />
-                {/each}
-              {:else if rkt === "xy" && Array.isArray(val)}
-                {#each [0,1] as j}
-                  <input class="kv-str sm" type="text" value={val[j] ?? 0}
-                    onchange={(e) => { const c = [...val]; c[j] = smartParseNum(e.currentTarget.value); onChange(c); }} />
-                {/each}
+              {:else if rkt === "xyz"}
+                {#if typeof val === "string" && $knownConstantsStore.has(val)}
+                  <span class="preset-pill" title={val + " → " + resolvePresetValue(val)}>{$constantLabels[val] || val}</span>
+                  <button class="preset-clear" title="Clear preset" onclick={() => onChange(row.def.default)}>✕</button>
+                {:else if Array.isArray(val)}
+                  {#each [0,1,2] as j}
+                    {#if typeof val[j] === "string" && $knownConstantsStore.has(val[j])}
+                      <span class="preset-pill sm" title={val[j] + " → " + resolvePresetValue(val[j])}>{$constantLabels[val[j]] || val[j]}</span>
+                      <button class="preset-clear" title="Clear" onclick={() => { const c = [...val]; c[j] = row.def.default?.[j] ?? 0; onChange(c); }}>✕</button>
+                    {:else}
+                      <input class="kv-str sm" type="text" value={val[j] ?? 0}
+                        onchange={(e) => { const c = [...val]; c[j] = smartParseNum(e.currentTarget.value); onChange(c); }} />
+                    {/if}
+                    {@const cpf = componentPresetField(row.key, j)}
+                    {#if cpf}
+                      {@render presetBtn(cpf, (v) => { const c = Array.isArray(val) ? [...val] : [...(row.def.default || [0,0,0])]; c[j] = v; onChange(c); }, `comp-${i}-${row.key}-${j}`)}
+                    {/if}
+                  {/each}
+                {/if}
+              {:else if rkt === "xy"}
+                {#if typeof val === "string" && $knownConstantsStore.has(val)}
+                  <span class="preset-pill" title={val + " → " + resolvePresetValue(val)}>{$constantLabels[val] || val}</span>
+                  <button class="preset-clear" title="Clear preset" onclick={() => onChange(row.def.default)}>✕</button>
+                {:else if Array.isArray(val)}
+                  {#each [0,1] as j}
+                    {#if typeof val[j] === "string" && $knownConstantsStore.has(val[j])}
+                      <span class="preset-pill sm" title={val[j] + " → " + resolvePresetValue(val[j])}>{$constantLabels[val[j]] || val[j]}</span>
+                      <button class="preset-clear" title="Clear" onclick={() => { const c = [...val]; c[j] = row.def.default?.[j] ?? 0; onChange(c); }}>✕</button>
+                    {:else}
+                      <input class="kv-str sm" type="text" value={val[j] ?? 0}
+                        onchange={(e) => { const c = [...val]; c[j] = smartParseNum(e.currentTarget.value); onChange(c); }} />
+                    {/if}
+                    {@const cpf = componentPresetField(row.key, j)}
+                    {#if cpf}
+                      {@render presetBtn(cpf, (v) => { const c = Array.isArray(val) ? [...val] : [...(row.def.default || [0,0])]; c[j] = v; onChange(c); }, `comp-${i}-${row.key}-${j}`)}
+                    {/if}
+                  {/each}
+                {/if}
               {:else if rkt === "position_xy" && Array.isArray(val)}
                 {#each [0,1] as j}
                   <input class="kv-str sm" type="text" value={val[j] ?? ""}
@@ -1751,6 +1873,7 @@
                 <span class="kv-fallback">{JSON.stringify(val)}</span>
               {/if}
             </span>
+            {@render presetBtn(row.key, onChange, `schema-${i}-${row.key}`)}
             {#if row.isReal && row.lineIndex !== null}
               {@render commentBtn($project.lines[row.lineIndex], row.lineIndex)}
               <span class="spacer"></span>
@@ -1888,16 +2011,44 @@
             {:else if kt === "string"}
               <input class="kv-str" type="text" value={line.kvValue ?? ""}
                 onchange={(e) => updateKv(i, e.currentTarget.value, sd)} />
-            {:else if kt === "xyz" && Array.isArray(line.kvValue)}
-              {#each [0,1,2] as j}
-                <input class="kv-str sm" type="text" value={line.kvValue[j] ?? 0}
-                  onchange={(e) => updateKvIdx(i, line.kvValue, j, smartParseNum(e.currentTarget.value))} />
-              {/each}
-            {:else if kt === "xy" && Array.isArray(line.kvValue)}
-              {#each [0,1] as j}
-                <input class="kv-str sm" type="text" value={line.kvValue[j] ?? 0}
-                  onchange={(e) => updateKvIdx(i, line.kvValue, j, smartParseNum(e.currentTarget.value))} />
-              {/each}
+            {:else if kt === "xyz"}
+              {#if typeof line.kvValue === "string" && $knownConstantsStore.has(line.kvValue)}
+                <span class="preset-pill" title={line.kvValue + " → " + resolvePresetValue(line.kvValue)}>{$constantLabels[line.kvValue] || line.kvValue}</span>
+                <button class="preset-clear" title="Clear preset" onclick={() => updateKv(i, sd ?? [0,0,0])}>✕</button>
+              {:else if Array.isArray(line.kvValue)}
+                {#each [0,1,2] as j}
+                  {#if typeof line.kvValue[j] === "string" && $knownConstantsStore.has(line.kvValue[j])}
+                    <span class="preset-pill sm" title={line.kvValue[j] + " → " + resolvePresetValue(line.kvValue[j])}>{$constantLabels[line.kvValue[j]] || line.kvValue[j]}</span>
+                    <button class="preset-clear" title="Clear" onclick={() => updateKvIdx(i, line.kvValue, j, sd?.[j] ?? 0)}>✕</button>
+                  {:else}
+                    <input class="kv-str sm" type="text" value={line.kvValue[j] ?? 0}
+                      onchange={(e) => updateKvIdx(i, line.kvValue, j, smartParseNum(e.currentTarget.value))} />
+                  {/if}
+                  {@const cpf = componentPresetField(line.kvKey, j)}
+                  {#if cpf}
+                    {@render presetBtn(cpf, (v) => updateKvIdx(i, line.kvValue, j, v), `comp-kv-${i}-${j}`)}
+                  {/if}
+                {/each}
+              {/if}
+            {:else if kt === "xy"}
+              {#if typeof line.kvValue === "string" && $knownConstantsStore.has(line.kvValue)}
+                <span class="preset-pill" title={line.kvValue + " → " + resolvePresetValue(line.kvValue)}>{$constantLabels[line.kvValue] || line.kvValue}</span>
+                <button class="preset-clear" title="Clear preset" onclick={() => updateKv(i, sd ?? [0,0])}>✕</button>
+              {:else if Array.isArray(line.kvValue)}
+                {#each [0,1] as j}
+                  {#if typeof line.kvValue[j] === "string" && $knownConstantsStore.has(line.kvValue[j])}
+                    <span class="preset-pill sm" title={line.kvValue[j] + " → " + resolvePresetValue(line.kvValue[j])}>{$constantLabels[line.kvValue[j]] || line.kvValue[j]}</span>
+                    <button class="preset-clear" title="Clear" onclick={() => updateKvIdx(i, line.kvValue, j, sd?.[j] ?? 0)}>✕</button>
+                  {:else}
+                    <input class="kv-str sm" type="text" value={line.kvValue[j] ?? 0}
+                      onchange={(e) => updateKvIdx(i, line.kvValue, j, smartParseNum(e.currentTarget.value))} />
+                  {/if}
+                  {@const cpf = componentPresetField(line.kvKey, j)}
+                  {#if cpf}
+                    {@render presetBtn(cpf, (v) => updateKvIdx(i, line.kvValue, j, v), `comp-kv-${i}-${j}`)}
+                  {/if}
+                {/each}
+              {/if}
             {:else if kt === "position_xy" && Array.isArray(line.kvValue)}
               {#each [0,1] as j}
                 <input class="kv-str sm" type="text" value={line.kvValue[j] ?? ""}
@@ -1921,6 +2072,7 @@
               <span class="kv-fallback">{JSON.stringify(line.kvValue)}</span>
             {/if}
           </span>
+          {@render presetBtn(line.kvKey, (v: any) => updateKv(i, v, sd), `kv-${i}-${line.kvKey}`)}
           {@render commentBtn(line, i)}
           <span class="spacer"></span>
           <button class="toggle-btn" class:active={rawValueEditing.has(i)} title="Edit value as raw text" onclick={() => toggleRawValueEdit(i)}>{"{}"}</button>
@@ -2549,6 +2701,44 @@
 
   /* Add row */
   .line-row.add-row { min-height: 20px; }
+
+  /* Preset button + dropdown */
+  .preset-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
+  .preset-btn {
+    background: none; border: 1px solid #b4c0cb; color: #8a9aab;
+    cursor: pointer; font-size: 10px; padding: 1px 4px; border-radius: 3px;
+    opacity: 0; transition: opacity 0.1s; flex-shrink: 0;
+  }
+  .line-row:hover .preset-btn { opacity: 1; }
+  .preset-btn:hover { border-color: #2d5a7b; color: #2d5a7b; }
+  .preset-menu {
+    position: absolute; top: 100%; left: 0; z-index: 50;
+    background: white; border: 1px solid #c8d1da; border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 180px;
+    padding: 2px 0; margin-top: 2px;
+  }
+  .preset-item {
+    display: block; width: 100%; text-align: left;
+    padding: 4px 10px; border: none; background: none;
+    cursor: pointer; font-size: 13px; color: #2c3e50;
+    white-space: nowrap;
+  }
+  .preset-item:hover { background: #e8f0fe; }
+  .preset-pill {
+    display: inline-flex; align-items: center;
+    padding: 1px 8px; border-radius: 10px;
+    background: #e0ecf5; color: #2d5a7b;
+    font-family: "Courier New", monospace; font-size: 13px; font-weight: 600;
+    white-space: nowrap;
+  }
+  .preset-pill.sm {
+    padding: 0 5px; font-size: 11px; border-radius: 7px;
+  }
+  .preset-clear {
+    background: none; border: none; color: #999; cursor: pointer;
+    font-size: 14px; padding: 0 3px; flex-shrink: 0;
+  }
+  .preset-clear:hover { color: #e74c3c; }
 
   /* Raw parse-back button */
   .raw-parse-btn {

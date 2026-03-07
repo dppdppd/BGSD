@@ -1,5 +1,18 @@
 import { writable } from "svelte/store";
 
+/** Preset entries keyed by schema field name (e.g. "COUNTER_SIZE_XYZ"). */
+export const presets = writable<Record<string, { name: string; label: string; value: string }[]>>({});
+
+/** Set of known constant names from parsed presets — emitted unquoted by formatKvValue.
+ *  Plain Set for use in formatKvValue (non-reactive). */
+export const knownConstants = new Set<string>();
+
+/** Reactive version of knownConstants for UI re-rendering. */
+export const knownConstantsStore = writable<Set<string>>(new Set());
+
+/** Reactive map from constant name → display label. Writable store so UI re-renders when populated. */
+export const constantLabels = writable<Record<string, string>>({});
+
 /** A single line in the SCAD file. */
 export interface Line {
   /** The original raw text of this line. */
@@ -54,6 +67,8 @@ export interface Project {
   libraryProfile?: string;
   /** The include filename detected from the file (e.g. "boardgame_insert_toolkit_lib.4.scad") */
   libraryInclude?: string;
+  /** Publisher constants file detected from includes (e.g. "gmt_constants.scad") */
+  publisherConstantsFile?: string | null;
 }
 
 const emptyProject: Project = {
@@ -355,6 +370,8 @@ export function formatKvValue(value: any): string {
     if (/^[A-Z][A-Z0-9_]*$/.test(value)) return value;
     // $-prefixed OpenSCAD special variables → unquoted
     if (/^\$[a-zA-Z_]\w*$/.test(value)) return value;
+    // Known constants from parsed presets → unquoted
+    if (knownConstants.has(value)) return value;
     return `"${value}"`;
   }
   if (Array.isArray(value)) {

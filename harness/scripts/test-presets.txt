@@ -1,0 +1,17 @@
+wait app-root
+intent "Open GMT CTD file, select preset, verify pill + SCAD"
+open /tmp/bgsd-test-workspace/ctd/gmt/tomahawks_and_bayonets.scad
+wait content-area
+js document.querySelector('[data-testid="content-area"]').scrollTop = 1200
+intent "Click preset button on first visible Counter Size"
+js document.querySelectorAll('.preset-btn')[2].click()
+shot dropdown-open
+intent "Select 1/2 standard preset"
+js document.querySelector('.preset-item')?.click()
+intent "Pill should show standard_cardboard_counter"
+js document.querySelector('[data-testid="content-area"]').scrollTop = 800
+shot pill-visible
+js document.querySelectorAll('.preset-pill').length
+js document.querySelector('.preset-pill')?.textContent
+js document.querySelector('.preset-pill')?.title
+scad
