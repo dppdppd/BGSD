@@ -886,26 +886,19 @@ function renderEntryLines(node, indent, needsComma, outLines) {
           !FORMAT_STRUCTURAL_KEYS.has(bChildren[0].text.trim()) &&
           !OBJECT_TYPES.has(bChildren[0].text.trim());
 
+        // Always use flat format: [ KEY, <children>, ]
+        // (BIT expects KV pairs as direct siblings, not wrapped in an extra array)
+        outLines.push(`${indent}[ ${key},` + (node.commentAfterFirst ? ` //${node.commentAfterFirst}` : ""));
+        const childIndent = indent + " ".repeat(4);
         if (isSingleKvPair) {
-          // Flat format: [ KEY, <single child KV>, ]
-          outLines.push(`${indent}[ ${key},` + (node.commentAfterFirst ? ` //${node.commentAfterFirst}` : ""));
-          const childIndent = indent + " ".repeat(4);
-          for (const c of b.elements) {
-            if (c.type === "comment") { outLines.push(`${childIndent}//${c.text}`); continue; }
-          }
           renderEntryLines(b, childIndent, true, outLines);
-          outLines.push(`${indent}]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
         } else {
-          // Wrapper format: [ KEY, [ <children> ] ]
-          outLines.push(`${indent}[ ${key}, [` + (node.commentAfterFirst ? ` //${node.commentAfterFirst}` : ""));
-          const childIndent = indent + " ".repeat(4);
           for (const child of b.elements) {
             if (child.type === "comment") { outLines.push(`${childIndent}//${child.text}`); continue; }
             renderEntryLines(child, childIndent, true, outLines);
           }
-          outLines.push(`${indent}]`);
-          outLines.push(`${indent}]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
         }
+        outLines.push(`${indent}]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
         return;
       }
 

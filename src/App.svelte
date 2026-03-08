@@ -1380,9 +1380,9 @@
     const d = depth;
     const ind = (n: number) => "    ".repeat(n);
     const lines: Line[] = [
-      { raw: `${ind(d)}[ BOX_FEATURE, [`, kind: "open", depth: d, role: "feature_list", label: "BOX_FEATURE", mergedOpen: true },
+      { raw: `${ind(d)}[ BOX_FEATURE,`, kind: "open", depth: d, role: "feature_list", label: "BOX_FEATURE" },
       { raw: `${ind(d+1)}[ FTR_COMPARTMENT_SIZE_XYZ, [40, 40, 15] ],`, kind: "kv", depth: d + 1, kvKey: "FTR_COMPARTMENT_SIZE_XYZ", kvValue: [40, 40, 15] },
-      { raw: `${ind(d)}]],`, kind: "close", depth: d, role: "feature_list", label: "BOX_FEATURE", mergedClose: true },
+      { raw: `${ind(d)}],`, kind: "close", depth: d, role: "feature_list", label: "BOX_FEATURE" },
     ];
     project.update((p) => {
       p.lines.splice(closeIndex, 0, ...lines);

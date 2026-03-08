@@ -295,6 +295,15 @@ async function handleCommand(line) {
 }
 
 async function main() {
+  // Global watchdog: kill the process if it runs longer than 2 minutes (scripted) or 30 min (interactive)
+  const isScripted = !!(process.env.BGSD_HARNESS_SCRIPT || process.env.BGSD_HARNESS_COMMANDS);
+  const watchdogMs = parseInt(process.env.BGSD_HARNESS_TIMEOUT || (isScripted ? "120000" : "1800000"), 10);
+  const watchdog = setTimeout(() => {
+    console.error(`Harness watchdog: exceeded ${watchdogMs}ms — force exiting`);
+    process.exit(2);
+  }, watchdogMs);
+  watchdog.unref(); // don't keep process alive just for the timer
+
   console.log("Launching Electron...");
 
   const width = parseInt(process.env.BGSD_WINDOW_WIDTH || "800", 10);

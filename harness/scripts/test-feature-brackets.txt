@@ -1,0 +1,14 @@
+wait app-root
+new bit
+wait element-0-name
+shot new-project
+click element-0-expand
+wait kv-BOX_SIZE_XYZ-x
+shot expanded-box
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot bottom-of-box
+js document.querySelector('button[title="Add BOX_FEATURE block"]').click()
+shot feature-added
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot bottom-with-feature
+scad
