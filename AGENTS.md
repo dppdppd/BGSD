@@ -75,10 +75,12 @@ The script auto-wraps with `xvfb-run` when `$DISPLAY` is unset (needed for wine/
 File-size progress is shown during compression.
 
 **Build notes:**
-- Windows cross-compile needs wine + a virtual display (`xvfb-run` handles this)
+- Windows cross-compile needs wine + a virtual display (`xvfb-run` handles this automatically)
+- The bundled makensis requires a valid locale — if the configured locale isn't installed, the script falls back to `C.utf8`
 - If a build fails mid-way, clean stale artifacts before retrying: `rm -rf release/win-unpacked release/linux-unpacked`
-- The portable exe target internally uses 7z max compression (~3-5 min for 269MB)
+- The portable exe target internally uses NSIS + 7z max compression (~3-5 min for 269MB)
 - If Node runs out of memory during packaging: `NODE_OPTIONS="--max-old-space-size=2048" ./build-release.sh win`
+- Never replace the bundled makensis (`~/.cache/electron-builder/nsis/`) with a system-installed one — version mismatch causes EPIPE errors
 - Clean old release artifacts periodically — they accumulate and eat disk
 
 **Push code + binaries:**

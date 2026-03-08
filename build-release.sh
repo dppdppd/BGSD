@@ -35,6 +35,13 @@ echo "Bumped to $NEW_VERSION"
 echo "Building frontend..."
 npm run build
 
+# Ensure a valid locale exists — the bundled makensis (NSIS) fails with
+# "FATAL: main argv conversion failed!" if the configured locale (e.g.
+# en_US.UTF-8) is not actually installed.  C.utf8 is always available.
+if ! locale -a 2>/dev/null | grep -qiF "$LANG"; then
+  export LANG=C.utf8 LC_ALL=C.utf8
+fi
+
 # Windows cross-compile uses wine (via rcedit) which needs a display.
 # Use xvfb-run to provide a virtual framebuffer when no display is available.
 EB="npx electron-builder"
