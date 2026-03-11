@@ -324,6 +324,6 @@ The generator (`src/lib/scad.ts`) produces `.scad` text from project state:
 - [ ] Duplicate element/component
 - [ ] Cross-platform release builds (electron-builder)
 - [ ] Keyboard shortcuts (Ctrl+O, Ctrl+S, Ctrl+Shift+S)
-- [ ] Undo/redo
+- [x] Undo/redo
 - [ ] Dark/light theme
 - [ ] Recent files list

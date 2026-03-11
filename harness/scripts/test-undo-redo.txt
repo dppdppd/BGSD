@@ -1,0 +1,17 @@
+wait app-root
+new bit
+wait content-area
+shot initial
+scad
+intent "Edit NAME via DOM input"
+js const el = document.querySelector('[data-testid="line-4"] input.kv-str'); el.value = 'edited'; el.dispatchEvent(new Event('change', {bubbles:true}))
+shot after-edit
+scad
+intent "Undo should restore NAME to 'box 1'"
+ipc menu-undo
+shot after-undo
+scad
+intent "Redo should restore NAME to 'edited'"
+ipc menu-redo
+shot after-redo
+scad

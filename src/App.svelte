@@ -27,6 +27,7 @@
   } from "./lib/stores/project";
   import { generateScad } from "./lib/scad";
   import { startAutosave, onSaveStatus, setFilePath, getFilePath, setNeedsBackup, setReadOnly, getReadOnly, onReadOnlyEdit, saveNow, triggerSave } from "./lib/autosave";
+  import { startHistory, clearHistory, undo, redo } from "./lib/stores/history";
   import { getSchema } from "./lib/schema";
   import tooltips from "./lib/tooltips/en.json";
 
@@ -79,6 +80,7 @@
   async function handleLoad(payload: any) {
     const { data, filePath } = payload;
     project.set(data);
+    clearHistory();
     updateTitle(filePath);
     fileLoaded = true;
     showWelcome = false;
@@ -133,6 +135,7 @@
   onMount(async () => {
     showIntent = !!(window as any).bgsd?.harness;
     startAutosave();
+    startHistory();
 
     // When a read-only library file is edited, prompt Save As
     onReadOnlyEdit(async () => {
@@ -167,6 +170,8 @@
     if (bgsd?.onMenuSaveAs) bgsd.onMenuSaveAs(saveFileAs);
     if (bgsd?.onMenuOpenInOpenScad) bgsd.onMenuOpenInOpenScad(openInOpenScad);
     if (bgsd?.onMenuPreferences) bgsd.onMenuPreferences(openPreferencesModal);
+    if (bgsd?.onMenuUndo) bgsd.onMenuUndo(() => undo());
+    if (bgsd?.onMenuRedo) bgsd.onMenuRedo(() => redo());
     if (bgsd?.onMenuToggleHideDefaults) bgsd.onMenuToggleHideDefaults((checked: boolean) => { hideDefaults = checked; });
     if (bgsd?.onMenuToggleShowScad) bgsd.onMenuToggleShowScad((checked: boolean) => { showScad = checked; });
 
@@ -230,12 +235,14 @@
     }
 
     project.set(templateProject);
+    clearHistory();
     const scadText = generateScad(templateProject);
 
     if (!bgsd?.saveFileAs) return;
     const res = await bgsd.saveFileAs(scadText, templateProject.libraryProfile);
     if (!res.ok) {
       project.set({ version: 1, lines: [], hasMarker: false });
+      clearHistory();
       showWelcome = true;
       statusMsg = "No file open";
       return;

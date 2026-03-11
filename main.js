@@ -129,6 +129,27 @@ function rebuildMenu() {
       ],
     },
     {
+      label: "Edit",
+      submenu: [
+        {
+          label: "Undo",
+          accelerator: "CmdOrCtrl+Z",
+          click: () => mainWindow.webContents.send("menu-undo"),
+        },
+        {
+          label: "Redo",
+          accelerator: "CmdOrCtrl+Shift+Z",
+          click: () => mainWindow.webContents.send("menu-redo"),
+        },
+        {
+          label: "Redo",
+          accelerator: "CmdOrCtrl+Y",
+          visible: false,
+          click: () => mainWindow.webContents.send("menu-redo"),
+        },
+      ],
+    },
+    {
       label: "View",
       submenu: [
         {
