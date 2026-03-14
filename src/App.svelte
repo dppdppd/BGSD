@@ -1535,6 +1535,7 @@
         <div class="line-row struct open" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
           {#if collapsible}
             <button class="collapse-btn" title={collapsed.has(i) ? "Expand" : "Collapse"}
+              aria-expanded={!collapsed.has(i)} aria-label="{structLabel(line, i).text} section"
               onclick={() => toggleCollapse(i)}>{collapsed.has(i) ? "▶" : "▼"}</button>
           {/if}
           {#if line.role === "data"}
@@ -1552,6 +1553,7 @@
           {#if line.role === "object" || line.role === "feature_list" || line.role === "lid" || line.role === "counter_set"}
             {@const dbg = getDebugState(i)}
             <button class="debug-toggle" class:active={dbg.active} title="Highlight in OpenSCAD (#)"
+              aria-pressed={dbg.active} aria-label="Toggle debug highlight"
               onclick={() => toggleDebug(i)}>
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>

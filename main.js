@@ -55,6 +55,10 @@ function addRecent(filePath) {
 }
 
 function openFilePath(filePath) {
+  if (!validateFilePath(filePath)) {
+    console.error("Open rejected: invalid file path", filePath);
+    return;
+  }
   try {
     const content = fs.readFileSync(filePath, "utf-8");
     const project = importScad(content);
@@ -222,6 +226,15 @@ function createWindow() {
 
 // --- Helpers ---
 
+/** Reject paths that traverse above the filesystem root or contain null bytes. */
+function validateFilePath(filePath) {
+  if (!filePath || typeof filePath !== "string") return false;
+  if (filePath.includes("\0")) return false;
+  const resolved = path.resolve(filePath);
+  // Ensure the resolved path starts with a valid root (not escaped via ../)
+  return resolved === filePath || !filePath.includes("..");
+}
+
 function atomicWrite(filePath, content) {
   const tmp = filePath + ".tmp";
   fs.writeFileSync(tmp, content, "utf-8");
@@ -242,6 +255,11 @@ ipcMain.on("set-title", (_event, title) => {
 });
 
 // --- IPC Handlers ---
+//
+// Convention:
+//   File I/O & mutations → { ok: true, ... } | { ok: false, error: string }
+//   Getters (get-preferences, get-presets) → raw data
+//   Fire-and-forget (open-external, set-title) → void
 
 ipcMain.handle("open-file", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -379,7 +397,7 @@ function findOpenScad() {
 
 ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
   const { spawn } = require("child_process");
-  if (!filePath || !fs.existsSync(filePath)) {
+  if (!validateFilePath(filePath) || !fs.existsSync(filePath)) {
     return { ok: false, error: `File not found: ${filePath || "(no path)"}` };
   }
 
@@ -441,7 +459,7 @@ ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
 
 ipcMain.handle("export-stl", async (_event, sourcePath) => {
   const { execFile } = require("child_process");
-  if (!sourcePath || !fs.existsSync(sourcePath)) {
+  if (!validateFilePath(sourcePath) || !fs.existsSync(sourcePath)) {
     return { ok: false, error: `File not found: ${sourcePath || "(no path)"}` };
   }
 
@@ -535,6 +553,9 @@ ipcMain.handle("new-project-to-path", async (_event, profile) => {
 
 // --- Load file by path (for new-project round-trip) ---
 ipcMain.handle("load-file-path", (_event, filePath) => {
+  if (!validateFilePath(filePath)) {
+    return { ok: false, error: "Invalid file path" };
+  }
   try {
     const content = fs.readFileSync(filePath, "utf-8");
     const project = importScad(content);
@@ -660,7 +681,7 @@ ipcMain.handle("get-library-tree", () => {
 
 ipcMain.handle("delete-file", (_event, filePath) => {
   const prefs = loadPrefs();
-  if (!filePath || !fs.existsSync(filePath)) {
+  if (!validateFilePath(filePath) || !fs.existsSync(filePath)) {
     return { ok: false, error: "File not found" };
   }
   if (isRepoFile(filePath, prefs.workingDir)) {

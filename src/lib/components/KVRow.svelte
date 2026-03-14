@@ -47,7 +47,9 @@
 {#if isNested}
   <!-- Nested: table or table_list -->
   <div class="kv-row nested" style="padding-left: {depth * 16}px" data-testid="kv-{param.key}">
-    <button class="toggle" data-testid="kv-{param.key}-toggle" onclick={() => (expanded = !expanded)}>
+    <button class="toggle" data-testid="kv-{param.key}-toggle"
+      aria-expanded={expanded} aria-label="{param.key} details"
+      onclick={() => (expanded = !expanded)}>
       {expanded ? "▼" : "▶"}
     </button>
     <span class="key nested-key">{param.key}</span>
