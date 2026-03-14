@@ -235,10 +235,25 @@ function validateFilePath(filePath) {
   return resolved === filePath || !filePath.includes("..");
 }
 
-function atomicWrite(filePath, content) {
+async function atomicWrite(filePath, content) {
   const tmp = filePath + ".tmp";
   fs.writeFileSync(tmp, content, "utf-8");
-  fs.renameSync(tmp, filePath);
+
+  // Retry rename — cloud-sync tools (OneDrive, Dropbox) briefly lock files
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      fs.renameSync(tmp, filePath);
+      return;
+    } catch (err) {
+      if (err.code !== "EPERM" && err.code !== "EACCES") throw err;
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+
+  // Retries exhausted — fall back to direct write (not atomic, but reliable)
+  console.warn("atomicWrite: rename failed after retries, falling back to direct write for", filePath);
+  fs.writeFileSync(filePath, content, "utf-8");
+  try { fs.unlinkSync(tmp); } catch (_) {}
 }
 
 // --- Auto-load state ---
@@ -292,7 +307,7 @@ ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, prof
         fs.copyFileSync(filePath, bakPath);
       }
     }
-    atomicWrite(filePath, scadText);
+    await atomicWrite(filePath, scadText);
     return { ok: true, filePath };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -325,7 +340,7 @@ ipcMain.handle("save-file-as", async (_event, scadText, profileId, currentPath) 
     if (currentPath && fs.existsSync(currentPath)) {
       fs.copyFileSync(currentPath, result.filePath);
     } else {
-      atomicWrite(result.filePath, scadText);
+      await atomicWrite(result.filePath, scadText);
     }
     return { ok: true, filePath: result.filePath };
   } catch (err) {
@@ -541,7 +556,7 @@ ipcMain.handle("new-project-to-path", async (_event, profile) => {
   }
 
   try {
-    atomicWrite(filePath, scad);
+    await atomicWrite(filePath, scad);
     const project = importScad(fs.readFileSync(filePath, "utf-8"));
     addRecent(filePath);
     if (mainWindow) mainWindow.webContents.send("menu-open", { data: project, filePath });
