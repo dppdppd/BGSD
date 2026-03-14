@@ -7,7 +7,7 @@
   "main": "main.js",
   "scripts": {
     "dev": "concurrently \"vite build --watch\" \"electron . --disable-gpu --no-sandbox\"",
-    "build": "vite build",
+    "build": "vitest run && vite build",
     "start": "electron . --disable-gpu --no-sandbox",
     "harness": "node harness/run.js",
     "pack": "npm run build && electron-builder --dir",
