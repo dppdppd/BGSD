@@ -55,6 +55,28 @@ BGSD/
   vite.config.mjs
 ```
 
+## Prerequisites (Docker / Fresh Linux)
+
+The project runs on Electron, which needs system libraries that aren't always present in
+minimal Docker images or CI containers. Install them before running the app or harness:
+
+```bash
+sudo apt-get update && sudo apt-get install -y \
+  xvfb \
+  libglib2.0-0 libnss3 libnspr4 libdbus-1-3 \
+  libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 \
+  libcups2 libgtk-3-0 \
+  libpango-1.0-0 libcairo2 \
+  libxcomposite1 libxdamage1 \
+  libgbm1 libxkbcommon0 \
+  libasound2
+```
+
+**Quick check** — after install, this should print no output:
+```bash
+ldd node_modules/electron/dist/electron 2>&1 | grep "not found"
+```
+
 ## Commands
 
 ```bash

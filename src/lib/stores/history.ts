@@ -1,7 +1,8 @@
 import { get, writable } from "svelte/store";
 import { project, type Line } from "./project";
 
-const MAX_HISTORY = 100;
+import { MAX_HISTORY } from "../config";
+
 
 let undoStack: Line[][] = [];
 let redoStack: Line[][] = [];
@@ -12,7 +13,7 @@ export const canUndo = writable(false);
 export const canRedo = writable(false);
 
 function cloneLines(lines: Line[]): Line[] {
-  return JSON.parse(JSON.stringify(lines));
+  return structuredClone(lines);
 }
 
 function updateFlags() {

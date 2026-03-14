@@ -1,4 +1,5 @@
 import { writable } from "svelte/store";
+import { INDENT } from "../config";
 
 /** Preset entries keyed by schema field name (e.g. "COUNTER_SIZE_XYZ"). */
 export const presets = writable<Record<string, { name: string; label: string; value: string }[]>>({});
@@ -221,7 +222,7 @@ export function materializeGlobal(beforeIndex: number, key: string, value: any) 
 
 function formatGlobalRaw(key: string, value: any, inline?: boolean, existingRaw?: string): string {
   if (inline) {
-    const indent = (existingRaw ?? "").match(/^(\s*)/)?.[1] ?? "    ";
+    const indent = (existingRaw ?? "").match(/^(\s*)/)?.[1] ?? INDENT;
     return formatInlineGlobalRawWithIndent(key, value, indent);
   }
   if (typeof value === "boolean") return `${key} = ${value ? "true" : "false"};`;
@@ -231,7 +232,7 @@ function formatGlobalRaw(key: string, value: any, inline?: boolean, existingRaw?
 }
 
 function formatInlineGlobalRaw(key: string, value: any): string {
-  return formatInlineGlobalRawWithIndent(key, value, "    ");
+  return formatInlineGlobalRawWithIndent(key, value, INDENT);
 }
 
 function formatInlineGlobalRawWithIndent(key: string, value: any, indent: string): string {
@@ -266,7 +267,7 @@ export function updateKv(index: number, value: any, schemaDefault?: any) {
  */
 export function materializeKv(beforeIndex: number, key: string, value: any, depth: number) {
   project.update((p) => {
-    const indent = "    ".repeat(depth);
+    const indent = INDENT.repeat(depth);
     const raw = `${indent}[ ${key}, ${formatKvValue(value)} ],`;
     p.lines.splice(beforeIndex, 0, { raw, kind: "kv", depth, kvKey: key, kvValue: value });
     return { ...p };

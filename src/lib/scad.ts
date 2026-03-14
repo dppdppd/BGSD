@@ -1,4 +1,5 @@
 import type { Project, Line } from "./stores/project";
+import { INDENT } from "./config";
 
 /**
  * Generate SCAD output from line-based project.
@@ -25,7 +26,7 @@ export function generateScad(project: Project): string {
       case "global": {
         // v4 format: emit as [ G_KEY, value ] inside data array
         const gk = line.globalKey ?? "";
-        const indent = (line.raw ?? "").match(/^(\s*)/)?.[1] ?? "    ";
+        const indent = (line.raw ?? "").match(/^(\s*)/)?.[1] ?? INDENT;
         if (typeof line.globalValue === "boolean") {
           out.push(`${indent}[ ${gk}, ${line.globalValue} ],`);
         } else if (typeof line.globalValue === "number") {

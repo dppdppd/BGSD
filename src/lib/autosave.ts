@@ -1,6 +1,7 @@
 import { get } from "svelte/store";
 import { project } from "./stores/project";
 import { generateScad } from "./scad";
+import { DEBOUNCE_MS } from "./config";
 
 let filePath: string | null = null;
 let needsBackup = false;
@@ -8,8 +9,6 @@ let readOnly = false;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let saveStatus: (msg: string) => void = () => {};
 let onReadOnlySave: (() => void) | null = null;
-
-const DEBOUNCE_MS = 300;
 
 export function setFilePath(path: string) {
   filePath = path;

@@ -18,9 +18,20 @@ export interface KeyDef {
   contexts?: string[];
 }
 
-/** Get all key definitions for a context */
+/** Cache for context key lookups (keyed by schema ref + context name) */
+const contextKeysCache = new Map<string, Record<string, KeyDef>>();
+
+/** Get all key definitions for a context (memoized for default schemas) */
 export function getContextKeys(context: string, schemaOverride?: any): Record<string, KeyDef> {
   const s = schemaOverride || bitSchema;
+  // Only cache for built-in schemas (not arbitrary overrides)
+  if (!schemaOverride) {
+    const cached = contextKeysCache.get(context);
+    if (cached) return cached;
+    const result = (s.contexts as any)[context]?.keys || {};
+    contextKeysCache.set(context, result);
+    return result;
+  }
   return (s.contexts as any)[context]?.keys || {};
 }
 

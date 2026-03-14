@@ -27,23 +27,23 @@ function loadPrefs() {
     if (fs.existsSync(PREFS_FILE)) {
       return { ...DEFAULT_PREFS, ...JSON.parse(fs.readFileSync(PREFS_FILE, "utf-8")) };
     }
-  } catch (_) {}
+  } catch (err) { console.error("Failed to load preferences:", err); }
   return { ...DEFAULT_PREFS };
 }
 
 function savePrefs(prefs) {
-  try { fs.writeFileSync(PREFS_FILE, JSON.stringify(prefs, null, 2), "utf-8"); } catch (_) {}
+  try { fs.writeFileSync(PREFS_FILE, JSON.stringify(prefs, null, 2), "utf-8"); } catch (err) { console.error("Failed to save preferences:", err); }
 }
 
 function loadRecent() {
   try {
     if (fs.existsSync(RECENT_FILE)) return JSON.parse(fs.readFileSync(RECENT_FILE, "utf-8"));
-  } catch (_) {}
+  } catch (err) { console.error("Failed to load recent files:", err); }
   return [];
 }
 
 function saveRecent(list) {
-  try { fs.writeFileSync(RECENT_FILE, JSON.stringify(list), "utf-8"); } catch (_) {}
+  try { fs.writeFileSync(RECENT_FILE, JSON.stringify(list), "utf-8"); } catch (err) { console.error("Failed to save recent files:", err); }
 }
 
 function addRecent(filePath) {
@@ -404,7 +404,7 @@ ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
         if (!killed) resolve(); // kill returned false — process already gone
         setTimeout(resolve, 2000); // safety timeout
       });
-    } catch (_) {}
+    } catch (err) { console.error("Failed to kill previous OpenSCAD:", err); }
   }
 
   function spawnOpenScad(cmd, args) {
@@ -425,7 +425,8 @@ ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
     try {
       spawnOpenScad("cmd", ["/c", "start", "", filePath]);
       return { ok: true };
-    } catch (_) {
+    } catch (err) {
+      console.error("Failed to launch OpenSCAD via cmd start:", err);
       return { ok: false, error: "not-found" };
     }
   }
@@ -631,7 +632,7 @@ ipcMain.handle("get-library-tree", () => {
     // Recursively walk profile directory for all .scad files
     function walk(dir) {
       let entries;
-      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (err) { console.error("Failed to read directory:", dir, err); return; }
       for (const entry of entries) {
         if (entry.name === "lib" || entry.name === ".manifest.json") continue;
         const fullPath = path.join(dir, entry.name);
@@ -645,7 +646,7 @@ ipcMain.handle("get-library-tree", () => {
           const name = parts.slice(1).join("/").replace(/\.scad$/, "");
           const isRepo = !!manifest.files[relPath];
           let mtime = 0;
-          try { mtime = fs.statSync(fullPath).mtimeMs; } catch (_) {}
+          try { mtime = fs.statSync(fullPath).mtimeMs; } catch (err) { console.error("Failed to stat file:", fullPath, err); }
           if (!publishers[folder]) publishers[folder] = [];
           publishers[folder].push({ name, path: fullPath, isRepo, mtime });
         }
@@ -713,6 +714,6 @@ app.on("window-all-closed", () => app.quit());
 // Surface errors as a dialog instead of a silent crash
 process.on("uncaughtException", (err) => {
   console.error("Uncaught exception:", err);
-  try { dialog.showErrorBox("BGSD Error", err.stack || err.message); } catch (_) {}
+  try { dialog.showErrorBox("BGSD Error", err.stack || err.message); } catch (e) { console.error("Failed to show error dialog:", e); }
   app.exit(1);
 });
