@@ -84,6 +84,10 @@ npm install
 npm run build          # Vite builds frontend to dist/
 npm start              # Launch Electron app
 npm run dev            # Watch + launch (concurrent)
+npm test               # Run unit tests (vitest)
+npm run test:watch     # Run tests in watch mode
+npm run lint           # Run ESLint
+npm run format         # Run Prettier on src/
 ```
 
 ## Release & Deploy

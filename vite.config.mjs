@@ -13,4 +13,8 @@ export default defineConfig({
     target: "chrome120",
     minify: "esbuild",
   },
+  test: {
+    globals: true,
+    environment: "node",
+  },
 });

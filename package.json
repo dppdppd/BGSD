@@ -14,16 +14,25 @@
     "dist": "npm run build && electron-builder",
     "dist:linux": "npm run build && electron-builder --linux",
     "dist:win": "npm run build && electron-builder --win",
-    "dist:mac": "npm run build && electron-builder --mac"
+    "dist:mac": "npm run build && electron-builder --mac",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.{ts,svelte,json}\" \"*.{js,mjs,json}\""
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@sveltejs/vite-plugin-svelte": "^5.1.1",
     "concurrently": "^9",
     "electron": "^33.4.11",
     "electron-builder": "^25",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
     "playwright": "^1.49",
+    "prettier": "^3.8.1",
     "svelte": "^5.51.2",
-    "vite": "^6"
+    "vite": "^6",
+    "vitest": "^4.1.0"
   },
   "build": {
     "appId": "com.bgsd.app",

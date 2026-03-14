@@ -1,8 +1,10 @@
 .*
 !.github/
+!.prettierrc
+!.prettierignore
 node_modules/
 dist/
 release/
 harness/out/
 *.bak
-tests/
+tests/workspace/

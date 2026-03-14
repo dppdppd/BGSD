@@ -1,0 +1,6 @@
+dist/
+release/
+node_modules/
+harness/out/
+tests/workspace/
+package-lock.json
