@@ -30,6 +30,8 @@
   import { startHistory, clearHistory, undo, redo } from "./lib/stores/history";
   import { getSchema } from "./lib/schema";
   import tooltips from "./lib/tooltips/en.json";
+  import PreferencesModal from "./lib/components/PreferencesModal.svelte";
+  import WelcomeScreen from "./lib/components/WelcomeScreen.svelte";
 
   let intentText = $state("");
   let showIntent = $state(false);
@@ -455,47 +457,6 @@
     }
   }
 
-  function scrollBottom(node: HTMLElement, _deps: any) {
-    node.scrollTop = node.scrollHeight;
-    return { update() { node.scrollTop = node.scrollHeight; } };
-  }
-
-  function formatPublisher(slug: string): string {
-    const allCaps: Record<string, string> = { gmt: "GMT", mmp: "MMP" };
-    if (allCaps[slug]) return allCaps[slug];
-    return slug.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-  }
-
-  function formatGameName(slug: string): string {
-    return slug.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-  }
-
-  function dateBucket(mtime: number): string {
-    const now = Date.now();
-    const days = Math.floor((now - mtime) / 86400000);
-    if (days < 1) return "Today";
-    if (days < 2) return "Yesterday";
-    if (days < 7) return "This Week";
-    if (days < 30) return "This Month";
-    return "Older";
-  }
-
-  function filesByDate(pubs: Record<string, any[]>): { bucket: string; files: any[] }[] {
-    const all: any[] = [];
-    for (const files of Object.values(pubs || {})) {
-      for (const f of files) all.push(f);
-    }
-    all.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
-    const order = ["Today", "Yesterday", "This Week", "This Month", "Older"];
-    const groups: Record<string, any[]> = {};
-    for (const f of all) {
-      const b = dateBucket(f.mtime || 0);
-      if (!groups[b]) groups[b] = [];
-      groups[b].push(f);
-    }
-    return order.filter(b => groups[b]).map(b => ({ bucket: b, files: groups[b] }));
-  }
-
   async function openLibraryFile(filePath: string) {
     const bgsd = (window as any).bgsd;
     // Copy the template to a user-chosen location, then open the copy
@@ -504,13 +465,6 @@
     const loaded = await bgsd?.loadFilePath?.(copy.filePath);
     if (loaded?.ok) handleLoad(loaded);
     else statusMsg = `Failed to open: ${loaded?.error || "unknown"}`;
-  }
-
-  function showLibMenu(e: MouseEvent, filePath: string, isRepo: boolean) {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const menuW = 180;
-    const x = rect.right + menuW > window.innerWidth ? rect.left - menuW - 4 : rect.right + 4;
-    libMenu = { x, y: rect.top, path: filePath, isRepo };
   }
 
   async function editFile(filePath: string) {
@@ -1564,118 +1518,23 @@
   {/if}
   <section class="content" data-testid="content-area">
     {#if showWelcome}
-      <div class="welcome" data-testid="welcome-screen">
-        <h1 class="welcome-title">BGSD</h1>
-        <p class="welcome-subtitle">Board Game Solutions Designer</p>
-
-        {#if !workingDirSet}
-          <div class="welcome-actions">
-            <p class="welcome-hint">Set a working directory where your<br>designs and libraries will be stored.</p>
-            <button class="welcome-btn welcome-btn-primary" data-testid="welcome-choose-dir" onclick={() => chooseAndInitWorkingDir()} disabled={setupBusy}>
-              {setupBusy ? "Setting up..." : "Choose Folder..."}
-            </button>
-            <button class="welcome-btn" data-testid="welcome-prefs-init" onclick={() => openPreferencesModal()}>Preferences</button>
-            {#if setupBusy || setupStatus}
-              <div class="welcome-progress">
-                {#if setupBusy}<span class="welcome-spinner"></span>{/if}
-                <span class="welcome-progress-msg">{setupStatus}</span>
-              </div>
-            {/if}
-          </div>
-        {:else}
-          <div class="welcome-icon-bar">
-            <div class="update-btn-wrap">
-              <button class="welcome-icon-btn" data-testid="welcome-update-libs" title={setupBusy ? "Updating..." : "Update Libraries"} onclick={() => updateLibs()} disabled={setupBusy}><span class:spinning={setupBusy}>&#x21BB;</span></button>
-              {#if setupBusy || setupLog.length > 0}
-                <div class="update-toast" data-testid="update-toast" use:scrollBottom={setupLog}>
-                  {#if setupBusy}<span class="welcome-spinner"></span>{/if}
-                  <div class="update-toast-lines">
-                    {#if setupLog.length > 0}
-                      {#each setupLog as line}<div class="update-toast-line">{line}</div>{/each}
-                    {:else}
-                      <div class="update-toast-line">{setupStatus || "Working..."}</div>
-                    {/if}
-                  </div>
-                </div>
-              {/if}
-            </div>
-            <button class="welcome-icon-btn" data-testid="welcome-prefs" title="Preferences" onclick={() => openPreferencesModal()}>&#x2699;</button>
-          </div>
-          <div class="welcome-sort-bar">
-            <button class="welcome-sort-btn" class:active={sortMode === "dir"} data-testid="sort-dir" onclick={() => sortMode = "dir"}>Directories</button>
-            <button class="welcome-sort-btn" class:active={sortMode === "date"} data-testid="sort-date" onclick={() => sortMode = "date"}>Modified</button>
-          </div>
-
-          <div class="welcome-columns" data-testid="welcome-columns">
-            {#each [["bit", "Storage Inserts", "Box inserts with compartments, lids, and dividers"], ["ctd", "Counter Trays", "Counter trays sized for tokens, markers, and chits"]] as [profileId, profileLabel, profileDesc]}
-            {@const tree = libraryTree[profileId]}
-            {@const pubs = tree?.publishers}
-            {@const designsDir = tree?.designsDir || "my_designs"}
-            {@const pubKeys = pubs ? Object.keys(pubs).sort((a, b) => a === designsDir ? -1 : b === designsDir ? 1 : a.localeCompare(b)) : []}
-            <div class="welcome-col" class:welcome-col-right-align={profileId === "bit"} data-testid="welcome-col-{profileId}">
-              <h2 class="welcome-library-title">{profileLabel}</h2>
-              <p class="welcome-library-desc">{profileDesc}</p>
-              <div class="welcome-library-scroll">
-                {#if sortMode === "dir"}
-                  {#if !pubKeys.includes(designsDir)}
-                    <div class="welcome-library-publisher">
-                      <h3 class="welcome-library-publisher-name">{formatPublisher(designsDir)}</h3>
-                      <button class="welcome-new-file" data-testid="new-{profileId}" onclick={() => newProject(profileId)}>+ New</button>
-                    </div>
-                  {/if}
-                  {#each pubKeys as pub}
-                    <div class="welcome-library-publisher">
-                      <h3 class="welcome-library-publisher-name">{formatPublisher(pub)}</h3>
-                      {#if pub === designsDir}
-                        <button class="welcome-new-file" data-testid="new-{profileId}" onclick={() => newProject(profileId)}>+ New</button>
-                      {/if}
-                      {#each pubs[pub].sort((a: any, b: any) => a.name.localeCompare(b.name)) as game}
-                        <button class="welcome-library-game" class:user-file={!game.isRepo} onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
-                      {/each}
-                    </div>
-                  {/each}
-                {:else}
-                  {@const dateGroups = filesByDate(pubs)}
-                  {#each dateGroups as group, gi}
-                    <div class="welcome-library-publisher">
-                      <h3 class="welcome-library-publisher-name">{group.bucket}</h3>
-                      {#if gi === 0}
-                        <button class="welcome-new-file" data-testid="new-{profileId}-date" onclick={() => newProject(profileId)}>+ New</button>
-                      {/if}
-                      {#each group.files as game}
-                        <button class="welcome-library-game" class:user-file={!game.isRepo} onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
-                      {/each}
-                    </div>
-                  {/each}
-                  {#if !pubs || Object.keys(pubs).length === 0}
-                    <div class="welcome-library-publisher">
-                      <h3 class="welcome-library-publisher-name">Today</h3>
-                      <button class="welcome-new-file" data-testid="new-{profileId}-date" onclick={() => newProject(profileId)}>+ New</button>
-                    </div>
-                  {/if}
-                {/if}
-              </div>
-            </div>
-            {/each}
-          </div>
-        {/if}
-
-        {#if libMenu}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="lib-context-backdrop" onclick={() => libMenu = null} onkeydown={() => {}}></div>
-          <div class="lib-context-menu" style="left: {libMenu.x}px; top: {libMenu.y}px;">
-            {#if libMenu.isRepo}
-              <button class="lib-context-item" data-testid="ctx-edit-copy" onclick={() => { const p = libMenu!.path; libMenu = null; openLibraryFile(p); }}>Edit a Copy</button>
-              <button class="lib-context-item" data-testid="ctx-export-stl" onclick={() => exportStl(libMenu!.path)}>Export STL</button>
-            {:else}
-              <button class="lib-context-item" data-testid="ctx-edit" onclick={() => { const p = libMenu!.path; libMenu = null; editFile(p); }}>Edit</button>
-              <button class="lib-context-item" data-testid="ctx-delete" onclick={() => deleteLibraryFile(libMenu!.path)}>Delete</button>
-              <button class="lib-context-item" data-testid="ctx-export-stl" onclick={() => exportStl(libMenu!.path)}>Export STL</button>
-            {/if}
-          </div>
-        {/if}
-
-      </div>
+      <WelcomeScreen
+        {workingDirSet}
+        {setupBusy}
+        {setupStatus}
+        {setupLog}
+        bind:sortMode
+        libraryTree={libraryTree}
+        bind:libMenu
+        onchooseworkingdir={chooseAndInitWorkingDir}
+        onopenpreferences={openPreferencesModal}
+        onupdatelibs={updateLibs}
+        onnewproject={newProject}
+        onopenlibraryfile={openLibraryFile}
+        oneditfile={editFile}
+        ondeletefile={deleteLibraryFile}
+        onexportstl={exportStl}
+      />
     {:else}
     <div class="editor-split" class:split-active={showScad}>
     <div class="editor-left" style={editorPadBottom ? `padding-bottom: ${editorPadBottom}px` : ''}>
@@ -2263,63 +2122,16 @@
     <span data-testid="save-status">{statusMsg}</span>
   </footer>
 
-  {#if showPrefs}
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="prefs-overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) showPrefs = false; }}>
-      <div class="prefs-modal" data-testid="prefs-modal">
-        <h2 class="prefs-title">Preferences</h2>
-        <div class="prefs-row">
-          <label class="prefs-label" for="prefs-working-dir">Working directory</label>
-          <div class="prefs-input-row">
-            <input class="prefs-input" id="prefs-working-dir" type="text" bind:value={prefsWorkingDir} placeholder="(not set)" data-testid="prefs-working-dir" />
-            <button class="prefs-browse" onclick={browseWorkingDirPref} data-testid="prefs-browse-working-dir">Browse...</button>
-          </div>
-        </div>
-        <div class="prefs-row">
-          <label class="prefs-label" for="prefs-openscad-path">OpenSCAD path</label>
-          <div class="prefs-input-row">
-            <input class="prefs-input" id="prefs-openscad-path" type="text" bind:value={prefsOpenScadPath} placeholder="(auto-detect)" data-testid="prefs-openscad-path" />
-            <button class="prefs-browse" onclick={browseOpenScadPath} data-testid="prefs-browse">Browse...</button>
-          </div>
-        </div>
-        <div class="prefs-row">
-          <label class="prefs-check-label">
-            <input type="checkbox" bind:checked={prefsAutoOpen} data-testid="prefs-auto-open" />
-            Auto-open in OpenSCAD when loading a file
-          </label>
-        </div>
-        <div class="prefs-row">
-          <label class="prefs-label" for="prefs-proxy">HTTP proxy</label>
-          <input class="prefs-input" id="prefs-proxy" type="text" style="width: 100%; box-sizing: border-box;" bind:value={prefsProxy} placeholder="e.g. http://proxy:8080" data-testid="prefs-proxy" />
-        </div>
-        <div class="prefs-buttons">
-          <button class="prefs-btn" onclick={() => showPrefs = false}>Cancel</button>
-          <button class="prefs-btn primary" onclick={savePreferences} data-testid="prefs-save">Save</button>
-        </div>
-        <div class="prefs-divider"></div>
-        <div class="prefs-about">
-          <div class="prefs-links">
-            <a href="#" onclick={(e) => { e.preventDefault(); (window as any).bgsd?.openExternal?.('https://github.com/dppdppd/bgsd'); }}>BGSD</a>
-            <span class="prefs-link-sep">&middot;</span>
-            <a href="#" onclick={(e) => { e.preventDefault(); (window as any).bgsd?.openExternal?.('https://github.com/dppdppd/The-Boardgame-Insert-Toolkit'); }}>Board Game Insert Toolkit</a>
-            <span class="prefs-link-sep">&middot;</span>
-            <a href="#" onclick={(e) => { e.preventDefault(); (window as any).bgsd?.openExternal?.('https://github.com/dppdppd/counter-tray-designer'); }}>Counter Tray Designer</a>
-          </div>
-          <div class="prefs-submit-designs">
-            <p class="prefs-submit-title">{i18n["_ui_share_title"]?.label}</p>
-            <p class="prefs-submit-help">{i18n["_ui_share_intro"]?.label}
-              <!-- svelte-ignore a11y_invalid_attribute -->
-              <a href="#" onclick={(e) => { e.preventDefault(); (window as any).bgsd?.openExternal?.('https://chatgpt.com/?q=' + encodeURIComponent('I want to submit a new design as a pull request to the Board Game Insert Toolkit (BIT) github project (https://github.com/dppdppd/The-Boardgame-Insert-Toolkit). This is one of two OpenSCAD libraries used by the BGSD editor — the other is Counter Tray Designer (CTD) at https://github.com/dppdppd/counter-tray-designer. I have no github experience. Walk me through the process step by step.')); }}>{i18n["_ui_share_help_bit"]?.label}</a>
-              <span class="prefs-link-sep">&middot;</span>
-              <!-- svelte-ignore a11y_invalid_attribute -->
-              <a href="#" onclick={(e) => { e.preventDefault(); (window as any).bgsd?.openExternal?.('https://chatgpt.com/?q=' + encodeURIComponent('I want to submit a new design as a pull request to the Counter Tray Designer (CTD) github project (https://github.com/dppdppd/counter-tray-designer). This is one of two OpenSCAD libraries used by the BGSD editor — the other is Board Game Insert Toolkit (BIT) at https://github.com/dppdppd/The-Boardgame-Insert-Toolkit. I have no github experience. Walk me through the process step by step.')); }}>{i18n["_ui_share_help_ctd"]?.label}</a>
-            </p>
-          </div>
-          <p class="prefs-copyright">{i18n["_ui_share_copyright"]?.label}</p>
-        </div>
-      </div>
-    </div>
-  {/if}
+  <PreferencesModal
+    bind:show={showPrefs}
+    bind:workingDir={prefsWorkingDir}
+    bind:openScadPath={prefsOpenScadPath}
+    bind:autoOpen={prefsAutoOpen}
+    bind:proxy={prefsProxy}
+    onsave={savePreferences}
+    onbrowseworkingdir={browseWorkingDirPref}
+    onbrowseopenscad={browseOpenScadPath}
+  />
 
   {#if showIntent}
     <div class="intent-pane" data-testid="intent-pane">
@@ -2393,35 +2205,36 @@
     overflow: hidden;
   }
 
-  .welcome {
+  /* Styles for extracted components (WelcomeScreen, PreferencesModal) — must be global */
+  :global(.welcome) {
     position: relative;
     display: flex; flex-direction: column; align-items: center;
     flex: 1; min-height: 0; gap: 8px; padding-top: 60px; overflow: hidden;
   }
-  .welcome-title {
+  :global(:global(.welcome-title)) {
     margin: 0; font-size: 36px; font-weight: 700; color: #2d5a7b;
   }
-  .welcome-subtitle {
+  :global(.welcome-subtitle) {
     margin: 0 0 24px; font-size: 16px; color: #888;
   }
-  .welcome-actions {
+  :global(.welcome-actions) {
     display: flex; flex-direction: column; gap: 12px; width: 360px;
   }
-  .welcome-sort-bar {
+  :global(.welcome-sort-bar) {
     display: flex; gap: 4px; justify-content: center; margin-bottom: 12px;
   }
-  .welcome-sort-btn {
+  :global(.welcome-sort-btn) {
     padding: 4px 12px; font-size: 12px; font-weight: 500;
     border: 1px solid #ddd; border-radius: 4px;
     background: #fff; color: #888; cursor: pointer;
   }
   .welcome-sort-btn.active { background: #2d5a7b; color: #fff; border-color: #2d5a7b; }
   .welcome-sort-btn:hover:not(.active) { background: #e8f0f6; color: #2d5a7b; border-color: #2d5a7b; }
-  .welcome-icon-bar {
+  :global(.welcome-icon-bar) {
     position: absolute; top: 12px; right: 16px;
     display: flex; gap: 6px;
   }
-  .welcome-icon-btn {
+  :global(.welcome-icon-btn) {
     width: 32px; height: 32px; font-size: 18px; line-height: 1;
     border: 1px solid #ddd; border-radius: 6px;
     background: #fff; color: #666; cursor: pointer;
@@ -2431,7 +2244,7 @@
   .welcome-icon-btn:disabled { opacity: 0.4; cursor: default; }
   .spinning { display: inline-block; animation: spin 0.8s linear infinite; }
   .update-btn-wrap { position: relative; }
-  .update-toast {
+  :global(.update-toast) {
     position: absolute; top: 100%; right: 0; margin-top: 6px;
     width: calc(100vw - 48px); max-width: 700px; max-height: 140px; overflow-y: auto;
     background: #fff; border: 1px solid #cbd5e1; border-radius: 6px;
@@ -2440,58 +2253,58 @@
     display: flex; gap: 8px; align-items: flex-start;
     z-index: 100;
   }
-  .update-toast-lines {
+  :global(.update-toast-lines) {
     flex: 1; min-width: 0;
     font-family: "Courier New", monospace; font-size: 11px; color: #555;
     line-height: 1.5;
   }
-  .update-toast-line {
+  :global(.update-toast-line) {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     direction: rtl; text-align: left;
   }
-  .welcome-btn {
+  :global(.welcome-btn) {
     padding: 12px 24px; font-size: 16px; font-weight: 600;
     border: 1px solid #bbb; border-radius: 6px;
     background: white; color: #2c3e50; cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
   }
-  .welcome-btn:hover:not(:disabled) {
+  :global(.welcome-btn:hover:not(:disabled)) {
     background: #e8f0f6; border-color: #2d5a7b;
   }
-  .welcome-btn:disabled {
+  :global(.welcome-btn:disabled) {
     opacity: 0.5; cursor: default;
   }
-  .welcome-btn-primary {
+  :global(.welcome-btn-primary) {
     background: #2d5a7b; color: white; border-color: #2d5a7b;
   }
-  .welcome-btn-primary:hover:not(:disabled) {
+  :global(.welcome-btn-primary:hover:not(:disabled)) {
     background: #3a6d91; border-color: #3a6d91;
   }
-  .welcome-btn-secondary {
+  :global(.welcome-btn-secondary) {
     font-size: 14px; padding: 8px 16px; color: #666; border-color: #ddd;
   }
-  .welcome-hint {
+  :global(.welcome-hint) {
     text-align: center; color: #888; font-size: 14px; margin: 0; line-height: 1.5;
   }
-  .welcome-status {
+  :global(.welcome-status) {
     text-align: center; color: #2d5a7b; font-size: 13px; margin: 0;
     max-width: 260px; word-break: break-word; align-self: center;
   }
-  .welcome-progress {
+  :global(.welcome-progress) {
     display: flex; align-items: center; justify-content: center; gap: 8px;
     margin: 8px 0 4px; align-self: center;
   }
-  .welcome-progress-msg {
+  :global(.welcome-progress-msg) {
     color: #2d5a7b; font-size: 12px; font-weight: 500;
   }
-  .welcome-spinner {
+  :global(.welcome-spinner) {
     display: inline-block; width: 14px; height: 14px;
     border: 2px solid #c8d9e6; border-top-color: #2d5a7b;
     border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .welcome-columns { display: flex; gap: 24px; justify-content: center; width: 100%; align-items: stretch; flex: 1; min-height: 0; }
-  .welcome-col {
+  :global(.welcome-col) {
     width: 350px; flex: 0 0 350px;
     display: flex; flex-direction: column; overflow: hidden;
     border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 16px;
@@ -2504,7 +2317,7 @@
   .welcome-library-desc { font-size: 12px; color: #999; margin: 0 0 12px; line-height: 1.4; }
   .welcome-library-scroll { overflow-y: auto; flex: 1; padding-right: 8px; }
   .welcome-library-publisher { margin-bottom: 14px; }
-  .welcome-new-file {
+  :global(.welcome-new-file) {
     display: block; width: 100%; text-align: left;
     padding: 5px 10px; font-size: 14px; font-weight: 600;
     border: 1px dashed #b4c0cb; border-radius: 4px;
@@ -2513,7 +2326,7 @@
   .welcome-new-file:hover { background: #e8f0f6; }
   .welcome-library-empty-folder { color: #bbb; font-size: 13px; font-style: italic; margin: 0; padding: 2px 10px; }
   .welcome-library-publisher-name { font-size: 12px; font-weight: 600; color: #2d5a7b; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 4px; }
-  .welcome-library-game {
+  :global(.welcome-library-game) {
     display: block; width: 100%; text-align: left;
     padding: 5px 10px; border: none; border-radius: 4px;
     background: transparent; color: #2c3e50; font-size: 14px; cursor: pointer;
@@ -2522,16 +2335,16 @@
   .welcome-library-game.user-file { font-weight: 600; }
   .welcome-library-game.user-file::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #d4800e; margin-right: 6px; flex-shrink: 0; vertical-align: middle; }
   .welcome-library-game:not(.user-file)::before { content: ""; display: inline-block; width: 7px; height: 9px; border: 1.5px solid #b4c0cb; border-left: 2.5px solid #b4c0cb; border-radius: 0 1px 1px 0; margin-right: 5px; flex-shrink: 0; vertical-align: middle; }
-  .lib-context-backdrop {
+  :global(.lib-context-backdrop) {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 999;
   }
-  .lib-context-menu {
+  :global(.lib-context-menu) {
     position: fixed; z-index: 1000;
     background: #fff; border: 1px solid #ddd; border-radius: 6px;
     box-shadow: 0 4px 16px rgba(0,0,0,0.15); min-width: 160px;
     padding: 4px 0; display: flex; flex-direction: column;
   }
-  .lib-context-item {
+  :global(.lib-context-item) {
     display: block; width: 100%; text-align: left;
     padding: 8px 16px; border: none; background: transparent;
     font-size: 14px; color: #2c3e50; cursor: pointer;
@@ -2761,11 +2574,11 @@
   .intent-pane input { width: 100%; box-sizing: border-box; background: #16213e; border: 1px solid #444; color: #e0e0e0; padding: 4px 8px; font-family: "Courier New", monospace; font-size: 13px; border-radius: 2px; }
 
   /* Preferences modal */
-  .prefs-overlay {
+  :global(.prefs-overlay) {
     position: fixed; inset: 0; background: rgba(0,0,0,0.4);
     display: flex; align-items: center; justify-content: center; z-index: 100;
   }
-  .prefs-modal {
+  :global(.prefs-modal) {
     background: white; border-radius: 8px; padding: 24px 28px;
     min-width: 520px; max-width: 680px; width: 680px; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
   }
@@ -2773,22 +2586,22 @@
   .prefs-row { margin-bottom: 14px; }
   .prefs-label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 4px; }
   .prefs-input-row { display: flex; gap: 6px; }
-  .prefs-input {
+  :global(.prefs-input) {
     flex: 1; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px;
     font-family: "Courier New", monospace; font-size: 13px;
   }
-  .prefs-browse {
+  :global(.prefs-browse) {
     padding: 6px 12px; border: 1px solid #bbb; border-radius: 4px;
     background: #f5f5f5; cursor: pointer; font-size: 13px;
   }
   .prefs-browse:hover { background: #eee; border-color: #999; }
-  .prefs-check-label {
+  :global(.prefs-check-label) {
     display: flex; align-items: center; gap: 8px;
     font-size: 14px; color: #333; cursor: pointer;
   }
   .prefs-check-label input[type="checkbox"] { width: 16px; height: 16px; }
   .prefs-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-  .prefs-btn {
+  :global(.prefs-btn) {
     padding: 8px 18px; border: 1px solid #bbb; border-radius: 4px;
     background: white; cursor: pointer; font-size: 14px;
   }
