@@ -32,6 +32,7 @@
   import tooltips from "./lib/tooltips/en.json";
   import PreferencesModal from "./lib/components/PreferencesModal.svelte";
   import WelcomeScreen from "./lib/components/WelcomeScreen.svelte";
+  import ScadPreview from "./lib/components/ScadPreview.svelte";
 
   let intentText = $state("");
   let showIntent = $state(false);
@@ -40,8 +41,6 @@
   let showScad = $state(false);
   let showWelcome = $state(true);
   let scadWidth = $state(500);
-  let dragging = $state(false);
-
   // Working directory state
   let workingDir = $state("");
   let workingDirSet = $state(false);
@@ -802,9 +801,6 @@
   function pad(line: Line) { return `padding-left: ${8 + (line.depth ?? 0) * DEPTH_PX}px`; }
   function padDepth(d: number) { return `padding-left: ${8 + d * DEPTH_PX}px`; }
 
-  /** Generate SCAD-style indentation: 4 spaces per depth level */
-  function scadIndent(depth: number): string { return "    ".repeat(depth); }
-
   const BRACKET_COLORS = ["#546e7a","#546e7a","#546e7a","#546e7a","#546e7a","#546e7a"];
   const BRACKET_BGS = ["#edf2f7","#f0eef5","#edf5f2","#e8f1f8","#f2f0ed","#ecf4f0"];
   function bracketStyle(depth: number): string {
@@ -842,22 +838,6 @@
       await tick(); // Wait for padding update to reach DOM
       container.scrollTop = scrollBefore;
     }
-  }
-
-  function onSplitHandleDown(e: MouseEvent) {
-    e.preventDefault();
-    dragging = true;
-    const onMove = (ev: MouseEvent) => {
-      const newWidth = window.innerWidth - ev.clientX;
-      scadWidth = Math.max(200, Math.min(newWidth, window.innerWidth * 0.8));
-    };
-    const onUp = () => {
-      dragging = false;
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
   }
 
   /** Find the matching close bracket index for an open at `openIdx`. */
@@ -2019,100 +1999,25 @@
     {/each}
     </div>
     {#if showScad}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="split-handle" onmousedown={onSplitHandleDown}></div>
-    <div class="editor-right" data-testid="scad-pane" style="width: {scadWidth}px">
-    {#each $project.lines as line, i (i)}
-      {#if hiddenLines.has(i)}
-        <!-- hidden -->
-      {:else if kvRenderedInBlock.has(i)}
-        <!-- rendered in schema block -->
-      {:else if globalRenderedInBlock.has(i)}
-        <!-- rendered in globals block -->
-
-      {:else if line.kind === "open"}
-        <div class="scad-line">{line.raw}</div>
-        {#if !collapsed.has(i)}
-        {#if line.role === "data" && $project.libraryProfile !== "ctd"}
-          {#each getGlobalRows() as row (row.key)}
-            {#if hideDefaults && !row.isReal}{:else}
-              {#if row.isReal && row.lineIndex !== null}
-                <div class="scad-line">{$project.lines[row.lineIndex].raw}</div>
-              {:else}
-                <div class="scad-line scad-virtual"></div>
-              {/if}
-            {/if}
-          {/each}
-        {/if}
-        {#each getSortedSchemaRowsForOpen(i) as row (row.key)}
-          {#if hideDefaults && !row.isReal}{:else}
-            {#if row.isReal && row.lineIndex !== null}
-              <div class="scad-line">{$project.lines[row.lineIndex].raw}</div>
-            {:else}
-              <div class="scad-line scad-virtual"></div>
-            {/if}
-          {/if}
-        {/each}
-        {/if}
-
-      {:else if line.kind === "close"}
-        {#if !hideDefaults && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
-          {@const lidScalars = getScalarKeysForContext("lid")}
-          <div class="scad-line scad-virtual"></div>
-          {#each lidScalars as srow (srow.key)}
-            <div class="scad-line scad-virtual"></div>
-          {/each}
-          <div class="scad-line scad-virtual"></div>
-          <div class="scad-line scad-virtual"></div>
-        {/if}
-        {#if line.role === "data" || (line.role === "params" && $project.libraryProfile !== "ctd") || (line.role === "object" && $project.libraryProfile !== "ctd") || ((line.role === "lid" || line.role === "lid_params") && $project.libraryProfile !== "ctd")}
-          <div class="scad-line scad-virtual"></div>
-        {/if}
-        {#if line.role === "counter_set" && $project.libraryProfile === "ctd" && isLastOfKind(i)}
-          <div class="scad-line scad-virtual"></div>
-        {/if}
-        {#if line.mergedClose}
-          {@const hasVirtualLid = !hideDefaults && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
-          {#if !hasVirtualLid}
-            <div class="scad-line">{scadIndent((line.depth ?? 0) + 1)}],</div>
-          {/if}
-          <div class="scad-line">{scadIndent(line.depth ?? 0)}],</div>
-        {:else}
-          <div class="scad-line">{line.raw}</div>
-        {/if}
-        {#if line.role === "data"}
-          <div class="scad-line scad-virtual"></div>
-        {/if}
-
-      {:else if line.kind === "kv" && line.kvKey}
-        <div class="scad-line">{line.raw}</div>
-
-      {:else if line.kind === "makeall"}
-        <div class="scad-line">Make({line.varName || "data"});</div>
-
-      {:else if line.kind === "blank"}
-        <div class="scad-line">&nbsp;</div>
-
-      {:else if line.kind === "include" || line.kind === "marker"}
-        <div class="scad-line">{line.raw}</div>
-
-      {:else if line.kind === "variable"}
-        <div class="scad-line">{line.raw}</div>
-
-      {:else if line.kind === "comment"}
-        <div class="scad-line">{line.raw}</div>
-
-      {:else if line.kind === "raw" && isRawGroupStart(i)}
-        <div class="scad-raw-group">{rawGroupText(i)}</div>
-
-      {:else if line.kind === "raw" && isRawGroupMember(i)}
-        <!-- skip -->
-
-      {:else}
-        <div class="scad-line">{line.raw}</div>
-      {/if}
-    {/each}
-    </div>
+    <ScadPreview
+      lines={$project.lines}
+      libraryProfile={$project.libraryProfile}
+      {hiddenLines}
+      {kvRenderedInBlock}
+      {globalRenderedInBlock}
+      {collapsed}
+      {hideDefaults}
+      bind:scadWidth
+      {getGlobalRows}
+      {getSortedSchemaRowsForOpen}
+      {supportsLid}
+      {hasLidChild}
+      {getScalarKeysForContext}
+      {isLastOfKind}
+      {isRawGroupStart}
+      {rawGroupText}
+      {isRawGroupMember}
+    />
     {/if}
     </div>
     {/if}
@@ -2174,18 +2079,18 @@
   /* Split layout: editor left + SCAD pane right */
   .editor-split { display: flex; flex-direction: row; }
   .editor-left { flex: 1; min-width: 0; }
-  .editor-right {
+  :global(.editor-right) {
     width: 500px; flex-shrink: 0;
     background: #fff;
     overflow-x: hidden;
   }
-  .split-handle {
+  :global(.split-handle) {
     width: 6px; flex-shrink: 0;
     background: #c4ced8;
     cursor: col-resize;
   }
-  .split-handle:hover { background: #b4c0cb; }
-  .scad-line {
+  :global(.split-handle:hover) { background: #b4c0cb; }
+  :global(.scad-line) {
     font-family: "Courier New", monospace; font-size: 13px;
     min-height: 24px;
     padding: 1px 8px;
@@ -2194,8 +2099,8 @@
     border-bottom: 1px solid #f0f0f0;
     display: flex; align-items: center;
   }
-  .scad-line.scad-virtual { min-height: 24px; background: #eee; }
-  .scad-raw-group {
+  :global(.scad-line.scad-virtual) { min-height: 24px; background: #eee; }
+  :global(.scad-raw-group) {
     font-family: "Courier New", monospace; font-size: 13px;
     line-height: 22px;
     padding: 1px 8px;
