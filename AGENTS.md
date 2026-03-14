@@ -265,21 +265,51 @@ for f in harness/scripts/test-*.txt; do
 done
 ```
 
-### After Each Change (developer protocol)
+### Before Every Commit (required gate)
 
-**CRITICAL: Every code change MUST be validated with screenshots before reporting completion.**
+**CRITICAL: All three gates must pass before committing any code change.**
+
+```bash
+# 1. Unit tests — must all pass
+npm test
+
+# 2. Build — must succeed with no errors
+npm run build
+
+# 3. Harness screenshots — must visually match expectations
+BGSD_HARNESS_SCRIPT=harness/scripts/test-new-bit.txt xvfb-run -a node harness/run.js
+BGSD_HARNESS_SCRIPT=harness/scripts/test-new-ctd.txt xvfb-run -a node harness/run.js
+```
+
+If your change affects a specific area, also run the relevant harness script(s):
+
+| Area affected | Run |
+|---|---|
+| SCAD output / preview pane | `test-scad-toggle.txt` |
+| Default value display | `test-hide-defaults.txt` |
+| BIT file loading | `test-open-bit.txt` |
+| CTD file loading | `test-open-ctd.txt` |
+
+After running, **read the screenshots** in `harness/out/` to visually verify correctness.
+Compare against prior screenshots if the change touches layout or styling.
+
+### After Each Change (developer protocol)
 
 For every code change:
 
-1. **Build**: `npm run build` — must succeed with no errors.
-2. **Create a test script** for your change in `harness/scripts/`. Name it descriptively
-   (e.g., `test-bracket-colors.txt`, `test-variable-rendering.txt`). The script should:
+1. **Unit tests**: `npm test` — must all pass.
+2. **Build**: `npm run build` — must succeed with no errors.
+3. **Harness screenshots**: Run at minimum `test-new-bit.txt` and `test-new-ctd.txt`.
+   Read the output images to visually verify.
+4. **Create a test script** for your change in `harness/scripts/` if it touches UI behavior.
+   Name it descriptively (e.g., `test-bracket-colors.txt`, `test-variable-rendering.txt`).
+   The script should:
    - Load a relevant fixture or create a new project (`new bit` / `new ctd`)
    - Navigate to the areas affected by your change (scroll, toggle views, etc.)
    - Take `shot` screenshots at key states
    - Use `scad` to print SCAD output if the change affects output generation
    - Use `render` to produce an OpenSCAD PNG if the change affects SCAD structure
-3. **Run the script**:
+5. **Run the script**:
    ```bash
    BGSD_HARNESS_SCRIPT=harness/scripts/test-your-change.txt \
      xvfb-run -a node harness/run.js
@@ -292,9 +322,9 @@ For every code change:
    ```
    Screenshots are automatically prefixed with the script name
    (e.g., `009_test-your-change_welcome.png`) so they never collide.
-4. **Inspect screenshots**: Read the images in `harness/out/` to visually verify.
-5. **Report**: State what you expected (1-3 bullets) + which screenshot files confirm it.
-6. **Fix before moving on**: If screenshots reveal issues, fix and re-run before reporting completion.
+6. **Inspect screenshots**: Read the images in `harness/out/` to visually verify.
+7. **Report**: State what you expected (1-3 bullets) + which screenshot files confirm it.
+8. **Fix before moving on**: If screenshots reveal issues, fix and re-run before committing.
 
 Never skip the screenshot step. Never report a change as complete without visual verification.
 
