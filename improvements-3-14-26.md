@@ -2,29 +2,29 @@
 
 ## High Impact, Low Effort
 
-1. **Replace silent error suppression with logging** — `main.js` has multiple `catch (_) {}` blocks that silently swallow errors. Add `console.error(...)` at minimum.
+1. [x] **Replace silent error suppression with logging** — `main.js` has multiple `catch (_) {}` blocks that silently swallow errors. Add `console.error(...)` at minimum.
 
-2. **Use `structuredClone` instead of `JSON.parse(JSON.stringify(...))`** — `src/lib/stores/history.ts` uses the slow JSON round-trip for cloning. `structuredClone()` is native and faster.
+2. [x] **Use `structuredClone` instead of `JSON.parse(JSON.stringify(...))`** — `src/lib/stores/history.ts` uses the slow JSON round-trip for cloning. `structuredClone()` is native and faster.
 
-3. **Centralize magic constants** — `MAX_RECENT`, `DEBOUNCE_MS`, `MAX_HISTORY`, indent size are scattered. A single `src/lib/config.ts` would make them discoverable.
+3. [x] **Centralize magic constants** — `MAX_RECENT`, `DEBOUNCE_MS`, `MAX_HISTORY`, indent size are scattered. A single `src/lib/config.ts` would make them discoverable.
 
-4. **Memoize schema context lookups** — `schema.ts` recomputes context keys on every call. The schema is static at runtime; cache the results.
+4. [x] **Memoize schema context lookups** — `schema.ts` recomputes context keys on every call. The schema is static at runtime; cache the results.
 
 ## High Impact, Medium Effort
 
-5. **Split `App.svelte` (2,811 lines)** — Extract `WelcomeScreen`, `PreferencesModal`, `LibraryBrowser`, `ScadPreview`, `EditorToolbar`.
+5. [x] **Split `App.svelte` (2,811 → 2,529 lines)** — Extracted `WelcomeScreen`, `PreferencesModal`, `ScadPreview`.
 
-6. **Add unit tests for critical paths** — Zero unit tests exist. Add Vitest for `importer.js`, `project.ts`, `scad.ts`.
+6. [x] **Add unit tests for critical paths** — 38 tests via Vitest covering `importer.js`, `scad.ts`, `formatKvValue`.
 
-7. **Add ESLint + Prettier** — No linting or formatting configured.
+7. [x] **Add ESLint + Prettier** — ESLint 9 + eslint-config-prettier + Prettier configured.
 
 ## Medium Impact, Low Effort
 
-8. **Add missing accessibility attributes** — Expand/collapse toggles lack `aria-expanded`, `aria-label`.
+8. [x] **Add missing accessibility attributes** — `aria-expanded`, `aria-label`, `aria-pressed` on toggle buttons.
 
-9. **Validate file paths against traversal** — `isInsideWorkingDir()` exists for saves but not all reads.
+9. [x] **Validate file paths against traversal** — `validateFilePath()` added and applied to all read/exec handlers.
 
-10. **Standardize IPC error handling** — Mix of `{ ok, error }` returns and throws. Pick one pattern.
+10. [x] **Standardize IPC error handling** — Documented three-pattern convention (ok/error, raw data, void).
 
 ## From Existing Backlog
 
