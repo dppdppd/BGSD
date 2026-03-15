@@ -62,6 +62,10 @@ async function doSave() {
     // Server-side safety net: file is repo-tracked
     readOnly = true;
     if (onReadOnlySave) onReadOnlySave();
+  } else if (result.readOnlyFile) {
+    // User declined to make the file writable
+    readOnly = true;
+    saveStatus("Read-only — use File > Save As to create an editable copy");
   } else {
     saveStatus(`Save failed: ${result.error}`);
   }

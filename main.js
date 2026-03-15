@@ -21,6 +21,7 @@ const DEFAULT_PREFS = { openScadPath: "", autoOpenInOpenScad: true, workingDir: 
 let openScadAlive = false;
 let openScadProc = null;
 let openScadFile = null;
+let pendingReadOnlyPrompt = false;
 
 function loadPrefs() {
   try {
@@ -301,6 +302,37 @@ ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, prof
     if (isRepoFile(filePath, prefs.workingDir)) {
       return { ok: false, error: "repo-file", repoFile: true };
     }
+
+    // Detect read-only files (e.g. manually copied into working dir)
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.accessSync(filePath, fs.constants.W_OK);
+      } catch (_) {
+        // Already showing a prompt — return benign failure until it resolves
+        if (pendingReadOnlyPrompt) {
+          return { ok: false, error: "Waiting for permission to make file writable" };
+        }
+        pendingReadOnlyPrompt = true;
+        try {
+          const resp = await dialog.showMessageBox(mainWindow, {
+            type: "question",
+            title: "File is read-only",
+            message: `"${path.basename(filePath)}" is read-only.\n\nMake it writable so BGSD can save your changes?`,
+            buttons: ["Make Writable", "Cancel"],
+            defaultId: 0,
+            cancelId: 1,
+          });
+          if (resp.response === 0) {
+            fs.chmodSync(filePath, 0o644);
+          } else {
+            return { ok: false, readOnlyFile: true };
+          }
+        } finally {
+          pendingReadOnlyPrompt = false;
+        }
+      }
+    }
+
     if (needsBackup && fs.existsSync(filePath)) {
       const bakPath = filePath + ".bak";
       if (!fs.existsSync(bakPath)) {
@@ -339,6 +371,8 @@ ipcMain.handle("save-file-as", async (_event, scadText, profileId, currentPath) 
     // If we have an existing on-disk file, copy it (preserves includes, comments, etc.)
     if (currentPath && fs.existsSync(currentPath)) {
       fs.copyFileSync(currentPath, result.filePath);
+      // Ensure the copy is writable (source may be a read-only repo file)
+      try { fs.chmodSync(result.filePath, 0o644); } catch (_) {}
     } else {
       await atomicWrite(result.filePath, scadText);
     }
@@ -373,6 +407,8 @@ ipcMain.handle("copy-template", async (_event, sourcePath) => {
   if (result.canceled) return { ok: false };
   try {
     fs.copyFileSync(sourcePath, result.filePath);
+    // Ensure the copy is writable (source may be a read-only repo file)
+    try { fs.chmodSync(result.filePath, 0o644); } catch (_) {}
     return { ok: true, filePath: result.filePath };
   } catch (err) {
     return { ok: false, error: err.message };
