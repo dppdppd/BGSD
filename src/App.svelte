@@ -891,6 +891,7 @@
   const ROLE_TO_CONTEXT: Record<string, string> = {
     params: "element",
     feature: "feature",
+    feature_list: "feature",
     label_params: "label",
     lid_params: "lid",
     counter_set_params: "counter_set",

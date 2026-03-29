@@ -35,53 +35,32 @@ that generates `.scad` files for OpenSCAD rendering.
 BGSD/
   src/                    # Svelte frontend
     lib/
-      components/         # Tree, inline editors, key picker, options menu
-      schema/             # Schema loader + helpers
+      components/         # Tree, inline editors, element nodes, KV rows
+      schema.ts           # Schema loader + helpers
       stores/             # Svelte stores (project state, autosave, settings)
     App.svelte
     main.ts
   main.js                 # Electron main process
   preload.js              # Electron preload (contextBridge)
   schema/
-    bit.schema.json       # Authoritative GUI schema
-    generate_schema.py    # Script: parse v4 .scad -> regenerate schema
+    bit.schema.json       # Authoritative BIT GUI schema
+    ctd.schema.json       # Authoritative CTD GUI schema
   harness/
     run.js                # Playwright-driven REPL (launch + screenshot + interact)
     scripts/              # Reusable test scripts (one command per line)
     out/                  # Screenshot output (accumulates, never cleared)
+  tests/                  # Unit tests (vitest) + SCAD fixture files
   lib/                    # Library profiles + manager (fetches from GitHub, caches in userData)
   dist/                   # Vite build output (loaded by Electron)
   package.json
   vite.config.mjs
 ```
 
-## Prerequisites (Docker / Fresh Linux)
-
-The project runs on Electron, which needs system libraries that aren't always present in
-minimal Docker images or CI containers. Install them before running the app or harness:
-
-```bash
-sudo apt-get update && sudo apt-get install -y \
-  xvfb \
-  libglib2.0-0 libnss3 libnspr4 libdbus-1-3 \
-  libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 \
-  libcups2 libgtk-3-0 \
-  libpango-1.0-0 libcairo2 \
-  libxcomposite1 libxdamage1 \
-  libgbm1 libxkbcommon0 \
-  libasound2
-```
-
-**Quick check** — after install, this should print no output:
-```bash
-ldd node_modules/electron/dist/electron 2>&1 | grep "not found"
-```
-
 ## Commands
 
 ```bash
 npm install
-npm run build          # Vite builds frontend to dist/
+npm run build          # Run unit tests + Vite build to dist/
 npm start              # Launch Electron app
 npm run dev            # Watch + launch (concurrent)
 npm test               # Run unit tests (vitest)
@@ -90,200 +69,28 @@ npm run lint           # Run ESLint
 npm run format         # Run Prettier on src/
 ```
 
-## Release & Deploy
-
-```bash
-./build-release.sh [win|linux|mac|all] [patch|minor|major]
-```
-
-This bumps the version, builds the frontend, and produces platform binaries in `release/`.
-The script auto-wraps with `xvfb-run` when `$DISPLAY` is unset (needed for wine/rcedit during Windows cross-compile).
-File-size progress is shown during compression.
-
-**Build notes:**
-- Windows cross-compile needs wine + a virtual display (`xvfb-run` handles this automatically)
-- The bundled makensis requires a valid locale — if the configured locale isn't installed, the script falls back to `C.utf8`
-- If a build fails mid-way, clean stale artifacts before retrying: `rm -rf release/win-unpacked release/linux-unpacked`
-- The portable exe target internally uses NSIS + 7z max compression (~3-5 min for 269MB)
-- If Node runs out of memory during packaging: `NODE_OPTIONS="--max-old-space-size=2048" ./build-release.sh win`
-- Never replace the bundled makensis (`~/.cache/electron-builder/nsis/`) with a system-installed one — version mismatch causes EPIPE errors
-- Clean old release artifacts periodically — they accumulate and eat disk
-
-**Push code + binaries:**
-```bash
-git push origin master
-gh release create v<VERSION> \
-  "release/BGSD-<VERSION>.AppImage" \
-  "release/BGSD <VERSION>.exe" \
-  "release/BGSD-<VERSION>-mac.zip" \
-  --title "v<VERSION>" --notes "<changelog>"
-```
-
-Binaries are distributed via GitHub Releases using the `gh` CLI.
-
 ## Dev Loop
 
-```
-1. Edit Svelte components in src/
-2. Build: npm run build
-3. Launch: xvfb-run -a node harness/run.js
-4. Drive via REPL: intent + interact (click, type, toggle, wait, shot)
-5. Inspect screenshots in harness/out/
-```
+1. Edit Svelte components in `src/`
+2. `npm run build` (runs tests + builds)
+3. `xvfb-run -a node harness/run.js` — drive via REPL, inspect screenshots in `harness/out/`
 
-Elements use `data-testid` attributes for harness targeting (e.g., `element-N-name`, `kv-KEY-editor`, `add-element`).
+Elements use `data-testid` attributes for harness targeting. See [HARNESS.md](docs/guidance/HARNESS.md) for full REPL commands, env vars, testid conventions, and test scripts.
 
-## Harness
+## Verification Gate
 
-The Playwright harness (`harness/run.js`) drives the Electron app headless for screenshots.
-
-**Prerequisite**: `xvfb` is NOT in the Docker image; install before first use:
-```bash
-sudo apt-get update && sudo apt-get install -y xvfb
-```
-
-**Launch** (interactive REPL):
-```bash
-xvfb-run -a node harness/run.js
-```
-
-**Launch** (scripted, non-interactive — use a script file for complex commands):
-```bash
-cat <<'CMDS' > /tmp/bgsd-cmds.txt
-wait app-root
-shot welcome
-js document.querySelector('[data-testid="content-area"]').scrollTop = 3000
-shot scrolled
-CMDS
-BGSD_OPEN="/path/to/file.scad" \
-  BGSD_WINDOW_WIDTH=1920 BGSD_WINDOW_HEIGHT=1080 \
-  BGSD_HARNESS_SCRIPT=/tmp/bgsd-cmds.txt \
-  xvfb-run -a node harness/run.js
-```
-
-Screenshots go to `harness/out/` with format `NNN_<prefix>_<label>.png`. The counter is monotonic and resumes from existing files, so screenshots never overwrite. When running a script, the prefix defaults to the script filename (e.g., `test-new-bit`).
-
-### REPL Commands
-
-- `shot <label>` — take screenshot (no auto-screenshot)
-- `click <testid>` — click element by `data-testid` attribute + screenshot
-- `type <testid> "text"` — fill element with text + screenshot
-- `wait <testid>` — wait up to 15s for element to appear
-- `intent "text"` — set the intent pane text + screenshot
-- `act "intent" cmd args` — set intent + execute command + screenshot
-- `js <expression>` — evaluate JavaScript in the renderer page context
-- `ipc <channel> [json]` — send IPC message to renderer (args must be valid JSON)
-- `new <bit|ctd>` — create a new project (writes to temp file, no dialog)
-- `scad` — print the current SCAD output to stdout
-- `render [label]` — render current SCAD with OpenSCAD to PNG in `harness/out/`
-- `quit` / `exit` / `q` — close app and exit
-
-### Scrolling for Screenshots
-
-The app content is inside a scrollable `<section class="content">` container (NOT the window).
-Use `js` to scroll the content area:
-
-```
-js document.querySelector('[data-testid="content-area"]').scrollTop = 0      // top
-js document.querySelector('[data-testid="content-area"]').scrollTop = 3000   // middle
-js document.querySelector('[data-testid="content-area"]').scrollTop = 99999  // bottom
-```
-
-`window.scrollTo()` does NOT work — always scroll the content-area element.
-
-### App Env Vars (for headless/harness use)
-
-| Var | Purpose |
-|-----|---------|
-| `BGSD_OPEN=<path>` | Auto-open a .scad file on startup |
-| `BGSD_WINDOW_WIDTH=1200` | Window width (default: 800) |
-| `BGSD_WINDOW_HEIGHT=900` | Window height (default: 1600) |
-| `BGSD_HARNESS_SCRIPT=<path>` | Path to file with newline-separated commands |
-| `BGSD_HARNESS_COMMANDS=<cmds>` | Inline newline-separated commands (prefer BGSD_HARNESS_SCRIPT for complex scripts) |
-| `BGSD_HARNESS=1` | Auto-set by harness; enables intent pane in app |
-| `BGSD_SHOT_PREFIX=<name>` | Prefix for screenshot filenames (defaults to script filename) |
-
-### data-testid Convention
-
-Every interactive element gets a `data-testid` attribute so the REPL
-can target by intent, not by pixel coordinates:
-- `add-element` — top-level "Add Element" button
-- `element-N-name` — element name field (N = index)
-- `element-N-expand` — expand/collapse toggle
-- `element-N-delete` — delete element button
-- `element-N-add-param` — "Add Parameter" button
-- `kv-KEY-editor` — inline editor for a key (e.g. `kv-BOX_SIZE_XYZ-editor`)
-- `kv-KEY-x`, `kv-KEY-y`, `kv-KEY-z` — individual fields for xyz types
-- `kv-KEY-delete` — delete a key-value row
-- `keypicker-search` — key picker search input
-- `keypicker-item-KEY` — key picker result item
-- `options-open` — options menu button
-- `save-status` — save indicator in status bar
-- `intent-text` — harness intent pane text area
-- `intent-step` — harness step counter
-
-### Intent Pane (in-app, always visible)
-
-The app has a bottom strip that is always rendered and captured in every screenshot:
-- **Intent**: large readable text showing what I expect to happen.
-- **Step**: current step number.
-
-This makes every screenshot self-describing: the intent text inside the image
-says what should be true, and the rest of the image shows what actually happened.
-
-### Test Scripts (`harness/scripts/`)
-
-Reusable command files that serve as a regression test suite. Run any script with:
+**CRITICAL: All gates must pass before committing any code change.**
 
 ```bash
-BGSD_HARNESS_SCRIPT=harness/scripts/<script>.txt xvfb-run -a node harness/run.js
-```
-
-For scripts that need a specific file loaded on startup, add `BGSD_OPEN`:
-
-```bash
-BGSD_OPEN=/path/to/file.scad \
-  BGSD_HARNESS_SCRIPT=harness/scripts/<script>.txt \
-  xvfb-run -a node harness/run.js
-```
-
-| Script | What it tests |
-|--------|--------------|
-| `test-new-bit.txt` | Create new BIT project, screenshot top/bottom, print SCAD |
-| `test-new-ctd.txt` | Create new CTD project, screenshot top/bottom, print SCAD |
-| `test-open-bit.txt` | Create BIT project, screenshot at scroll positions, print SCAD |
-| `test-open-ctd.txt` | Create CTD project, screenshot at scroll positions, print SCAD |
-| `test-scad-toggle.txt` | Toggle Show SCAD view on/off, screenshot both states |
-| `test-hide-defaults.txt` | Toggle Hide Defaults on/off, screenshot both states |
-
-**Run the full suite** (all scripts sequentially):
-
-```bash
-npm run build && \
-for f in harness/scripts/test-*.txt; do
-  BGSD_HARNESS_SCRIPT="$f" xvfb-run -a node harness/run.js
-done
-```
-
-### Before Every Commit (required gate)
-
-**CRITICAL: All three gates must pass before committing any code change.**
-
-```bash
-# 1. Unit tests — must all pass
-npm test
-
-# 2. Build — must succeed with no errors
+# 1. Build (includes unit tests)
 npm run build
 
-# 3. Harness screenshots — must visually match expectations
+# 2. Harness screenshots — must visually match expectations
 BGSD_HARNESS_SCRIPT=harness/scripts/test-new-bit.txt xvfb-run -a node harness/run.js
 BGSD_HARNESS_SCRIPT=harness/scripts/test-new-ctd.txt xvfb-run -a node harness/run.js
 ```
 
-If your change affects a specific area, also run the relevant harness script(s):
-
-| Area affected | Run |
+| Area affected | Also run |
 |---|---|
 | SCAD output / preview pane | `test-scad-toggle.txt` |
 | Default value display | `test-hide-defaults.txt` |
@@ -291,42 +98,8 @@ If your change affects a specific area, also run the relevant harness script(s):
 | CTD file loading | `test-open-ctd.txt` |
 
 After running, **read the screenshots** in `harness/out/` to visually verify correctness.
-Compare against prior screenshots if the change touches layout or styling.
 
-### After Each Change (developer protocol)
-
-For every code change:
-
-1. **Unit tests**: `npm test` — must all pass.
-2. **Build**: `npm run build` — must succeed with no errors.
-3. **Harness screenshots**: Run at minimum `test-new-bit.txt` and `test-new-ctd.txt`.
-   Read the output images to visually verify.
-4. **Create a test script** for your change in `harness/scripts/` if it touches UI behavior.
-   Name it descriptively (e.g., `test-bracket-colors.txt`, `test-variable-rendering.txt`).
-   The script should:
-   - Load a relevant fixture or create a new project (`new bit` / `new ctd`)
-   - Navigate to the areas affected by your change (scroll, toggle views, etc.)
-   - Take `shot` screenshots at key states
-   - Use `scad` to print SCAD output if the change affects output generation
-   - Use `render` to produce an OpenSCAD PNG if the change affects SCAD structure
-5. **Run the script**:
-   ```bash
-   BGSD_HARNESS_SCRIPT=harness/scripts/test-your-change.txt \
-     xvfb-run -a node harness/run.js
-   ```
-   Or with a specific SCAD file:
-   ```bash
-   BGSD_OPEN=/path/to/file.scad \
-     BGSD_HARNESS_SCRIPT=harness/scripts/test-your-change.txt \
-     xvfb-run -a node harness/run.js
-   ```
-   Screenshots are automatically prefixed with the script name
-   (e.g., `009_test-your-change_welcome.png`) so they never collide.
-6. **Inspect screenshots**: Read the images in `harness/out/` to visually verify.
-7. **Report**: State what you expected (1-3 bullets) + which screenshot files confirm it.
-8. **Fix before moving on**: If screenshots reveal issues, fix and re-run before committing.
-
-Never skip the screenshot step. Never report a change as complete without visual verification.
+If your change touches UI behavior, **create a test script** in `harness/scripts/` named descriptively (e.g., `test-bracket-colors.txt`). Run it, inspect output, and report which screenshots confirm correctness. Never skip visual verification.
 
 ## Key Design Decisions
 
@@ -354,25 +127,14 @@ The generator (`src/lib/scad.ts`) produces `.scad` text from project state:
 - **Svelte**: Runes syntax (`$state`, `$derived`, `$effect`), kebab-case filenames
 - **Git commits**: `type(scope): message` (e.g., `feat:`, `fix:`, `docs:`)
 
-## Common BIT Parameters Quick Reference
+## Reference Docs
 
-### Element-level (inside OBJECT_BOX)
-`NAME`, `BOX_SIZE_XYZ`, `BOX_FEATURE`, `BOX_LID`, `BOX_NO_LID_B`, `BOX_STACKABLE_B`, `ENABLED_B`
-
-### Feature-level (inside BOX_FEATURE)
-`FTR_COMPARTMENT_SIZE_XYZ`, `FTR_NUM_COMPARTMENTS_XY`, `FTR_SHAPE` (SQUARE/HEX/HEX2/OCT/OCT2/ROUND/FILLET), `FTR_SHAPE_ROTATED_B`, `FTR_SHAPE_VERTICAL_B`, `FTR_PADDING_XY`, `FTR_PADDING_HEIGHT_ADJUST_XY`, `FTR_MARGIN_FBLR`, `FTR_CUTOUT_SIDES_4B`, `FTR_CUTOUT_CORNERS_4B`, `FTR_CUTOUT_HEIGHT_PCT`, `FTR_CUTOUT_DEPTH_PCT`, `FTR_CUTOUT_WIDTH_PCT`, `FTR_CUTOUT_BOTTOM_B`, `FTR_CUTOUT_BOTTOM_PCT`, `FTR_CUTOUT_TYPE` (INTERIOR/EXTERIOR/BOTH), `FTR_SHEAR`, `FTR_FILLET_RADIUS`, `FTR_PEDESTAL_BASE_B`, `POSITION_XY`, `ROTATION`
-
-### Lid-level (inside BOX_LID)
-`LID_SOLID_B`, `LID_HEIGHT`, `LID_FIT_UNDER_B`, `LID_INSET_B`, `LID_PATTERN_RADIUS`, `LID_PATTERN_N1/N2`, `LID_PATTERN_ANGLE`, `LID_PATTERN_ROW_OFFSET/COL_OFFSET`, `LID_PATTERN_THICKNESS`, `LID_CUTOUT_SIDES_4B`, `LID_LABELS_INVERT_B`, `LID_SOLID_LABELS_DEPTH`, `LID_LABELS_BG_THICKNESS`, `LID_LABELS_BORDER_THICKNESS`, `LID_STRIPE_WIDTH/SPACE`, `LID_TABS_4B`
-
-### Label-level (inside BOX_LID, BOX_FEATURE, or box-level)
-`LBL_TEXT`, `LBL_SIZE` (number or AUTO), `LBL_PLACEMENT` (FRONT/BACK/LEFT/RIGHT/FRONT_WALL/BACK_WALL/LEFT_WALL/RIGHT_WALL/CENTER/BOTTOM), `LBL_FONT`, `LBL_DEPTH`, `LBL_SPACING`, `LBL_IMAGE`, `ROTATION`, `POSITION_XY`
-
-### Divider-level
-`DIV_TAB_TEXT`, `DIV_TAB_SIZE_XY`, `DIV_TAB_RADIUS`, `DIV_TAB_CYCLE`, `DIV_TAB_CYCLE_START`, `DIV_TAB_TEXT_SIZE/FONT/SPACING`, `DIV_TAB_TEXT_EMBOSSED_B`, `DIV_FRAME_SIZE_XY`, `DIV_FRAME_NUM_COLUMNS`, `DIV_FRAME_COLUMN`, `DIV_FRAME_TOP/BOTTOM/RADIUS`, `DIV_THICKNESS`
-
-### Globals (as `[G_*, value]` pairs in data array)
-`G_PRINT_LID_B`, `G_PRINT_BOX_B`, `G_ISOLATED_PRINT_BOX`, `G_VISUALIZATION_B`, `G_VALIDATE_KEYS_B`, `G_WALL_THICKNESS`, `G_TOLERANCE`, `G_TOLERANCE_DETENT_POS`, `G_DEFAULT_FONT`, `G_PRINT_MMU_LAYER`
+| Doc | Content |
+|-----|---------|
+| [HARNESS.md](docs/guidance/HARNESS.md) | Harness REPL, env vars, testids, test scripts, prerequisites |
+| [RELEASE.md](docs/guidance/RELEASE.md) | Build-release script, platform binaries, GitHub Releases |
+| [BIT-PARAMETERS.md](docs/guidance/BIT-PARAMETERS.md) | BIT parameter frequency from real designs |
+| [CTD-PARAMETERS.md](docs/guidance/CTD-PARAMETERS.md) | CTD parameter frequency from real designs |
 
 ## Backlog
 
