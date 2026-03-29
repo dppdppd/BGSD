@@ -9,7 +9,8 @@
     kvRenderedInBlock,
     globalRenderedInBlock,
     collapsed,
-    hideDefaults,
+    defaultsMode,
+    isFavorite,
     scadWidth = $bindable(500),
     getGlobalRows,
     getSortedSchemaRowsForOpen,
@@ -27,7 +28,8 @@
     kvRenderedInBlock: Set<number>;
     globalRenderedInBlock: Set<number>;
     collapsed: Set<number>;
-    hideDefaults: boolean;
+    defaultsMode: "all" | "favorites" | "none";
+    isFavorite: (key: string) => boolean;
     scadWidth: number;
     getGlobalRows: () => any[];
     getSortedSchemaRowsForOpen: (i: number) => any[];
@@ -43,6 +45,10 @@
   let dragging = $state(false);
 
   function scadIndent(depth: number): string { return INDENT.repeat(depth); }
+
+  function isVirtualHidden(key: string): boolean {
+    return defaultsMode === "none" || (defaultsMode === "favorites" && !isFavorite(key));
+  }
 
   function onSplitHandleDown(e: MouseEvent) {
     e.preventDefault();
@@ -77,7 +83,7 @@
     {#if !collapsed.has(i)}
     {#if line.role === "data" && libraryProfile !== "ctd"}
       {#each getGlobalRows() as row (row.key)}
-        {#if hideDefaults && !row.isReal}{:else}
+        {#if !row.isReal && isVirtualHidden(row.key)}{:else}
           {#if row.isReal && row.lineIndex !== null}
             <div class="scad-line">{lines[row.lineIndex].raw}</div>
           {:else}
@@ -87,7 +93,7 @@
       {/each}
     {/if}
     {#each getSortedSchemaRowsForOpen(i) as row (row.key)}
-      {#if hideDefaults && !row.isReal}{:else}
+      {#if !row.isReal && isVirtualHidden(row.key)}{:else}
         {#if row.isReal && row.lineIndex !== null}
           <div class="scad-line">{lines[row.lineIndex].raw}</div>
         {:else}
@@ -98,11 +104,14 @@
     {/if}
 
   {:else if line.kind === "close"}
-    {#if !hideDefaults && libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
-      {@const lidScalars = getScalarKeysForContext("lid")}
+    {@const _lidScalars = getScalarKeysForContext("lid")}
+    {@const _showLid = defaultsMode !== "none" && libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (defaultsMode === "all" || _lidScalars.some(s => isFavorite(s.key)))}
+    {#if _showLid}
       <div class="scad-line scad-virtual"></div>
-      {#each lidScalars as srow (srow.key)}
+      {#each _lidScalars as srow (srow.key)}
+        {#if defaultsMode === "favorites" && !isFavorite(srow.key)}{:else}
         <div class="scad-line scad-virtual"></div>
+        {/if}
       {/each}
       <div class="scad-line scad-virtual"></div>
       <div class="scad-line scad-virtual"></div>
@@ -114,7 +123,7 @@
       <div class="scad-line scad-virtual"></div>
     {/if}
     {#if line.mergedClose}
-      {@const hasVirtualLid = !hideDefaults && libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
+      {@const hasVirtualLid = defaultsMode !== "none" && libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (defaultsMode === "all" || getScalarKeysForContext("lid").some(s => isFavorite(s.key)))}
       {#if !hasVirtualLid}
         <div class="scad-line">{scadIndent((line.depth ?? 0) + 1)}],</div>
       {/if}

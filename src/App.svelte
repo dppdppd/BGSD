@@ -37,7 +37,22 @@
   let intentText = $state("");
   let showIntent = $state(false);
   let statusMsg = $state("No file open");
-  let hideDefaults = $state(false);
+  let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
+  let favoriteKeys = $state<Set<string>>(new Set());
+  // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
+  // and docs/guidance/CTD-PARAMETERS.md (3+ designs). Seeded on first run.
+  const DEFAULT_FAVORITE_KEYS = [
+    "NAME", "BOX_SIZE_XYZ", "ENABLED_B",
+    "FTR_COMPARTMENT_SIZE_XYZ", "FTR_NUM_COMPARTMENTS_XY", "FTR_SHAPE",
+    "FTR_SHAPE_VERTICAL_B", "FTR_SHAPE_ROTATED_B",
+    "FTR_PADDING_XY", "FTR_PADDING_HEIGHT_ADJUST_XY",
+    "FTR_CUTOUT_SIDES_4B", "POSITION_XY", "ROTATION",
+    "LID_SOLID_B",
+    "LBL_TEXT", "LBL_SIZE", "LBL_PLACEMENT",
+    "G_DIMENSIONS_XY", "G_FLOOR_THICKNESS_N", "G_MIN_PADDING_XY", "G_FRAME_STYLE_N",
+    "COUNTER_SIZE_XYZ", "COUNTER_MARGINS_POST_LENGTH_FRACTION_N",
+    "PRINT_COUNT_N", "ROWS_N", "COUNTER_SHAPE",
+  ];
   let showScad = $state(false);
   let showWelcome = $state(true);
   let scadWidth = $state(500);
@@ -173,8 +188,17 @@
     if (bgsd?.onMenuPreferences) bgsd.onMenuPreferences(openPreferencesModal);
     if (bgsd?.onMenuUndo) bgsd.onMenuUndo(() => undo());
     if (bgsd?.onMenuRedo) bgsd.onMenuRedo(() => redo());
-    if (bgsd?.onMenuToggleHideDefaults) bgsd.onMenuToggleHideDefaults((checked: boolean) => { hideDefaults = checked; });
+    if (bgsd?.onMenuDefaultsMode) bgsd.onMenuDefaultsMode((mode: string) => { defaultsMode = mode as "all" | "favorites" | "none"; });
     if (bgsd?.onMenuToggleShowScad) bgsd.onMenuToggleShowScad((checked: boolean) => { showScad = checked; });
+
+    // Load favorite keys from preferences (seed defaults on first run)
+    const prefs = await bgsd?.getPreferences?.();
+    if (prefs?.favoriteKeys && Array.isArray(prefs.favoriteKeys)) {
+      favoriteKeys = new Set(prefs.favoriteKeys);
+    } else {
+      favoriteKeys = new Set(DEFAULT_FAVORITE_KEYS);
+      await bgsd?.setPreferences?.({ favoriteKeys: [...DEFAULT_FAVORITE_KEYS] });
+    }
 
     // Load working directory status
     const wdStatus = await bgsd?.getWorkingDirStatus?.();
@@ -662,6 +686,31 @@
     return ($presets[field]?.length) ? field : null;
   }
 
+  /** Check if a key is in the user's favorites. */
+  function isFavorite(key: string): boolean {
+    return favoriteKeys.has(key);
+  }
+
+  /** Keys currently fading out after being unfavorited in "favorites" mode. */
+  let fadingOutKeys = $state(new Set<string>());
+
+  /** Toggle a key's favorite status and immediately persist to preferences. */
+  async function toggleFavorite(key: string) {
+    const removing = favoriteKeys.has(key);
+    const next = new Set(favoriteKeys);
+    if (removing) next.delete(key); else next.add(key);
+    favoriteKeys = next;
+    // Fade out if unfavoriting while in favorites-only mode
+    if (removing && defaultsMode === "favorites") {
+      fadingOutKeys = new Set([...fadingOutKeys, key]);
+      setTimeout(() => {
+        fadingOutKeys = new Set([...fadingOutKeys].filter(k => k !== key));
+      }, 300);
+    }
+    const bgsd = (window as any).bgsd;
+    await bgsd?.setPreferences?.({ favoriteKeys: [...next] });
+  }
+
   /** Set of line indices currently in raw-value editing mode (text input for value only). */
   let rawValueEditing = $state(new Set<number>());
 
@@ -811,6 +860,7 @@
 
   // --- Collapse/expand ---
   let collapsed = $state(new Set<number>());
+  let collapsedVirtual = $state(new Set<string>());
   let editorPadBottom = $state(0);
 
   async function toggleCollapse(i: number) {
@@ -836,6 +886,31 @@
         editorPadBottom = Math.max(0, editorPadBottom - grow);
       }
       await tick(); // Wait for padding update to reach DOM
+      container.scrollTop = scrollBefore;
+    }
+  }
+
+  async function toggleCollapseVirtual(key: string) {
+    const container = document.querySelector('[data-testid="content-area"]') as HTMLElement | null;
+    const scrollBefore = container?.scrollTop ?? 0;
+    const heightBefore = container?.scrollHeight ?? 0;
+
+    const next = new Set(collapsedVirtual);
+    const isCollapsing = !next.has(key);
+    if (isCollapsing) next.add(key); else next.delete(key);
+    collapsedVirtual = next;
+
+    if (container) {
+      await tick();
+      const heightAfter = container.scrollHeight;
+      const shrink = heightBefore - heightAfter;
+      if (isCollapsing && shrink > 0) {
+        editorPadBottom = Math.max(0, editorPadBottom + shrink);
+      } else if (!isCollapsing && editorPadBottom > 0) {
+        const grow = heightAfter - heightBefore;
+        editorPadBottom = Math.max(0, editorPadBottom - grow);
+      }
+      await tick();
       container.scrollTop = scrollBefore;
     }
   }
@@ -1483,9 +1558,13 @@
     <button class="toolbar-home" title="Welcome page" onclick={() => { showWelcome = true; loadLibraryTree(); }}>&#8962;</button>
     <div class="toolbar-sep"></div>
     <div class="toolbar-group">
-      <label class="toolbar-check" title="Hide virtual default values">
-        <input type="checkbox" bind:checked={hideDefaults} /> Hide Defaults
-      </label>
+      <span class="toolbar-label">Show Defaults:</span>
+      <label class="toolbar-radio"><input type="radio" bind:group={defaultsMode} value="all" /> All</label>
+      <label class="toolbar-radio"><input type="radio" bind:group={defaultsMode} value="favorites" /> Favorites</label>
+      <label class="toolbar-radio"><input type="radio" bind:group={defaultsMode} value="none" /> None</label>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
       <label class="toolbar-check" title="Show generated SCAD (Ctrl+U)">
         <input type="checkbox" bind:checked={showScad} /> Show SCAD
       </label>
@@ -1573,13 +1652,13 @@
         <!-- Virtual globals block inside data = [ (BIT only; CTD uses per-scene KVs) -->
         {#if line.role === "data" && $project.libraryProfile !== "ctd"}
           {#each getGlobalRows() as row (row.key)}
-            {#if hideDefaults && !row.isReal}{:else}
+            {#if !row.isReal && (defaultsMode === "none" || (defaultsMode === "favorites" && !isFavorite(row.key) && !fadingOutKeys.has(row.key)))}{:else}
             {@const gDef = row.def}
             {@const gVal = row.value}
             {@const gOnChange = row.isReal
               ? (v: any) => updateGlobalWithDefault(row.lineIndex!, v, gDef.default)
               : (v: any) => onVirtualGlobalChange(row.key, gDef, v)}
-            <div class="line-row kv" class:virtual={!row.isReal} style="{padDepth(1)}; {bracketStyle(1)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
+            <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} style="{padDepth(1)}; {bracketStyle(1)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
               <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
               <span class="kv-control">
                 {#if row.isReal && rawValueEditing.has(row.lineIndex!)}
@@ -1629,13 +1708,14 @@
                 <span class="spacer"></span>
                 <button class="toggle-btn" title="Edit value as raw text" onclick={() => materializeGlobalAndEditRawValue(row.key, row.def)}>{"{}"}</button>
               {/if}
+              <button class="fav-btn" class:active={isFavorite(row.key)} title={isFavorite(row.key) ? "Remove from favorites" : "Add to favorites"} onclick={() => toggleFavorite(row.key)}>{isFavorite(row.key) ? "★" : "☆"}</button>
             </div>
             {/if}
           {/each}
         {/if}
         <!-- Sorted schema rows (real + virtual) after open bracket -->
         {#each getSortedSchemaRowsForOpen(i) as row (row.key)}
-          {#if hideDefaults && !row.isReal}{:else}
+          {#if !row.isReal && (defaultsMode === "none" || (defaultsMode === "favorites" && !isFavorite(row.key) && !fadingOutKeys.has(row.key)))}{:else}
           {@const rkt = getKeyType(row.key)}
           {@const rks = getKeySchema(row.key)}
           {@const closeIdx = findMatchingClose(i)}
@@ -1643,7 +1723,7 @@
             ? (v) => updateKv(row.lineIndex, v, row.def.default)
             : (v) => onVirtualChange(closeIdx, row.key, row.def, v)}
           {@const val = row.value}
-          <div class="line-row kv" class:virtual={!row.isReal} style="{padDepth(row.depth)}; {bracketStyle(row.depth)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
+          <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} style="{padDepth(row.depth)}; {bracketStyle(row.depth)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
             <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
             <span class="kv-control">
               {#if row.isReal && rawValueEditing.has(row.lineIndex!)}
@@ -1733,6 +1813,7 @@
               <span class="spacer"></span>
               <button class="toggle-btn" title="Edit value as raw text" onclick={() => materializeAndEditRawValue(closeIdx, row.key, row.def, row.depth)}>{"{}"}</button>
             {/if}
+            <button class="fav-btn" class:active={isFavorite(row.key)} title={isFavorite(row.key) ? "Remove from favorites" : "Add to favorites"} onclick={() => toggleFavorite(row.key)}>{isFavorite(row.key) ? "★" : "☆"}</button>
           </div>
           {/if}
         {/each}
@@ -1740,19 +1821,28 @@
 
       {:else if line.kind === "close"}
         <!-- Virtual BOX_LID block for OBJECT_BOX without a lid (BIT only) -->
-        {#if !hideDefaults && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
+        {@const _lidScalarsAll = getScalarKeysForContext("lid")}
+        {@const _showVirtualLid = defaultsMode !== "none" && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (defaultsMode === "all" || _lidScalarsAll.some(s => isFavorite(s.key)))}
+        {#if _showVirtualLid}
           {@const lidDepth = (line.depth ?? 0) + 1}
           {@const lidChildDepth = lidDepth + 1}
-          {@const lidScalars = getScalarKeysForContext("lid")}
+          {@const lidScalars = _lidScalarsAll}
+          {@const vLidKey = `virtual-lid-${i}`}
+          {@const vLidCollapsed = collapsedVirtual.has(vLidKey)}
           <div class="line-row struct open virtual" style="{padDepth(lidDepth)}; {bracketStyle(lidDepth)}" data-testid="virtual-lid">
+            <button class="collapse-btn" title={vLidCollapsed ? "Expand" : "Collapse"}
+              aria-expanded={!vLidCollapsed} aria-label="Lid section"
+              onclick={() => toggleCollapseVirtual(vLidKey)}>{vLidCollapsed ? "▶" : "▼"}</button>
             <span class="struct-label inferred">{label("BOX_LID")}</span>
-            <span class="struct-bracket">[</span>
+            <span class="struct-bracket">{vLidCollapsed ? "[ ... ]" : "["}</span>
           </div>
+          {#if !vLidCollapsed}
           {#each lidScalars as srow (srow.key)}
+            {#if defaultsMode === "favorites" && !isFavorite(srow.key) && !fadingOutKeys.has(srow.key)}{:else}
             {@const rkt = srow.def.type}
             {@const val = srow.def.default}
             {@const onChange = (v: any) => materializeVirtualLidSetting(i, srow.key, srow.def, v)}
-            <div class="line-row kv virtual" style="{padDepth(lidChildDepth)}; {bracketStyle(lidChildDepth)}" data-testid="virtual-lid-{srow.key}">
+            <div class="line-row kv virtual" class:fading-out={fadingOutKeys.has(srow.key)} style="{padDepth(lidChildDepth)}; {bracketStyle(lidChildDepth)}" data-testid="virtual-lid-{srow.key}">
               <span class="kv-key virtual-key" title={tip(srow.key)}>{label(srow.key)}</span>
               <span class="kv-control">
                 {#if rkt === "bool"}
@@ -1774,7 +1864,9 @@
               </span>
               <button class="comment-btn" title="Add comment" onclick={() => materializeVirtualLidKvWithComment(i, srow.key, srow.def, lidChildDepth)}>//</button>
               <span class="spacer"></span>
+              <button class="fav-btn" class:active={isFavorite(srow.key)} title={isFavorite(srow.key) ? "Remove from favorites" : "Add to favorites"} onclick={() => toggleFavorite(srow.key)}>{isFavorite(srow.key) ? "★" : "☆"}</button>
             </div>
+            {/if}
           {/each}
           <div class="line-row add-row virtual" style="{padDepth(lidChildDepth)}; {bracketStyle(lidChildDepth)}">
             <button class="add-btn" title="Add LABEL block inside lid" onclick={() => { addLid(i, lidDepth); addLabel(i + 2, lidChildDepth); }}>+ Label</button>
@@ -1782,6 +1874,7 @@
           <div class="line-row struct close virtual" style="{padDepth(lidDepth)}; {bracketStyle(lidDepth)}">
             <span class="struct-bracket">],</span>
           </div>
+          {/if}
         {/if}
         <!-- Add buttons on their own line, indented inside the block -->
         {#if line.role === "data" || (line.role === "params" && $project.libraryProfile !== "ctd") || (line.role === "object" && $project.libraryProfile !== "ctd") || ((line.role === "lid" || line.role === "lid_params") && $project.libraryProfile !== "ctd")}
@@ -1809,7 +1902,7 @@
         {/if}
         <!-- Close bracket(s) — split merged ]] into separate lines -->
         {#if line.mergedClose}
-          {@const hasVirtualLid = !hideDefaults && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i)}
+          {@const hasVirtualLid = defaultsMode !== "none" && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (defaultsMode === "all" || getScalarKeysForContext("lid").some(s => isFavorite(s.key)))}
           {#if !hasVirtualLid}
             <div class="line-row struct close" style="{padDepth((line.depth ?? 0) + 1)}; {bracketStyle((line.depth ?? 0) + 1)}" data-testid="line-{i}-inner">
               <span class="struct-bracket">],</span>
@@ -1925,6 +2018,7 @@
           {@render commentBtn(line, i)}
           <span class="spacer"></span>
           <button class="toggle-btn" class:active={rawValueEditing.has(i)} title="Edit value as raw text" onclick={() => toggleRawValueEdit(i)}>{"{}"}</button>
+          <button class="fav-btn" class:active={isFavorite(line.kvKey)} title={isFavorite(line.kvKey) ? "Remove from favorites" : "Add to favorites"} onclick={() => toggleFavorite(line.kvKey)}>{isFavorite(line.kvKey) ? "★" : "☆"}</button>
         </div>
 
       {:else if line.kind === "makeall"}
@@ -2009,7 +2103,8 @@
       {kvRenderedInBlock}
       {globalRenderedInBlock}
       {collapsed}
-      {hideDefaults}
+      {defaultsMode}
+      {isFavorite}
       bind:scadWidth
       {getGlobalRows}
       {getSortedSchemaRowsForOpen}
@@ -2076,6 +2171,9 @@
   .toolbar-btn:active { background: #c4ced8; }
   .toolbar-check { display: flex; align-items: center; gap: 3px; cursor: pointer; color: #2c3e50; font-size: 12px; }
   .toolbar-check input { margin: 0; }
+  .toolbar-radio { display: flex; align-items: center; gap: 3px; cursor: pointer; color: #2c3e50; font-size: 12px; }
+  .toolbar-radio input { margin: 0; }
+  .toolbar-label { font-size: 12px; font-weight: 600; color: #546e7a; }
   .toolbar-sep { width: 1px; height: 18px; background: #b4c0cb; margin: 0 6px; }
   .content { flex: 1; overflow-y: auto; padding: 4px 0; display: flex; flex-direction: column; min-height: 0; }
 
@@ -2392,6 +2490,12 @@
   .line-row:hover .delete-btn, .line-row:hover .dup-btn { opacity: 1; }
   .delete-btn:hover { color: #e74c3c; }
   .dup-btn:hover { color: #546e7a; }
+  .fav-btn { background: none; border: none; cursor: pointer; font-size: 14px; padding: 0 2px; color: #ccc; opacity: 0; transition: opacity 0.1s; flex-shrink: 0; }
+  .line-row:hover .fav-btn { opacity: 1; }
+  .fav-btn.active { color: #f0c040; opacity: 1; }
+  .fav-btn:hover { color: #e6a800; }
+  .line-row.fading-out { animation: fadeOut 0.3s ease forwards; }
+  @keyframes fadeOut { from { opacity: 1; max-height: 30px; } to { opacity: 0; max-height: 0; overflow: hidden; } }
   .scene-name-input {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 700;
     color: #2c3e50; background: transparent; border: none;

@@ -158,12 +158,27 @@ function rebuildMenu() {
       label: "View",
       submenu: [
         {
-          id: "hide-defaults",
-          label: "Hide Defaults",
-          type: "checkbox",
+          id: "defaults-all",
+          label: "Show Defaults: All",
+          type: "radio",
           checked: false,
-          click: (menuItem) => mainWindow.webContents.send("menu-toggle-hide-defaults", menuItem.checked),
+          click: () => mainWindow.webContents.send("menu-defaults-mode", "all"),
         },
+        {
+          id: "defaults-favorites",
+          label: "Show Defaults: Favorites",
+          type: "radio",
+          checked: true,
+          click: () => mainWindow.webContents.send("menu-defaults-mode", "favorites"),
+        },
+        {
+          id: "defaults-none",
+          label: "Show Defaults: None",
+          type: "radio",
+          checked: false,
+          click: () => mainWindow.webContents.send("menu-defaults-mode", "none"),
+        },
+        { type: "separator" },
         {
           id: "show-scad",
           label: "Show SCAD",
