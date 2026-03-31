@@ -138,10 +138,10 @@ The generator (`src/lib/scad.ts`) produces `.scad` text from project state:
 
 ## Backlog
 
-- [x] Reorder list items (components)
-- [x] Duplicate element/component
-- [x] Cross-platform release builds (electron-builder)
-- [x] Keyboard shortcuts (Ctrl+N, Ctrl+O, Ctrl+Shift+S, Ctrl+Z/Y/U/E — Ctrl+S N/A due to autosave)
+- [ ] Reorder list items (components)
+- [ ] Duplicate element/component
+- [ ] Cross-platform release builds (electron-builder)
+- [ ] Keyboard shortcuts (Ctrl+O, Ctrl+S, Ctrl+Shift+S)
 - [x] Undo/redo
 - [ ] Dark/light theme
-- [x] Recent files list
+- [ ] Recent files list
