@@ -25,7 +25,7 @@
         "BOX_NO_LID_B":      { "type": "bool", "default": false, "help": "If true, no lid is generated", "contexts": ["BOX"] },
         "BOX_STACKABLE_B":   { "type": "bool", "default": false, "help": "If true, box has stacking features (forces inset lid)", "contexts": ["BOX"] },
         "BOX_WALL_THICKNESS":{ "type": "number", "default": 1.5, "step": 0.1, "help": "Wall thickness in mm (overrides global)", "contexts": ["BOX", "SPACER"] },
-        "CHAMFER_N":         { "type": "number", "default": 0.4, "step": 0.1, "help": "Exterior edge chamfer size in mm", "contexts": ["BOX", "SPACER"] },
+        "CHAMFER_N":         { "type": "number", "default": 0.4, "step": 0.1, "help": "Edge chamfer size in mm — applied to both interior and exterior edges", "contexts": ["BOX", "SPACER"] },
         "ENABLED_B":         { "type": "bool", "default": true, "help": "If false, element is skipped" },
         "DEBUG_B":           { "type": "bool", "default": false, "help": "If true, geometry is rendered with # debug modifier (transparent red)" },
         "LABEL":             { "type": "table", "child_context": "label", "help": "Box-level label", "contexts": ["BOX"] }
