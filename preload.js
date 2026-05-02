@@ -1,24 +1,14 @@
 const { contextBridge, ipcRenderer } = require("electron");
-const profiles = require("./lib/profiles.json");
-
-// Static lib versions parsed from each profile's include filename
-// (e.g. "boardgame_insert_toolkit_lib.4.scad" → 4). Computed once at preload
-// time so the renderer can render all profiles up-front without an IPC round
-// trip. Profile id is the key (e.g. "bit" → 4, "ctd" → 1).
-const libVersions = (() => {
-  const out = {};
-  for (const [id, p] of Object.entries(profiles)) {
-    const m = (p.include || "").match(/_lib\.(\d+)\.scad/);
-    out[id] = { name: p.name, major: m ? parseInt(m[1], 10) : null };
-  }
-  return out;
-})();
 
 contextBridge.exposeInMainWorld("bgsd", {
   getPendingLoad: () => ipcRenderer.invoke("get-pending-load"),
   platform: process.platform,
   harness: !!process.env.BGSD_HARNESS,
-  libVersions,
+  // libVersions used to be computed at preload load time via
+  // require("./lib/profiles.json"), but in packaged builds the preload
+  // runs sandboxed (contextIsolation: true) and arbitrary file requires
+  // throw — taking the whole bridge down with them. Use IPC instead.
+  getLibVersions: () => ipcRenderer.invoke("get-lib-versions"),
 
   setTitle: (title) => ipcRenderer.send("set-title", title),
   openFile: () => ipcRenderer.invoke("open-file"),

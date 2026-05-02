@@ -697,6 +697,19 @@ ipcMain.handle("get-working-dir-status", () => {
   return { set: !!prefs.workingDir, path: prefs.workingDir || "" };
 });
 
+// Static lib versions parsed from each profile's include filename
+// (e.g. "boardgame_insert_toolkit_lib.4.scad" → major 4). Used by the
+// status bar to render BIT/CTD chips up-front before the update probe
+// resolves the explicit minor.patch from the on-disk file.
+ipcMain.handle("get-lib-versions", () => {
+  const out = {};
+  for (const [id, p] of Object.entries(profiles)) {
+    const m = (p.include || "").match(/_lib\.(\d+)\.scad/);
+    out[id] = { name: p.name, major: m ? parseInt(m[1], 10) : null };
+  }
+  return out;
+});
+
 // Compare strings like "0.5.13" / "v0.5.13" / "0.5.13-rc1". Returns true when
 // `latest` is strictly newer than `current` (semver-ish, dotted numeric segments).
 function isNewerVersion(current, latest) {

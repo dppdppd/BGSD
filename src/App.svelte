@@ -41,14 +41,14 @@
   declare const __APP_VERSION__: string;
   const bgsdVersion = __APP_VERSION__;
 
-  // Static lib versions from preload (parsed from profiles.json's include
-  // filename for each profile). Always shown in the status bar regardless of
-  // which (or whether any) project is loaded.
-  const libVersions = ((window as any).bgsd?.libVersions ?? {}) as Record<string, { name: string; major: number | null }>;
-  const libDisplay: { id: string; label: string; major: number | null }[] = [
+  // Static lib versions fetched via IPC on mount (preload can't require()
+  // arbitrary files in sandboxed mode). Always shown in the status bar
+  // regardless of which (or whether any) project is loaded.
+  let libVersions = $state<Record<string, { name: string; major: number | null }>>({});
+  let libDisplay = $derived([
     { id: "bit", label: "BIT", major: libVersions.bit?.major ?? null },
     { id: "ctd", label: "CTD", major: libVersions.ctd?.major ?? null },
-  ];
+  ]);
 
   // Filled by the on-mount checkUpdates probe; null while pending or on
   // network failure (kept silent — no error UI).
@@ -267,6 +267,9 @@
       workingDirSet = true;
       loadLibraryTree();
     }
+
+    // Static lib versions (always-shown chips). Silent on failure.
+    bgsd?.getLibVersions?.().then((v: any) => { if (v) libVersions = v; }).catch(() => {});
 
     // Background check for newer BGSD or lib versions. Silent on failure.
     bgsd?.checkUpdates?.().then((info: any) => { if (info) updateInfo = info; }).catch(() => {});
