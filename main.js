@@ -831,15 +831,50 @@ ipcMain.handle("self-update", async () => {
         return { ok: false, error: "Auto-update only works when launched from an AppImage; download manually from the release page." };
       }
       const tmpPath = appImagePath + ".updating";
+      const bakPath = appImagePath + ".bak";
+      // Clean any stale tmp from a previous aborted attempt
+      try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
       console.log(`[self-update] downloading ${asset.name} → ${tmpPath}`);
       await downloadReleaseAsset(asset.browser_download_url, tmpPath, sendProgress);
+
+      // Sanity check the download — AppImages start with the ELF magic
+      // (0x7F 'E' 'L' 'F'); a truncated/corrupt download won't.
+      const stat = fs.statSync(tmpPath);
+      if (stat.size < 1_000_000) {
+        fs.unlinkSync(tmpPath);
+        return { ok: false, error: `Downloaded file is too small (${stat.size} bytes) — likely a partial download` };
+      }
+      const fd = fs.openSync(tmpPath, "r");
+      const head = Buffer.alloc(4);
+      try { fs.readSync(fd, head, 0, 4, 0); } finally { fs.closeSync(fd); }
+      if (!(head[0] === 0x7F && head[1] === 0x45 && head[2] === 0x4C && head[3] === 0x46)) {
+        fs.unlinkSync(tmpPath);
+        return { ok: false, error: "Downloaded file isn't a valid AppImage (ELF header missing)" };
+      }
       fs.chmodSync(tmpPath, 0o755);
-      // AppImage replace: rename atomically; the running process keeps the old inode.
-      fs.renameSync(tmpPath, appImagePath);
-      console.log(`[self-update] replaced ${appImagePath}; relaunching`);
+
+      // Backup the current AppImage before swap so the user can manually
+      // restore if the new build is broken: `mv BGSD-X.AppImage.bak BGSD-X.AppImage`.
+      try { if (fs.existsSync(bakPath)) fs.unlinkSync(bakPath); } catch (_) { /* ignore */ }
+      try {
+        fs.renameSync(appImagePath, bakPath);
+      } catch (err) {
+        // Backup failed — abort to avoid leaving the user with no working binary.
+        try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
+        return { ok: false, error: `Could not back up current AppImage: ${err.message}` };
+      }
+      try {
+        // AppImage swap: the live process keeps its old inode via the .bak handle.
+        fs.renameSync(tmpPath, appImagePath);
+      } catch (err) {
+        // Restore backup if the new file rename fails.
+        try { fs.renameSync(bakPath, appImagePath); } catch (_) { /* ignore */ }
+        return { ok: false, error: `Could not install new AppImage: ${err.message}` };
+      }
+      console.log(`[self-update] replaced ${appImagePath} (backup at ${bakPath}); relaunching`);
       // Defer relaunch so the IPC reply lands first
       setTimeout(() => { app.relaunch(); app.exit(0); }, 200);
-      return { ok: true, restarting: true, version: release.tag_name };
+      return { ok: true, restarting: true, version: release.tag_name, backup: bakPath };
     }
 
     // macOS / Windows: stage the asset and pop the file manager. The running
