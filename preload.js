@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld("bgsd", {
   initWorkingDir: (dirPath) => ipcRenderer.invoke("init-working-dir", dirPath),
   updateLibraries: () => ipcRenderer.invoke("update-libraries"),
   getWorkingDirStatus: () => ipcRenderer.invoke("get-working-dir-status"),
+  checkUpdates: () => ipcRenderer.invoke("check-updates"),
 
   // Presets
   getPresets: (publisherFile) => ipcRenderer.invoke("get-presets", publisherFile),

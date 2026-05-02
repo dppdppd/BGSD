@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require("electron")
 const path = require("path");
 const fs = require("fs");
 const { importScad } = require("./importer");
-const { ensureLibrary, initWorkingDir, updateLibraries, isInsideWorkingDir, isRepoFile, loadManifest, profiles, setProxy, getProxy } = require("./lib/library-manager");
+const { ensureLibrary, initWorkingDir, updateLibraries, checkLibraryUpdates, fetchLatestReleaseTag, isInsideWorkingDir, isRepoFile, loadManifest, profiles, setProxy, getProxy } = require("./lib/library-manager");
 const { parseConstantsFile } = require("./lib/constants-parser");
 
 // Prevent GPU-related crashes on Windows (packaged exe doesn't get --disable-gpu)
@@ -695,6 +695,51 @@ ipcMain.handle("update-libraries", async () => {
 ipcMain.handle("get-working-dir-status", () => {
   const prefs = loadPrefs();
   return { set: !!prefs.workingDir, path: prefs.workingDir || "" };
+});
+
+// Compare strings like "0.5.13" / "v0.5.13" / "0.5.13-rc1". Returns true when
+// `latest` is strictly newer than `current` (semver-ish, dotted numeric segments).
+function isNewerVersion(current, latest) {
+  if (!current || !latest) return false;
+  const norm = (s) => String(s).replace(/^v/i, "").split("-")[0].split(".").map((p) => parseInt(p, 10) || 0);
+  const a = norm(current);
+  const b = norm(latest);
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const av = a[i] || 0;
+    const bv = b[i] || 0;
+    if (bv > av) return true;
+    if (bv < av) return false;
+  }
+  return false;
+}
+
+// Repo for self-update check. Could move to package.json `repository` field
+// in the future; for now the URL is stable.
+const BGSD_REPO = "dppdppd/BGSD";
+
+ipcMain.handle("check-updates", async () => {
+  const current = app.getVersion();
+  const result = {
+    bgsd: { current, latest: null, hasUpdate: false, releaseUrl: `https://github.com/${BGSD_REPO}/releases/latest` },
+    libs: {},
+  };
+  // App version
+  try {
+    const tag = await fetchLatestReleaseTag(BGSD_REPO);
+    if (tag) {
+      result.bgsd.latest = tag.replace(/^v/i, "");
+      result.bgsd.hasUpdate = isNewerVersion(current, tag);
+    }
+  } catch (_err) { /* silent */ }
+  // Lib files
+  try {
+    const prefs = loadPrefs();
+    if (prefs.workingDir) {
+      result.libs = await checkLibraryUpdates(prefs.workingDir);
+    }
+  } catch (_err) { /* silent */ }
+  return result;
 });
 
 ipcMain.handle("check-repo-file", (_event, filePath) => {

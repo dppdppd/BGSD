@@ -40,6 +40,31 @@
   // Injected at build time by Vite (see vite.config.mjs)
   declare const __APP_VERSION__: string;
   const bgsdVersion = __APP_VERSION__;
+
+  // Filled by the on-mount checkUpdates probe; null while pending or on
+  // network failure (kept silent — no error UI).
+  let updateInfo = $state<{
+    bgsd: { current: string; latest: string | null; hasUpdate: boolean; releaseUrl: string };
+    libs: Record<string, { name: string; hasUpdate: boolean }>;
+  } | null>(null);
+  let bgsdUpdateAvailable = $derived(!!updateInfo?.bgsd?.hasUpdate);
+  let activeLibUpdateAvailable = $derived.by(() => {
+    if (!updateInfo) return false;
+    const profile = $project.libraryProfile;
+    if (profile && updateInfo.libs[profile]) return updateInfo.libs[profile].hasUpdate;
+    // No project loaded yet — surface if any profile has an update
+    return Object.values(updateInfo.libs).some((l) => l.hasUpdate);
+  });
+
+  function openReleasePage() {
+    const url = updateInfo?.bgsd?.releaseUrl;
+    if (url) (window as any).bgsd?.openExternal?.(url);
+  }
+  function goUpdateLibs() {
+    showWelcome = true;
+    loadLibraryTree();
+    // Caller will use the existing Update Libraries button on the welcome screen.
+  }
   // Lib version label: "BIT 4", "CTD 1", or "" when no project is loaded
   let libVersionLabel = $derived.by(() => {
     const inc = ($project.libraryInclude || "").toLowerCase();
@@ -221,6 +246,9 @@
       workingDirSet = true;
       loadLibraryTree();
     }
+
+    // Background check for newer BGSD or lib versions. Silent on failure.
+    bgsd?.checkUpdates?.().then((info: any) => { if (info) updateInfo = info; }).catch(() => {});
 
     // Listen for working dir progress messages
     bgsd?.onWorkingDirProgress?.((msg: string) => {
@@ -2160,9 +2188,15 @@
     <span data-testid="save-status">{statusMsg}</span>
     <span class="status-versions" data-testid="status-versions">
       <span class="status-version-app">BGSD {bgsdVersion}</span>
+      {#if bgsdUpdateAvailable}
+        <button class="status-update-chip" data-testid="status-update-bgsd" title="New BGSD version {updateInfo!.bgsd.latest} — click to open release page" onclick={openReleasePage}>↑ {updateInfo!.bgsd.latest}</button>
+      {/if}
       {#if libVersionLabel}
         <span class="status-version-sep">·</span>
         <span class="status-version-lib" data-testid="status-version-lib">{libVersionLabel}</span>
+        {#if activeLibUpdateAvailable}
+          <button class="status-update-chip" data-testid="status-update-lib" title="Lib has updates — click to go to Update Libraries" onclick={goUpdateLibs}>↑ update</button>
+        {/if}
       {/if}
     </span>
   </footer>
@@ -2634,6 +2668,12 @@
   .status-versions { display: inline-flex; align-items: center; gap: 6px; font-family: "Courier New", monospace; font-size: 12px; color: #6b7d8e; }
   .status-bar.status-error .status-versions { color: #c0392b; }
   .status-version-sep { color: #b4c0cb; }
+  .status-update-chip {
+    font-family: inherit; font-size: 11px; line-height: 1; cursor: pointer;
+    padding: 2px 6px; border-radius: 9px;
+    background: #fff5d8; color: #8a6d2c; border: 1px solid #e6cf90;
+  }
+  .status-update-chip:hover { background: #ffe9b3; border-color: #d4b265; color: #6e521d; }
   .intent-pane { background: #1a1a2e; padding: 6px 12px; border-top: 2px solid #e74c3c; }
   .intent-pane input { width: 100%; box-sizing: border-box; background: #16213e; border: 1px solid #444; color: #e0e0e0; padding: 4px 8px; font-family: "Courier New", monospace; font-size: 13px; border-radius: 2px; }
 
