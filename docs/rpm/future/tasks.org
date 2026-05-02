@@ -4,6 +4,8 @@
 * 0.5.x polish
 ** TODO Dark/light theme toggle
 ** TODO Clean up unused .toggle-btn.disabled CSS selector
+** TODO In-place self-update on macOS / Windows (currently staged to ~/Downloads)
+   Linux AppImage gets a full automatic in-place swap; macOS .app and Windows .exe both refuse to be replaced while running. Options: (a) bundle electron-updater + signing certs; (b) write a small bootstrapper script that the staged binary launches on next start to swap and relaunch.
 ** TODO Pre-flight check in build-release.sh for wine + 7z + i386 arch on Linux hosts
    The script silently aborted Windows + macOS builds when wine wasn't installed (set -e short-circuit). A leading dependency probe with a clear error would save a 5-minute false start.
 ** TODO Sign Windows .exe + macOS .zip release artifacts
