@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, net } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { importScad } = require("./importer");
@@ -762,6 +762,99 @@ ipcMain.handle("check-updates", async () => {
     .join(" ");
   console.log(`[check-updates] bgsd ${current}→${result.bgsd.latest || "?"} (${result.bgsd.hasUpdate ? "update" : "current"}) | libs ${libSummary || "(no workdir)"}`);
   return result;
+});
+
+// --- Self-update -----------------------------------------------------------
+//
+// Bootstrap pattern: download the platform's release asset and either replace
+// the running binary in place (Linux AppImage allows this; the inode is
+// preserved for the live process) or stage it for the user to finish (macOS
+// .app and Windows .exe both refuse to be replaced while running, so we drop
+// the new binary in ~/Downloads and pop the file manager).
+//
+// No code-signing, no electron-updater feed — just the release asset URL from
+// the GitHub API. Once a user has v0.5.x installed, every subsequent update
+// rides this path.
+
+function pickReleaseAsset(assets, platform) {
+  for (const a of assets) {
+    if (platform === "linux" && a.name.endsWith(".AppImage")) return a;
+    if (platform === "darwin" && a.name.endsWith("-mac.zip")) return a;
+    if (platform === "win32" && a.name.toLowerCase().endsWith(".exe")) return a;
+  }
+  return null;
+}
+
+async function downloadReleaseAsset(url, destPath, onProgress) {
+  // GitHub release URLs redirect to S3; net.fetch follows redirects by default.
+  const resp = await net.fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const total = parseInt(resp.headers.get("content-length") || "0", 10);
+  const reader = resp.body.getReader();
+  const ws = fs.createWriteStream(destPath);
+  let bytesRead = 0;
+  let lastTick = 0;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    ws.write(Buffer.from(value));
+    bytesRead += value.length;
+    // Throttle progress to ~5/s
+    const now = Date.now();
+    if (onProgress && now - lastTick > 200) {
+      onProgress(bytesRead, total);
+      lastTick = now;
+    }
+  }
+  await new Promise((res, rej) => { ws.end(); ws.on("close", res); ws.on("error", rej); });
+  if (onProgress) onProgress(bytesRead, total);
+}
+
+ipcMain.handle("self-update", async () => {
+  try {
+    const text = await (async () => {
+      const r = await net.fetch(`https://api.github.com/repos/${BGSD_REPO}/releases/latest`);
+      if (!r.ok) throw new Error(`HTTP ${r.status} fetching release info`);
+      return r.text();
+    })();
+    const release = JSON.parse(text);
+    const asset = pickReleaseAsset(release.assets || [], process.platform);
+    if (!asset) return { ok: false, error: `No release asset for ${process.platform}` };
+
+    const sendProgress = (received, total) => {
+      if (mainWindow) mainWindow.webContents.send("self-update-progress", { received, total, name: asset.name });
+    };
+
+    if (process.platform === "linux") {
+      const appImagePath = process.env.APPIMAGE;
+      if (!appImagePath) {
+        return { ok: false, error: "Auto-update only works when launched from an AppImage; download manually from the release page." };
+      }
+      const tmpPath = appImagePath + ".updating";
+      console.log(`[self-update] downloading ${asset.name} → ${tmpPath}`);
+      await downloadReleaseAsset(asset.browser_download_url, tmpPath, sendProgress);
+      fs.chmodSync(tmpPath, 0o755);
+      // AppImage replace: rename atomically; the running process keeps the old inode.
+      fs.renameSync(tmpPath, appImagePath);
+      console.log(`[self-update] replaced ${appImagePath}; relaunching`);
+      // Defer relaunch so the IPC reply lands first
+      setTimeout(() => { app.relaunch(); app.exit(0); }, 200);
+      return { ok: true, restarting: true, version: release.tag_name };
+    }
+
+    // macOS / Windows: stage the asset and pop the file manager. The running
+    // bundle/exe can't be replaced safely while live; user finishes the install.
+    const downloadsDir = app.getPath("downloads");
+    fs.mkdirSync(downloadsDir, { recursive: true });
+    const destPath = path.join(downloadsDir, asset.name);
+    console.log(`[self-update] staging ${asset.name} → ${destPath}`);
+    await downloadReleaseAsset(asset.browser_download_url, destPath, sendProgress);
+    shell.showItemInFolder(destPath);
+    return { ok: true, staged: true, path: destPath, version: release.tag_name };
+  } catch (err) {
+    console.warn("[self-update] failed:", err.message);
+    return { ok: false, error: err.message };
+  }
 });
 
 ipcMain.handle("check-repo-file", (_event, filePath) => {

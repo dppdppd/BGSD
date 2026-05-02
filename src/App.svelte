@@ -93,7 +93,30 @@
     const url = updateInfo?.bgsd?.releaseUrl;
     if (url) (window as any).bgsd?.openExternal?.(url);
   }
-  // (kept around for legacy callers, but the chip now triggers updateLibs directly)
+
+  let selfUpdating = $state(false);
+  async function runSelfUpdate() {
+    const bgsd = (window as any).bgsd;
+    if (!bgsd?.selfUpdate) { openReleasePage(); return; }
+    if (selfUpdating) return;
+    selfUpdating = true;
+    statusMsg = "Downloading BGSD update...";
+    try {
+      const res = await bgsd.selfUpdate();
+      if (!res?.ok) {
+        statusMsg = `Update failed: ${res?.error || "unknown"} — opening release page`;
+        setTimeout(() => openReleasePage(), 800);
+      } else if (res.restarting) {
+        statusMsg = `Updated to ${res.version} — restarting...`;
+      } else if (res.staged) {
+        statusMsg = `Downloaded ${res.version} — finish install in the file manager`;
+      }
+    } catch (err: any) {
+      statusMsg = `Update failed: ${err?.message || "unknown"} — opening release page`;
+      setTimeout(() => openReleasePage(), 800);
+    }
+    selfUpdating = false;
+  }
   let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
   let favoriteKeys = $state<Set<string>>(new Set());
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
@@ -270,6 +293,15 @@
 
     // Background check for newer BGSD or lib versions. Silent on failure.
     bgsd?.checkUpdates?.().then((info: any) => { if (info) updateInfo = info; }).catch(() => {});
+
+    // Self-update download progress (status bar)
+    bgsd?.onSelfUpdateProgress?.((data: { received: number; total: number; name: string }) => {
+      const pct = data.total > 0 ? Math.floor((data.received / data.total) * 100) : 0;
+      const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
+      statusMsg = data.total > 0
+        ? `Downloading ${data.name}: ${pct}% (${mb(data.received)} / ${mb(data.total)} MB)`
+        : `Downloading ${data.name}: ${mb(data.received)} MB`;
+    });
 
     // Listen for working dir progress messages
     bgsd?.onWorkingDirProgress?.((msg: string) => {
@@ -2243,7 +2275,7 @@
     <span class="status-versions" data-testid="status-versions">
       <span class="status-version-app" title={bgsdVersionTooltip()}>BGSD {bgsdVersion}</span>
       {#if bgsdUpdateAvailable}
-        <button class="status-update-chip" data-testid="status-update-bgsd" title="New BGSD version {updateInfo!.bgsd.latest} — click to open release page" onclick={openReleasePage}>↑ {updateInfo!.bgsd.latest}</button>
+        <button class="status-update-chip" data-testid="status-update-bgsd" title="New BGSD version {updateInfo!.bgsd.latest} — click to download and install" disabled={selfUpdating} onclick={runSelfUpdate}>↑ {updateInfo!.bgsd.latest}</button>
       {/if}
       {#each libDisplay as lib (lib.id)}
         {#if lib.major !== null}
