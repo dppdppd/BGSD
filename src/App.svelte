@@ -409,6 +409,18 @@
     }
   }
 
+  async function copyScadPath() {
+    const fp = getFilePath();
+    if (!fp) { statusMsg = "No file open"; return; }
+    try {
+      await navigator.clipboard.writeText(fp);
+      statusMsg = "Path copied to clipboard";
+      setTimeout(() => { if (statusMsg === "Path copied to clipboard") statusMsg = fp.replace(/.*[/\\]/, ""); }, 2000);
+    } catch (err: any) {
+      statusMsg = `Copy failed: ${err?.message || "unknown"}`;
+    }
+  }
+
   async function openInOpenScad() {
     const bgsd = (window as any).bgsd;
     if (!bgsd?.openInOpenScad) return;
@@ -1667,6 +1679,7 @@
     </div>
     <div class="toolbar-sep"></div>
     <div class="toolbar-group">
+      <button class="toolbar-btn" title="Copy SCAD file path to clipboard" data-testid="toolbar-copy-path" disabled={!getFilePath()} onclick={copyScadPath}>Copy path</button>
       <button class="toolbar-btn" title="Open in OpenSCAD (Ctrl+E)" onclick={() => openInOpenScad()}>OpenSCAD</button>
       <button class="toolbar-btn toolbar-gear" title="Preferences... (Ctrl+,)" onclick={() => openPreferencesModal()}>&#x2699;</button>
     </div>
