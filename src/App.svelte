@@ -37,6 +37,20 @@
   let intentText = $state("");
   let showIntent = $state(false);
   let statusMsg = $state("No file open");
+  // Injected at build time by Vite (see vite.config.mjs)
+  declare const __APP_VERSION__: string;
+  const bgsdVersion = __APP_VERSION__;
+  // Lib version label: "BIT 4", "CTD 1", or "" when no project is loaded
+  let libVersionLabel = $derived.by(() => {
+    const inc = ($project.libraryInclude || "").toLowerCase();
+    let m = inc.match(/boardgame_insert_toolkit_lib\.(\d+)\.scad/);
+    if (m) return `BIT ${m[1]}`;
+    m = inc.match(/counter_tray_designer_lib\.(\d+)\.scad/);
+    if (m) return `CTD ${m[1]}`;
+    if ($project.libraryProfile === "bit") return "BIT";
+    if ($project.libraryProfile === "ctd") return "CTD";
+    return "";
+  });
   let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
   let favoriteKeys = $state<Set<string>>(new Set());
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
@@ -2144,6 +2158,13 @@
 
   <footer class="status-bar" class:status-error={statusMsg.startsWith("Library:") || statusMsg.startsWith("OpenSCAD")} data-testid="status-bar">
     <span data-testid="save-status">{statusMsg}</span>
+    <span class="status-versions" data-testid="status-versions">
+      <span class="status-version-app">BGSD {bgsdVersion}</span>
+      {#if libVersionLabel}
+        <span class="status-version-sep">·</span>
+        <span class="status-version-lib" data-testid="status-version-lib">{libVersionLabel}</span>
+      {/if}
+    </span>
   </footer>
 
   <PreferencesModal
@@ -2608,8 +2629,11 @@
   .raw-block { position: relative; }
   .raw-block:hover .raw-parse-btn { opacity: 1; }
 
-  .status-bar { display: flex; justify-content: space-between; padding: 3px 12px; background: #e4eaf0; border-top: 1px solid #c4ced8; font-size: 13px; color: #546e7a; }
+  .status-bar { display: flex; justify-content: space-between; align-items: center; padding: 3px 12px; background: #e4eaf0; border-top: 1px solid #c4ced8; font-size: 13px; color: #546e7a; }
   .status-bar.status-error { background: #fdecea; color: #c0392b; font-weight: 700; }
+  .status-versions { display: inline-flex; align-items: center; gap: 6px; font-family: "Courier New", monospace; font-size: 12px; color: #6b7d8e; }
+  .status-bar.status-error .status-versions { color: #c0392b; }
+  .status-version-sep { color: #b4c0cb; }
   .intent-pane { background: #1a1a2e; padding: 6px 12px; border-top: 2px solid #e74c3c; }
   .intent-pane input { width: 100%; box-sizing: border-box; background: #16213e; border: 1px solid #444; color: #e0e0e0; padding: 4px 8px; font-family: "Courier New", monospace; font-size: 13px; border-radius: 2px; }
 

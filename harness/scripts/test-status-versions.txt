@@ -1,0 +1,8 @@
+wait app-root
+new bit
+js (() => { const sb = document.querySelector('[data-testid="status-bar"]'); return sb ? sb.innerText : 'no status bar'; })()
+shot 01_status_bar_bit
+new ctd
+js (async () => { await new Promise(r => setTimeout(r, 400)); })()
+js (() => { const sb = document.querySelector('[data-testid="status-bar"]'); return sb ? sb.innerText : 'no status bar'; })()
+shot 02_status_bar_ctd
