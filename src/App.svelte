@@ -41,20 +41,52 @@
   declare const __APP_VERSION__: string;
   const bgsdVersion = __APP_VERSION__;
 
+  // Static lib versions from preload (parsed from profiles.json's include
+  // filename for each profile). Always shown in the status bar regardless of
+  // which (or whether any) project is loaded.
+  const libVersions = ((window as any).bgsd?.libVersions ?? {}) as Record<string, { name: string; major: number | null }>;
+  const libDisplay: { id: string; label: string; major: number | null }[] = [
+    { id: "bit", label: "BIT", major: libVersions.bit?.major ?? null },
+    { id: "ctd", label: "CTD", major: libVersions.ctd?.major ?? null },
+  ];
+
   // Filled by the on-mount checkUpdates probe; null while pending or on
   // network failure (kept silent — no error UI).
   let updateInfo = $state<{
     bgsd: { current: string; latest: string | null; hasUpdate: boolean; releaseUrl: string };
-    libs: Record<string, { name: string; hasUpdate: boolean }>;
+    libs: Record<string, { name: string; hasUpdate: boolean; localVersion: string | null; remoteVersion: string | null }>;
   } | null>(null);
+  function libVersionString(profileId: string, fallbackMajor: number | null): string {
+    const probed = updateInfo?.libs?.[profileId]?.localVersion;
+    if (probed) return probed;
+    return fallbackMajor !== null ? String(fallbackMajor) : "";
+  }
   let bgsdUpdateAvailable = $derived(!!updateInfo?.bgsd?.hasUpdate);
-  let activeLibUpdateAvailable = $derived.by(() => {
-    if (!updateInfo) return false;
-    const profile = $project.libraryProfile;
-    if (profile && updateInfo.libs[profile]) return updateInfo.libs[profile].hasUpdate;
-    // No project loaded yet — surface if any profile has an update
-    return Object.values(updateInfo.libs).some((l) => l.hasUpdate);
-  });
+  function libUpdateAvailable(profileId: string): boolean {
+    return !!updateInfo?.libs?.[profileId]?.hasUpdate;
+  }
+  function bgsdVersionTooltip(): string {
+    if (!updateInfo) return "Checking for updates…";
+    const b = updateInfo.bgsd;
+    if (b.hasUpdate && b.latest) return `Newer BGSD available: v${b.latest}`;
+    if (b.latest) return `BGSD up to date (latest: v${b.latest})`;
+    return "BGSD update check failed (offline or repo unreachable)";
+  }
+  function libVersionTooltip(profileId: string, label: string): string {
+    if (!updateInfo) return "Checking for updates…";
+    const l = updateInfo.libs?.[profileId];
+    if (!l) return `${label} update check skipped (no working directory)`;
+    const errored = l.files?.some((f: any) => f.error);
+    if (errored && !l.hasUpdate) return `${label} update check failed (offline?)`;
+    if (l.hasUpdate) {
+      if (l.localVersion && l.remoteVersion && l.localVersion !== l.remoteVersion) {
+        return `${label} lib: ${l.localVersion} → ${l.remoteVersion} (click ↑ to update)`;
+      }
+      return `${label} lib has updates upstream — click ↑ to refresh`;
+    }
+    if (l.localVersion) return `${label} lib ${l.localVersion} — current with upstream`;
+    return `${label} lib current with upstream`;
+  }
 
   function openReleasePage() {
     const url = updateInfo?.bgsd?.releaseUrl;
@@ -65,17 +97,6 @@
     loadLibraryTree();
     // Caller will use the existing Update Libraries button on the welcome screen.
   }
-  // Lib version label: "BIT 4", "CTD 1", or "" when no project is loaded
-  let libVersionLabel = $derived.by(() => {
-    const inc = ($project.libraryInclude || "").toLowerCase();
-    let m = inc.match(/boardgame_insert_toolkit_lib\.(\d+)\.scad/);
-    if (m) return `BIT ${m[1]}`;
-    m = inc.match(/counter_tray_designer_lib\.(\d+)\.scad/);
-    if (m) return `CTD ${m[1]}`;
-    if ($project.libraryProfile === "bit") return "BIT";
-    if ($project.libraryProfile === "ctd") return "CTD";
-    return "";
-  });
   let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
   let favoriteKeys = $state<Set<string>>(new Set());
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
@@ -2187,17 +2208,20 @@
   <footer class="status-bar" class:status-error={statusMsg.startsWith("Library:") || statusMsg.startsWith("OpenSCAD")} data-testid="status-bar">
     <span data-testid="save-status">{statusMsg}</span>
     <span class="status-versions" data-testid="status-versions">
-      <span class="status-version-app">BGSD {bgsdVersion}</span>
+      <span class="status-version-app" title={bgsdVersionTooltip()}>BGSD {bgsdVersion}</span>
       {#if bgsdUpdateAvailable}
         <button class="status-update-chip" data-testid="status-update-bgsd" title="New BGSD version {updateInfo!.bgsd.latest} — click to open release page" onclick={openReleasePage}>↑ {updateInfo!.bgsd.latest}</button>
       {/if}
-      {#if libVersionLabel}
-        <span class="status-version-sep">·</span>
-        <span class="status-version-lib" data-testid="status-version-lib">{libVersionLabel}</span>
-        {#if activeLibUpdateAvailable}
-          <button class="status-update-chip" data-testid="status-update-lib" title="Lib has updates — click to go to Update Libraries" onclick={goUpdateLibs}>↑ update</button>
+      {#each libDisplay as lib (lib.id)}
+        {#if lib.major !== null}
+          {@const versionString = libVersionString(lib.id, lib.major)}
+          <span class="status-version-sep">·</span>
+          <span class="status-version-lib" class:status-version-active={$project.libraryProfile === lib.id} data-testid="status-version-{lib.id}" title={libVersionTooltip(lib.id, lib.label)}>{lib.label} {versionString}</span>
+          {#if libUpdateAvailable(lib.id)}
+            <button class="status-update-chip" data-testid="status-update-{lib.id}" title="{lib.label} lib has updates — click to go to Update Libraries" onclick={goUpdateLibs}>↑ update</button>
+          {/if}
         {/if}
-      {/if}
+      {/each}
     </span>
   </footer>
 
@@ -2668,6 +2692,7 @@
   .status-versions { display: inline-flex; align-items: center; gap: 6px; font-family: "Courier New", monospace; font-size: 12px; color: #6b7d8e; }
   .status-bar.status-error .status-versions { color: #c0392b; }
   .status-version-sep { color: #b4c0cb; }
+  .status-version-active { color: #2d5a7b; font-weight: 600; }
   .status-update-chip {
     font-family: inherit; font-size: 11px; line-height: 1; cursor: pointer;
     padding: 2px 6px; border-radius: 9px;

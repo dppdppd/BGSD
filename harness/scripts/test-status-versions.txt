@@ -1,8 +1,11 @@
 wait app-root
+shot 01_status_bar_no_project
+js (() => { const sb = document.querySelector('[data-testid="status-bar"]'); return sb ? sb.innerText : 'no status bar'; })()
 new bit
 js (() => { const sb = document.querySelector('[data-testid="status-bar"]'); return sb ? sb.innerText : 'no status bar'; })()
-shot 01_status_bar_bit
+js (() => { const a = document.querySelector('[data-testid="status-version-bit"]'); const b = document.querySelector('[data-testid="status-version-ctd"]'); return { bit: a?.textContent, ctd: b?.textContent, bitActive: a?.classList.contains('status-version-active'), ctdActive: b?.classList.contains('status-version-active') }; })()
+shot 02_status_bar_bit_active
 new ctd
 js (async () => { await new Promise(r => setTimeout(r, 400)); })()
-js (() => { const sb = document.querySelector('[data-testid="status-bar"]'); return sb ? sb.innerText : 'no status bar'; })()
-shot 02_status_bar_ctd
+js (() => { const a = document.querySelector('[data-testid="status-version-bit"]'); const b = document.querySelector('[data-testid="status-version-ctd"]'); return { bit: a?.textContent, ctd: b?.textContent, bitActive: a?.classList.contains('status-version-active'), ctdActive: b?.classList.contains('status-version-active') }; })()
+shot 03_status_bar_ctd_active

@@ -731,14 +731,23 @@ ipcMain.handle("check-updates", async () => {
       result.bgsd.latest = tag.replace(/^v/i, "");
       result.bgsd.hasUpdate = isNewerVersion(current, tag);
     }
-  } catch (_err) { /* silent */ }
+  } catch (err) {
+    console.warn("[check-updates] BGSD release probe failed:", err.message);
+  }
   // Lib files
   try {
     const prefs = loadPrefs();
     if (prefs.workingDir) {
       result.libs = await checkLibraryUpdates(prefs.workingDir);
     }
-  } catch (_err) { /* silent */ }
+  } catch (err) {
+    console.warn("[check-updates] lib probe failed:", err.message);
+  }
+  // One-line summary so users running from a terminal can grep the result
+  const libSummary = Object.entries(result.libs)
+    .map(([id, l]) => `${id}=${l.hasUpdate ? "update" : "current"}`)
+    .join(" ");
+  console.log(`[check-updates] bgsd ${current}→${result.bgsd.latest || "?"} (${result.bgsd.hasUpdate ? "update" : "current"}) | libs ${libSummary || "(no workdir)"}`);
   return result;
 });
 
