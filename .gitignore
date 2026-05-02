@@ -9,3 +9,6 @@ harness/out/
 *.bak
 tests/workspace/
 docs/rpm/~rpm-*
+images/@eaDir/
+images/Thumbs.db
+pm-role.md
