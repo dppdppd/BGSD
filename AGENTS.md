@@ -77,6 +77,10 @@ npm run format         # Run Prettier on src/
 
 Elements use `data-testid` attributes for harness targeting. See [HARNESS.md](docs/guidance/HARNESS.md) for full REPL commands, env vars, testid conventions, and test scripts.
 
+### Build cadence
+
+While iterating, only `npm run build` runs after each change. Do **not** invoke `./build-release.sh linux/mac/all` or `electron-builder --linux/--mac` to keep the `release/` set fresh — those rebuilds are slow and stack up stale binaries. The maintainer occasionally runs `./build-release.sh win` to spot-check Windows; commit the version bump it produces but don't chain linux/mac builds in response. Full cross-platform builds happen **only** at release time, when the maintainer says "release" / "ship".
+
 ## Verification Gate
 
 **CRITICAL: All gates must pass before committing any code change.**
