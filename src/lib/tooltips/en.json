@@ -8,6 +8,7 @@
   "BOX_NO_LID_B":      { "label": "No Lid",           "tooltip": "If checked, no lid is generated and no inset lip is formed" },
   "BOX_STACKABLE_B":   { "label": "Stackable",        "tooltip": "If checked, box base is cut to stack on identical boxes (requires 45 degree overhang capability)" },
   "BOX_WALL_THICKNESS":{ "label": "Wall Thickness",   "tooltip": "Wall thickness in mm (overrides the global g_wall_thickness)" },
+  "CHAMFER_N":         { "label": "Chamfer",          "tooltip": "Exterior edge chamfer size in mm (set on a component to override the box-level chamfer)" },
   "ENABLED_B":         { "label": "Enabled",          "tooltip": "Uncheck to skip this item without deleting it" },
   "DEBUG_B":          { "label": "Debug",            "tooltip": "Highlight this item's geometry in transparent red (OpenSCAD # modifier) for debugging" },
   "LABEL":             { "label": "Label",            "tooltip": "Label block — add text or images to surfaces" },
