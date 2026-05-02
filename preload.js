@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld("bgsd", {
   exportStl: (sourcePath) => ipcRenderer.invoke("export-stl", sourcePath),
   checkRepoFile: (filePath) => ipcRenderer.invoke("check-repo-file", filePath),
   deleteFile: (filePath) => ipcRenderer.invoke("delete-file", filePath),
+  renameFile: (filePath, newName) => ipcRenderer.invoke("rename-file", filePath, newName),
   getLibraryTree: () => ipcRenderer.invoke("get-library-tree"),
 
   // Working directory

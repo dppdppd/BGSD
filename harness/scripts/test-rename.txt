@@ -1,0 +1,9 @@
+wait app-root
+new bit
+js (() => { const btn = document.querySelector('button.toolbar-home'); if (btn) { btn.click(); return 'home'; } return 'no home btn'; })()
+js (async () => { await new Promise(r => setTimeout(r, 600)); })()
+shot 01_welcome_after_new
+js (() => { const btns = [...document.querySelectorAll('button.welcome-library-game.user-file')]; if (!btns.length) return 'no user files'; btns[0].click(); return 'opened menu for ' + btns[0].textContent; })()
+js (async () => { await new Promise(r => setTimeout(r, 200)); })()
+shot 02_context_menu
+js (() => [...document.querySelectorAll('.lib-context-item')].map(b => b.textContent + '#' + (b.getAttribute('data-testid') || '')))

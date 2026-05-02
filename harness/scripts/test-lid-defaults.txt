@@ -1,0 +1,13 @@
+wait app-root
+new bit
+ipc menu-defaults-mode "all"
+js (async () => { await new Promise(r => setTimeout(r, 400)); })()
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot 01_show_all_with_virtual_lid
+js (() => { const rows = [...document.querySelectorAll('[data-testid^="virtual-lid-"]')]; return rows.map(r => r.getAttribute('data-testid')); })()
+js (() => { const r = document.querySelector('[data-testid="virtual-lid-LID_HEIGHT"]'); if (!r) return 'no virtual LID_HEIGHT'; const inp = r.querySelector('input.kv-num'); if (!inp) return 'no num input'; inp.value = '7'; inp.dispatchEvent(new Event('change', { bubbles: true })); return 'set 7'; })()
+js (async () => { await new Promise(r => setTimeout(r, 500)); })()
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot 02_after_materialize_lid_height
+js (() => { const all = [...document.querySelectorAll('div.line-row.kv')]; return all.filter(r => { const k = r.querySelector('.kv-key'); return k && /^LID_/.test((k.textContent || '').trim()); }).map(r => { const k = r.querySelector('.kv-key').textContent.trim(); const virt = r.classList.contains('virtual'); return k + (virt ? '(virtual)' : '(real)'); }); })()
+scad

@@ -764,6 +764,41 @@ ipcMain.handle("delete-file", (_event, filePath) => {
   }
 });
 
+ipcMain.handle("rename-file", (_event, filePath, newName) => {
+  const prefs = loadPrefs();
+  if (!validateFilePath(filePath) || !fs.existsSync(filePath)) {
+    return { ok: false, error: "File not found" };
+  }
+  if (isRepoFile(filePath, prefs.workingDir)) {
+    return { ok: false, error: "Cannot rename library-tracked file" };
+  }
+  if (!prefs.workingDir || !isInsideWorkingDir(filePath, prefs.workingDir)) {
+    return { ok: false, error: "File is not inside the working directory" };
+  }
+  if (typeof newName !== "string") return { ok: false, error: "Invalid name" };
+  const trimmed = newName.trim();
+  if (!trimmed) return { ok: false, error: "Name cannot be empty" };
+  if (/[\\/\0]/.test(trimmed) || trimmed === "." || trimmed === "..") {
+    return { ok: false, error: "Name contains invalid characters" };
+  }
+  const ext = path.extname(filePath);
+  const baseName = trimmed.toLowerCase().endsWith(ext.toLowerCase()) ? trimmed : trimmed + ext;
+  const newPath = path.join(path.dirname(filePath), baseName);
+  if (newPath === filePath) return { ok: true, filePath: newPath };
+  if (!isInsideWorkingDir(newPath, prefs.workingDir)) {
+    return { ok: false, error: "Target path is outside the working directory" };
+  }
+  if (fs.existsSync(newPath)) {
+    return { ok: false, error: "A file with that name already exists" };
+  }
+  try {
+    fs.renameSync(filePath, newPath);
+    return { ok: true, filePath: newPath };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 // --- Presets IPC ---
 
 ipcMain.handle("get-presets", (_event, publisherConstantsFile) => {

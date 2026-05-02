@@ -514,6 +514,26 @@
     }
   }
 
+  async function renameLibraryFile(filePath: string) {
+    libMenu = null;
+    const fileName = filePath.replace(/.*[/\\]/, "");
+    const baseName = fileName.replace(/\.[^.]+$/, "");
+    const input = prompt(`Rename "${fileName}" to:`, baseName);
+    if (input === null) return;
+    const newName = input.trim();
+    if (!newName || newName === baseName) return;
+    const bgsd = (window as any).bgsd;
+    const result = await bgsd?.renameFile?.(filePath, newName);
+    if (!result) { statusMsg = "Rename unavailable"; return; }
+    if (result.ok) {
+      statusMsg = "Renamed";
+      setTimeout(() => { statusMsg = ""; }, 2000);
+      loadLibraryTree();
+    } else {
+      statusMsg = `Rename failed: ${result.error}`;
+    }
+  }
+
   async function exportStl(filePath: string) {
     libMenu = null;
     statusMsg = "Exporting STL...";
@@ -1014,6 +1034,13 @@
     } else if (role === "counter_set" && !line.mergedClose) {
       // Non-merged counter_set close: children are direct (like counter_set_params)
       ctx = "counter_set";
+    } else if (role === "lid" && !line.mergedClose) {
+      // Non-merged BOX_LID close (flat format from addLid or single-bracket import):
+      // children are direct kv pairs at depth+1, like lid_params
+      ctx = "lid";
+    } else if (role === "label" && !line.mergedClose) {
+      // Non-merged LABEL close (flat format from addLabel): children are direct kv pairs
+      ctx = "label";
     }
     // If we resolved to "element", check if this is actually a divider
     if (ctx === "element" && closeIndex != null) {
@@ -1593,6 +1620,7 @@
         onopenlibraryfile={openLibraryFile}
         oneditfile={editFile}
         ondeletefile={deleteLibraryFile}
+        onrenamefile={renameLibraryFile}
         onexportstl={exportStl}
       />
     {:else}
