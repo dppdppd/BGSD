@@ -31,7 +31,7 @@
     onopenlibraryfile: (path: string) => void;
     oneditfile: (path: string) => void;
     ondeletefile: (path: string) => void;
-    onrenamefile: (path: string) => void;
+    onrenamefile: (path: string, newName: string) => void;
     onexportstl: (path: string) => void;
   } = $props();
 
@@ -81,6 +81,36 @@
     const menuW = 180;
     const x = rect.right + menuW > window.innerWidth ? rect.left - menuW - 4 : rect.right + 4;
     libMenu = { x, y: rect.top, path: filePath, isRepo };
+  }
+
+  let renamingPath = $state<string | null>(null);
+  let renameInput = $state("");
+
+  function startRename(filePath: string) {
+    libMenu = null;
+    const fileName = filePath.replace(/.*[/\\]/, "");
+    renameInput = fileName.replace(/\.[^.]+$/, "");
+    renamingPath = filePath;
+  }
+
+  function commitRename() {
+    if (!renamingPath) return;
+    const path = renamingPath;
+    const name = renameInput.trim();
+    const baseName = path.replace(/.*[/\\]/, "").replace(/\.[^.]+$/, "");
+    renamingPath = null;
+    renameInput = "";
+    if (!name || name === baseName) return;
+    onrenamefile(path, name);
+  }
+
+  function cancelRename() {
+    renamingPath = null;
+    renameInput = "";
+  }
+
+  function autofocus(node: HTMLInputElement) {
+    queueMicrotask(() => { node.focus(); node.select(); });
   }
 </script>
 
@@ -150,7 +180,14 @@
                   <button class="welcome-new-file" data-testid="new-{profileId}" onclick={() => onnewproject(profileId)}>+ New</button>
                 {/if}
                 {#each pubs[pub].sort((a: any, b: any) => a.name.localeCompare(b.name)) as game}
-                  <button class="welcome-library-game" class:user-file={!game.isRepo} onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
+                  {#if renamingPath === game.path}
+                    <input class="welcome-library-rename" data-testid="rename-input" type="text"
+                      bind:value={renameInput} use:autofocus
+                      onblur={commitRename}
+                      onkeydown={(e) => { if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); else if (e.key === "Escape") cancelRename(); }} />
+                  {:else}
+                    <button class="welcome-library-game" class:user-file={!game.isRepo} onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
+                  {/if}
                 {/each}
               </div>
             {/each}
@@ -163,7 +200,14 @@
                   <button class="welcome-new-file" data-testid="new-{profileId}-date" onclick={() => onnewproject(profileId)}>+ New</button>
                 {/if}
                 {#each group.files as game}
-                  <button class="welcome-library-game" class:user-file={!game.isRepo} onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
+                  {#if renamingPath === game.path}
+                    <input class="welcome-library-rename" data-testid="rename-input" type="text"
+                      bind:value={renameInput} use:autofocus
+                      onblur={commitRename}
+                      onkeydown={(e) => { if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); else if (e.key === "Escape") cancelRename(); }} />
+                  {:else}
+                    <button class="welcome-library-game" class:user-file={!game.isRepo} onclick={(e: MouseEvent) => showLibMenu(e, game.path, game.isRepo)}>{formatGameName(game.name)}</button>
+                  {/if}
                 {/each}
               </div>
             {/each}
@@ -189,7 +233,7 @@
         <button class="lib-context-item" data-testid="ctx-export-stl" onclick={() => onexportstl(libMenu!.path)}>Export STL</button>
       {:else}
         <button class="lib-context-item" data-testid="ctx-edit" onclick={() => { const p = libMenu!.path; libMenu = null; oneditfile(p); }}>Edit</button>
-        <button class="lib-context-item" data-testid="ctx-rename" onclick={() => onrenamefile(libMenu!.path)}>Rename</button>
+        <button class="lib-context-item" data-testid="ctx-rename" onclick={() => startRename(libMenu!.path)}>Rename</button>
         <button class="lib-context-item" data-testid="ctx-delete" onclick={() => ondeletefile(libMenu!.path)}>Delete</button>
         <button class="lib-context-item" data-testid="ctx-export-stl" onclick={() => onexportstl(libMenu!.path)}>Export STL</button>
       {/if}

@@ -104,7 +104,7 @@
     {/if}
 
   {:else if line.kind === "close"}
-    {@const _lidScalars = getScalarKeysForContext("lid")}
+    {@const _lidScalars = [...getScalarKeysForContext("lid")].sort((a, b) => a.key.localeCompare(b.key))}
     {@const _showLid = defaultsMode !== "none" && libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (defaultsMode === "all" || _lidScalars.some(s => isFavorite(s.key)))}
     {#if _showLid}
       <div class="scad-line scad-virtual"></div>

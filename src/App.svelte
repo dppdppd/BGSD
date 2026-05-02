@@ -514,14 +514,7 @@
     }
   }
 
-  async function renameLibraryFile(filePath: string) {
-    libMenu = null;
-    const fileName = filePath.replace(/.*[/\\]/, "");
-    const baseName = fileName.replace(/\.[^.]+$/, "");
-    const input = prompt(`Rename "${fileName}" to:`, baseName);
-    if (input === null) return;
-    const newName = input.trim();
-    if (!newName || newName === baseName) return;
+  async function renameLibraryFile(filePath: string, newName: string) {
     const bgsd = (window as any).bgsd;
     const result = await bgsd?.renameFile?.(filePath, newName);
     if (!result) { statusMsg = "Rename unavailable"; return; }
@@ -1849,7 +1842,7 @@
 
       {:else if line.kind === "close"}
         <!-- Virtual BOX_LID block for OBJECT_BOX without a lid (BIT only) -->
-        {@const _lidScalarsAll = getScalarKeysForContext("lid")}
+        {@const _lidScalarsAll = [...getScalarKeysForContext("lid")].sort((a, b) => a.key.localeCompare(b.key))}
         {@const _showVirtualLid = defaultsMode !== "none" && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (defaultsMode === "all" || _lidScalarsAll.some(s => isFavorite(s.key)))}
         {#if _showVirtualLid}
           {@const lidDepth = (line.depth ?? 0) + 1}
@@ -2369,6 +2362,13 @@
   :global(.welcome-library-game.user-file) { font-weight: 600; }
   :global(.welcome-library-game.user-file::before) { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #d4800e; margin-right: 6px; flex-shrink: 0; vertical-align: middle; }
   :global(.welcome-library-game:not(.user-file)::before) { content: ""; display: inline-block; width: 7px; height: 9px; border: 1.5px solid #b4c0cb; border-left: 2.5px solid #b4c0cb; border-radius: 0 1px 1px 0; margin-right: 5px; flex-shrink: 0; vertical-align: middle; }
+  :global(.welcome-library-rename) {
+    display: block; width: 100%; box-sizing: border-box;
+    padding: 5px 10px; font-size: 14px; font-weight: 600;
+    color: #2c3e50; background: #fff;
+    border: 1px solid #2d5a7b; border-radius: 4px; outline: none;
+    font-family: inherit;
+  }
   :global(.lib-context-backdrop) {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 999;
   }

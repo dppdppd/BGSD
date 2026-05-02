@@ -2,8 +2,14 @@ wait app-root
 new bit
 js (() => { const btn = document.querySelector('button.toolbar-home'); if (btn) { btn.click(); return 'home'; } return 'no home btn'; })()
 js (async () => { await new Promise(r => setTimeout(r, 600)); })()
-shot 01_welcome_after_new
-js (() => { const btns = [...document.querySelectorAll('button.welcome-library-game.user-file')]; if (!btns.length) return 'no user files'; btns[0].click(); return 'opened menu for ' + btns[0].textContent; })()
+shot 01_welcome_with_user_files
+js (() => { const btns = [...document.querySelectorAll('button.welcome-library-game.user-file')]; if (!btns.length) return 'no user files'; const target = btns[0]; window.__renameTargetText = target.textContent.trim(); target.click(); return 'opened menu for ' + target.textContent.trim(); })()
 js (async () => { await new Promise(r => setTimeout(r, 200)); })()
 shot 02_context_menu
-js (() => [...document.querySelectorAll('.lib-context-item')].map(b => b.textContent + '#' + (b.getAttribute('data-testid') || '')))
+js (() => { const r = document.querySelector('[data-testid="ctx-rename"]'); if (!r) return 'no rename btn'; r.click(); return 'clicked rename'; })()
+js (async () => { await new Promise(r => setTimeout(r, 200)); })()
+shot 03_inline_rename_input
+js (() => { const inp = document.querySelector('[data-testid="rename-input"]'); if (!inp) return 'no rename input'; window.__originalValue = inp.value; inp.value = 'renamed_by_harness'; inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('blur', { bubbles: true })); return 'committed rename: ' + inp.value; })()
+js (async () => { await new Promise(r => setTimeout(r, 600)); })()
+shot 04_after_rename
+js (() => { const btns = [...document.querySelectorAll('button.welcome-library-game.user-file')]; const found = btns.find(b => /Renamed By Harness/i.test(b.textContent)); return found ? 'FOUND: ' + found.textContent.trim() : 'NOT FOUND. Names: ' + btns.map(b => b.textContent.trim()).join(' | '); })()
