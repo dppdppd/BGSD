@@ -8,3 +8,4 @@ release/
 harness/out/
 *.bak
 tests/workspace/
+docs/rpm/~rpm-*
