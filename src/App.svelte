@@ -18,6 +18,7 @@
     spliceLines,
     updateSceneName,
     addScene,
+    duplicateScene,
     formatKvValue,
     presets,
     knownConstants,
@@ -1378,6 +1379,15 @@
     addScene(insertAfter, nextSceneName());
   }
 
+  function handleDuplicateScene(openIdx: number) {
+    const orig = $project.lines[openIdx]?.varName || "data";
+    const existing = new Set(sceneNames);
+    let candidate = `${orig}_copy`;
+    let n = 2;
+    while (existing.has(candidate)) candidate = `${orig}_copy_${n++}`;
+    duplicateScene(openIdx, candidate);
+  }
+
   // --- Comment editing ---
   let editingComment = $state<number | null>(null);
 
@@ -1730,8 +1740,12 @@
           {/if}
           {@render commentBtn(line, i)}
           <span class="spacer"></span>
-          {#if deletable}
+          {#if line.role === "data"}
+            <button class="dup-btn" title="Duplicate scene" onclick={() => handleDuplicateScene(i)}>⧉</button>
+          {:else if deletable}
             <button class="dup-btn" title="Duplicate block" onclick={() => duplicateBlock(i)}>⧉</button>
+          {/if}
+          {#if deletable}
             <button class="delete-btn" title="Delete block" onclick={() => deleteBlock(i)}>✕</button>
           {/if}
         </div>

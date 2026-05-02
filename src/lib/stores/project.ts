@@ -349,6 +349,64 @@ export function updateSceneName(openIndex: number, newName: string) {
   });
 }
 
+/**
+ * Duplicate a scene: clone the `<varName> = [ ... ];` block and its matching
+ * `Make(<varName>);` line, renaming both to `newName`. Inserts the copy right
+ * after the original scene's makeall (if present) — otherwise after the close.
+ */
+export function duplicateScene(openIdx: number, newName: string) {
+  project.update((p) => {
+    const line = p.lines[openIdx];
+    if (line?.kind !== "open" || line.role !== "data") return p;
+    const origVarName = line.varName;
+
+    // Find matching close
+    let depth = 0;
+    let closeIdx = -1;
+    for (let i = openIdx; i < p.lines.length; i++) {
+      if (p.lines[i].kind === "open") depth += p.lines[i].mergedOpen ? 2 : 1;
+      if (p.lines[i].kind === "close") {
+        depth -= p.lines[i].mergedClose ? 2 : 1;
+        if (depth <= 0) { closeIdx = i; break; }
+      }
+    }
+    if (closeIdx < 0) return p;
+
+    // Find the matching makeall (Make(<varName>);) — usually right after the close,
+    // possibly with blank lines in between. Stop scanning at the next scene.
+    let makeallIdx = -1;
+    for (let i = closeIdx + 1; i < p.lines.length; i++) {
+      const l = p.lines[i];
+      if (l.kind === "makeall" && l.varName === origVarName) { makeallIdx = i; break; }
+      if (l.kind === "open" && l.role === "data") break;
+    }
+
+    // Clone the block (open through close), renaming the data wrapper
+    const cloned = p.lines.slice(openIdx, closeIdx + 1).map((l) => {
+      const c = { ...l } as Line;
+      if (c.varName === origVarName) {
+        c.varName = newName;
+        c.label = newName;
+        if (c.kind === "open") {
+          c.raw = c.raw.replace(new RegExp(`^${origVarName}(\\s*=)`), `${newName}$1`);
+        }
+      }
+      return c;
+    });
+
+    const insertions: Line[] = [...cloned];
+    let insertAt: number;
+    if (makeallIdx >= 0) {
+      insertions.push({ ...p.lines[makeallIdx], varName: newName, raw: `Make(${newName});` });
+      insertAt = makeallIdx + 1;
+    } else {
+      insertAt = closeIdx + 1;
+    }
+    p.lines.splice(insertAt, 0, ...insertions);
+    return { ...p };
+  });
+}
+
 /** Insert a new empty scene (open + close + makeall) after the given line index. */
 export function addScene(afterIndex: number, sceneName: string) {
   project.update((p) => {
