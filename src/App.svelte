@@ -93,11 +93,7 @@
     const url = updateInfo?.bgsd?.releaseUrl;
     if (url) (window as any).bgsd?.openExternal?.(url);
   }
-  function goUpdateLibs() {
-    showWelcome = true;
-    loadLibraryTree();
-    // Caller will use the existing Update Libraries button on the welcome screen.
-  }
+  // (kept around for legacy callers, but the chip now triggers updateLibs directly)
   let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
   let favoriteKeys = $state<Set<string>>(new Set());
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
@@ -532,18 +528,25 @@
     setupBusy = true;
     setupLog = [];
     setupStatus = "Updating libraries...";
+    statusMsg = "Updating libraries...";
     try {
       const res = await bgsd.updateLibraries();
       if (res.ok) {
         setupStatus = "Libraries updated.";
+        statusMsg = "Libraries updated";
         setTimeout(() => { setupStatus = ""; setupLog = []; }, 3000);
+        setTimeout(() => { if (statusMsg === "Libraries updated") statusMsg = ""; }, 3000);
         loadLibraryTree();
+        // Re-probe so the lib update chip clears when there's nothing more
+        bgsd?.checkUpdates?.().then((info: any) => { if (info) updateInfo = info; }).catch(() => {});
       } else {
         setupStatus = `Update failed: ${res.error}`;
+        statusMsg = `Update failed: ${res.error}`;
         setTimeout(() => { setupStatus = ""; setupLog = []; }, 5000);
       }
     } catch (err: any) {
       setupStatus = `Update failed: ${err.message}`;
+      statusMsg = `Update failed: ${err.message}`;
       setTimeout(() => { setupStatus = ""; setupLog = []; }, 5000);
     }
     setupBusy = false;
@@ -2248,7 +2251,7 @@
           <span class="status-version-sep">·</span>
           <span class="status-version-lib" class:status-version-active={$project.libraryProfile === lib.id} data-testid="status-version-{lib.id}" title={libVersionTooltip(lib.id, lib.label)}>{lib.label} {versionString}</span>
           {#if libUpdateAvailable(lib.id)}
-            <button class="status-update-chip" data-testid="status-update-{lib.id}" title="{lib.label} lib has updates — click to go to Update Libraries" onclick={goUpdateLibs}>↑ update</button>
+            <button class="status-update-chip" data-testid="status-update-{lib.id}" title="{lib.label} lib has updates — click to update now" disabled={setupBusy} onclick={updateLibs}>↑ update</button>
           {/if}
         {/if}
       {/each}
