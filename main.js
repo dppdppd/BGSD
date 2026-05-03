@@ -994,6 +994,37 @@ ipcMain.handle("rename-file", (_event, filePath, newName) => {
   }
 });
 
+ipcMain.handle("duplicate-file", (_event, filePath) => {
+  const prefs = loadPrefs();
+  if (!validateFilePath(filePath) || !fs.existsSync(filePath)) {
+    return { ok: false, error: "File not found" };
+  }
+  if (!prefs.workingDir || !isInsideWorkingDir(filePath, prefs.workingDir)) {
+    return { ok: false, error: "File is not inside the working directory" };
+  }
+  const dir = path.dirname(filePath);
+  const ext = path.extname(filePath);
+  const base = path.basename(filePath, ext);
+  // Find unique destination: <base>_copy<ext>, <base>_copy_2<ext>, ...
+  let candidate = path.join(dir, `${base}_copy${ext}`);
+  let n = 2;
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(dir, `${base}_copy_${n++}${ext}`);
+    if (n > 999) return { ok: false, error: "Could not find a unique name" };
+  }
+  if (!isInsideWorkingDir(candidate, prefs.workingDir)) {
+    return { ok: false, error: "Target path is outside the working directory" };
+  }
+  try {
+    fs.copyFileSync(filePath, candidate);
+    // Make the new file writable (the source might be a read-only repo copy)
+    try { fs.chmodSync(candidate, 0o644); } catch (_) { /* ignore */ }
+    return { ok: true, filePath: candidate };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 // --- Presets IPC ---
 
 ipcMain.handle("get-presets", (_event, publisherConstantsFile) => {

@@ -15,6 +15,7 @@
     oneditfile,
     ondeletefile,
     onrenamefile,
+    onduplicatefile,
     onexportstl,
   }: {
     workingDirSet: boolean;
@@ -32,6 +33,7 @@
     oneditfile: (path: string) => void;
     ondeletefile: (path: string) => void;
     onrenamefile: (path: string, newName: string) => void;
+    onduplicatefile: (path: string) => void;
     onexportstl: (path: string) => void;
   } = $props();
 
@@ -234,6 +236,7 @@
       {:else}
         <button class="lib-context-item" data-testid="ctx-edit" onclick={() => { const p = libMenu!.path; libMenu = null; oneditfile(p); }}>Edit</button>
         <button class="lib-context-item" data-testid="ctx-rename" onclick={() => startRename(libMenu!.path)}>Rename</button>
+        <button class="lib-context-item" data-testid="ctx-duplicate" onclick={() => { const p = libMenu!.path; libMenu = null; onduplicatefile(p); }}>Duplicate</button>
         <button class="lib-context-item" data-testid="ctx-delete" onclick={() => ondeletefile(libMenu!.path)}>Delete</button>
         <button class="lib-context-item" data-testid="ctx-export-stl" onclick={() => onexportstl(libMenu!.path)}>Export STL</button>
       {/if}

@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("bgsd", {
   checkRepoFile: (filePath) => ipcRenderer.invoke("check-repo-file", filePath),
   deleteFile: (filePath) => ipcRenderer.invoke("delete-file", filePath),
   renameFile: (filePath, newName) => ipcRenderer.invoke("rename-file", filePath, newName),
+  duplicateFile: (filePath) => ipcRenderer.invoke("duplicate-file", filePath),
   getLibraryTree: () => ipcRenderer.invoke("get-library-tree"),
 
   // Working directory
