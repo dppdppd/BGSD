@@ -372,15 +372,6 @@ export function duplicateScene(openIdx: number, newName: string) {
     }
     if (closeIdx < 0) return p;
 
-    // Find the matching makeall (Make(<varName>);) — usually right after the close,
-    // possibly with blank lines in between. Stop scanning at the next scene.
-    let makeallIdx = -1;
-    for (let i = closeIdx + 1; i < p.lines.length; i++) {
-      const l = p.lines[i];
-      if (l.kind === "makeall" && l.varName === origVarName) { makeallIdx = i; break; }
-      if (l.kind === "open" && l.role === "data") break;
-    }
-
     // Clone the block (open through close), renaming the data wrapper
     const cloned = p.lines.slice(openIdx, closeIdx + 1).map((l) => {
       const c = { ...l } as Line;
@@ -394,26 +385,22 @@ export function duplicateScene(openIdx: number, newName: string) {
       return c;
     });
 
-    const insertions: Line[] = [...cloned];
-    let insertAt: number;
-    if (makeallIdx >= 0) {
-      insertions.push({ ...p.lines[makeallIdx], varName: newName, raw: `Make(${newName});` });
-      insertAt = makeallIdx + 1;
-    } else {
-      insertAt = closeIdx + 1;
-    }
-    p.lines.splice(insertAt, 0, ...insertions);
+    // Insert the cloned data block right after its original close. The single
+    // Make(...) line in the file is shared across all scenes (UI dropdown
+    // selects which scene is rendered) — never clone it.
+    p.lines.splice(closeIdx + 1, 0, ...cloned);
     return { ...p };
   });
 }
 
-/** Insert a new empty scene (open + close + makeall) after the given line index. */
+/** Insert a new empty scene (open + close only) after the given line index.
+ * The file keeps a single Make(...) line shared across all scenes; it is not
+ * duplicated per scene. */
 export function addScene(afterIndex: number, sceneName: string) {
   project.update((p) => {
     const lines: Line[] = [
       { raw: `${sceneName} = [`, kind: "open", depth: 0, role: "data", label: sceneName, varName: sceneName },
       { raw: "];", kind: "close", depth: 0, role: "data", label: sceneName, varName: sceneName },
-      { raw: `Make(${sceneName});`, kind: "makeall", depth: 0, varName: sceneName },
     ];
     p.lines.splice(afterIndex + 1, 0, ...lines);
     return { ...p };

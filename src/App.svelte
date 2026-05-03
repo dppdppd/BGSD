@@ -641,6 +641,21 @@
     }
   }
 
+  async function duplicateLibraryFile(filePath: string) {
+    libMenu = null;
+    const bgsd = (window as any).bgsd;
+    const result = await bgsd?.duplicateFile?.(filePath);
+    if (!result) { statusMsg = "Duplicate unavailable"; return; }
+    if (result.ok) {
+      const name = (result.filePath || "").replace(/.*[/\\]/, "");
+      statusMsg = `Duplicated → ${name}`;
+      setTimeout(() => { if (statusMsg.startsWith("Duplicated → ")) statusMsg = ""; }, 2500);
+      loadLibraryTree();
+    } else {
+      statusMsg = `Duplicate failed: ${result.error}`;
+    }
+  }
+
   async function exportStl(filePath: string) {
     libMenu = null;
     statusMsg = "Exporting STL...";
@@ -1418,12 +1433,10 @@
   }
 
   function handleAddScene(afterIdx: number) {
-    // Skip past any makeall line(s) that follow the close bracket
-    let insertAfter = afterIdx;
-    while (insertAfter + 1 < $project.lines.length && $project.lines[insertAfter + 1].kind === "makeall") {
-      insertAfter++;
-    }
-    addScene(insertAfter, nextSceneName());
+    // Insert right after the previous scene's close. The single shared Make(...)
+    // line stays at the bottom of the file — its scene-selector dropdown picks up
+    // the new scene automatically.
+    addScene(afterIdx, nextSceneName());
   }
 
   function handleDuplicateScene(openIdx: number) {
@@ -1738,6 +1751,7 @@
         oneditfile={editFile}
         ondeletefile={deleteLibraryFile}
         onrenamefile={renameLibraryFile}
+        onduplicatefile={duplicateLibraryFile}
         onexportstl={exportStl}
       />
     {:else}
