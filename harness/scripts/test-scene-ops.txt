@@ -1,0 +1,30 @@
+wait app-root
+new bit
+shot 01_initial
+scad
+js (() => { const btn = [...document.querySelectorAll('button.add-btn')].find(b => b.title === 'Add another scene'); if (!btn) return 'no +Scene btn'; btn.click(); return 'added scene'; })()
+js (async () => { await new Promise(r => setTimeout(r, 300)); })()
+shot 02_after_add_scene
+scad
+js (() => { const btns = [...document.querySelectorAll('button.dup-btn')].filter(b => b.title === 'Duplicate scene'); if (btns.length < 2) return 'need 2+ dup-scene btns, have ' + btns.length; btns[1].click(); return 'duplicated scene_2'; })()
+js (async () => { await new Promise(r => setTimeout(r, 300)); })()
+shot 03_after_dup_scene2
+scad
+js (() => { const inputs = [...document.querySelectorAll('input.scene-name-input')]; return inputs.map(i => i.value); })()
+js (() => { const inputs = [...document.querySelectorAll('input.scene-name-input')]; const target = inputs.find(i => /_copy/.test(i.value)); if (!target) return 'no _copy scene'; const row = target.closest('.line-row'); const del = row.querySelector('.delete-btn'); if (!del) return 'no delete on copy'; del.click(); return 'deleted ' + target.value; })()
+js (async () => { await new Promise(r => setTimeout(r, 300)); })()
+shot 04_after_delete_copy
+scad
+js (() => { const btns = [...document.querySelectorAll('button.dup-btn')].filter(b => b.title === 'Duplicate scene'); if (!btns.length) return 'no dup btn'; btns[0].click(); return 'duplicated first scene'; })()
+js (async () => { await new Promise(r => setTimeout(r, 300)); })()
+shot 05_after_dup_first
+scad
+js (() => { const sel = document.querySelector('select.make-select'); if (!sel) return 'no make-select'; const opts = [...sel.options].map(o => o.value); const copyOpt = opts.find(v => /_copy/.test(v)); if (!copyOpt) return 'no _copy in select; opts=' + opts.join(','); sel.value = copyOpt; sel.dispatchEvent(new Event('change', { bubbles: true })); return 'switched Make to ' + copyOpt; })()
+js (async () => { await new Promise(r => setTimeout(r, 300)); })()
+shot 06_after_make_switch
+scad
+js (() => { const inputs = [...document.querySelectorAll('input.scene-name-input')]; const target = inputs.find(i => /_copy/.test(i.value)); if (!target) return 'no _copy'; const row = target.closest('.line-row'); const del = row.querySelector('.delete-btn'); if (!del) return 'no delete'; del.click(); return 'deleted ' + target.value; })()
+js (async () => { await new Promise(r => setTimeout(r, 300)); })()
+shot 07_after_delete_make_target
+scad
+js (() => { const sel = document.querySelector('select.make-select'); return { makeVar: sel?.value, sceneNames: [...document.querySelectorAll('input.scene-name-input')].map(i => i.value) }; })()
