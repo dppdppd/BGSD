@@ -1,5 +1,5 @@
 import { get, writable } from "svelte/store";
-import { project, type Line } from "./project";
+import { project, type Line, type Project } from "./project";
 
 import { MAX_HISTORY } from "../config";
 
@@ -46,6 +46,29 @@ export function clearHistory() {
   redoStack = [];
   const p = get(project);
   lastLines = cloneLines(p.lines);
+  updateFlags();
+}
+
+/** Replace the project from durable file history without adding an in-memory undo entry. */
+export function restoreProjectFromHistory(nextProject: Project) {
+  undoStack = [];
+  redoStack = [];
+  isRestoring = true;
+  project.set(structuredClone(nextProject));
+  lastLines = cloneLines(nextProject.lines);
+  isRestoring = false;
+  updateFlags();
+}
+
+/** Replace only line content from durable file history without adding an in-memory undo entry. */
+export function restoreLinesFromHistory(lines: Line[]) {
+  undoStack = [];
+  redoStack = [];
+  const cloned = cloneLines(lines);
+  isRestoring = true;
+  project.update((p) => ({ ...p, lines: cloned }));
+  lastLines = cloneLines(cloned);
+  isRestoring = false;
   updateFlags();
 }
 

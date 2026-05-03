@@ -1,9 +1,9 @@
 # BGSD — Present State
 
 ## Project Status
-- **Current phase**: 0.5.x — feature polish (welcome screen, schema coverage, defaults UX, self-update)
-- **Latest release**: v0.5.16 (2026-05-02) — https://github.com/dppdppd/BGSD/releases/tag/v0.5.16
-- **Last updated**: 2026-05-02
+- **Current phase**: 0.5.x — feature polish (version history, schema coverage, defaults UX, self-update)
+- **Latest release**: v0.5.23 (2026-05-03) — https://github.com/dppdppd/BGSD/releases/tag/v0.5.23
+- **Last updated**: 2026-05-03
 
 ## Completed Work
 - Cross-platform release builds via electron-builder
@@ -11,8 +11,10 @@
 - Inline rename UI (Electron suppresses `window.prompt()`)
 - Favorites + Show-Defaults (All/Favorites/None) radio
 - Undo/redo, recent files, keyboard shortcuts
+- Persistent Version History via `.undo` sidecars, manual pinned checkpoints, labels, restore, and OpenSCAD launch for saved versions
+- File/View toolbar menus with Save Version, Save As, Version History, Recent Files flyout, Copy Path, Show SCAD, and Show Default State Parameters modes
+- BGSD application icon included for packaged builds
 - Duplicate button on scenes (clones data block + matching `Make(...)`, renames `<orig>_copy`)
-- "Copy path" button in editor toolbar
 - Status bar always shows BGSD + BIT + CTD versions with explicit minor.patch parsed from lib frontmatter; tooltip surfaces live update-check state
 - BGSD self-updater (Linux AppImage in-place with ELF check + `.bak` backup; macOS / Windows stage to `~/Downloads`)
 - Lib update probe on launch + inline lib refresh from the status-bar chip

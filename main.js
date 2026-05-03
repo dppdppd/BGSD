@@ -1,9 +1,11 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell, net } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { Buffer } = require("buffer");
 const { importScad } = require("./importer");
 const { ensureLibrary, initWorkingDir, updateLibraries, checkLibraryUpdates, fetchLatestReleaseTag, isInsideWorkingDir, isRepoFile, loadManifest, profiles, setProxy, getProxy } = require("./lib/library-manager");
 const { parseConstantsFile } = require("./lib/constants-parser");
+const undoSidecar = require("./lib/undo-sidecar");
 
 // Prevent GPU-related crashes on Windows (packaged exe doesn't get --disable-gpu)
 app.disableHardwareAcceleration();
@@ -119,9 +121,18 @@ function rebuildMenu() {
           submenu: recentSubmenu,
         },
         {
+          label: "Save Version",
+          accelerator: "CmdOrCtrl+S",
+          click: () => mainWindow.webContents.send("menu-save"),
+        },
+        {
           label: "Save As...",
           accelerator: "CmdOrCtrl+Shift+S",
           click: () => mainWindow.webContents.send("menu-save-as"),
+        },
+        {
+          label: "Version History...",
+          click: () => mainWindow.webContents.send("menu-file-history"),
         },
         { type: "separator" },
         {
@@ -269,7 +280,9 @@ async function atomicWrite(filePath, content) {
   // Retries exhausted — fall back to direct write (not atomic, but reliable)
   console.warn("atomicWrite: rename failed after retries, falling back to direct write for", filePath);
   fs.writeFileSync(filePath, content, "utf-8");
-  try { fs.unlinkSync(tmp); } catch (_) {}
+  try { fs.unlinkSync(tmp); } catch {
+    // Best-effort cleanup after falling back to direct write.
+  }
 }
 
 // --- Auto-load state ---
@@ -310,13 +323,16 @@ ipcMain.handle("open-file", async () => {
   }
 });
 
-ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, profileId) => {
+ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, profileId, saveOptions = {}) => {
   try {
+    void profileId;
     // Reject saves to repo-tracked files — they'll be overwritten on library update
     const prefs = loadPrefs();
     if (isRepoFile(filePath, prefs.workingDir)) {
       return { ok: false, error: "repo-file", repoFile: true };
     }
+
+    const previousText = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : null;
 
     // Detect read-only files (e.g. manually copied into working dir)
     if (fs.existsSync(filePath)) {
@@ -355,6 +371,14 @@ ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, prof
       }
     }
     await atomicWrite(filePath, scadText);
+    try {
+      undoSidecar.recordSavedRevision(filePath, previousText, scadText, {
+        coalesce: !saveOptions?.forceNewRevision,
+        forceNewRevision: !!saveOptions?.forceNewRevision,
+      });
+    } catch (err) {
+      console.warn("[undo-sidecar] save history failed:", err.message);
+    }
     return { ok: true, filePath };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -364,7 +388,7 @@ ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, prof
 ipcMain.handle("save-file-as", async (_event, scadText, profileId, currentPath) => {
   let defaultPath;
   if (currentPath) {
-    defaultPath = path.join(path.dirname(currentPath), "design.scad");
+    defaultPath = currentPath;
   } else {
     // For new files, default to the profile's designs directory
     const prefs = loadPrefs();
@@ -383,13 +407,24 @@ ipcMain.handle("save-file-as", async (_event, scadText, profileId, currentPath) 
   });
   if (result.canceled) return { ok: false };
   try {
-    // If we have an existing on-disk file, copy it (preserves includes, comments, etc.)
-    if (currentPath && fs.existsSync(currentPath)) {
-      fs.copyFileSync(currentPath, result.filePath);
-      // Ensure the copy is writable (source may be a read-only repo file)
-      try { fs.chmodSync(result.filePath, 0o644); } catch (_) {}
-    } else {
-      await atomicWrite(result.filePath, scadText);
+    const prefs = loadPrefs();
+    if (isRepoFile(result.filePath, prefs.workingDir)) {
+      return { ok: false, error: "Cannot save over a library-tracked file" };
+    }
+    const samePath = currentPath && path.resolve(result.filePath) === path.resolve(currentPath);
+    const previousText = fs.existsSync(result.filePath) ? fs.readFileSync(result.filePath, "utf-8") : null;
+    await atomicWrite(result.filePath, scadText);
+    try { fs.chmodSync(result.filePath, 0o644); } catch {
+      // Some filesystems ignore chmod; save-as still proceeds if the file was written.
+    }
+    try {
+      if (samePath) {
+        undoSidecar.recordSavedRevision(result.filePath, previousText, scadText, { forceNewRevision: true });
+      } else {
+        undoSidecar.initializeSidecar(result.filePath, scadText, { reset: true });
+      }
+    } catch (err) {
+      console.warn("[undo-sidecar] save-as history init failed:", err.message);
     }
     return { ok: true, filePath: result.filePath };
   } catch (err) {
@@ -423,7 +458,14 @@ ipcMain.handle("copy-template", async (_event, sourcePath) => {
   try {
     fs.copyFileSync(sourcePath, result.filePath);
     // Ensure the copy is writable (source may be a read-only repo file)
-    try { fs.chmodSync(result.filePath, 0o644); } catch (_) {}
+    try { fs.chmodSync(result.filePath, 0o644); } catch {
+      // Some filesystems ignore chmod; the copied file may still be writable.
+    }
+    try {
+      undoSidecar.initializeSidecar(result.filePath, fs.readFileSync(result.filePath, "utf-8"), { reset: true });
+    } catch (err) {
+      console.warn("[undo-sidecar] copied template history init failed:", err.message);
+    }
     return { ok: true, filePath: result.filePath };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -461,13 +503,11 @@ function findOpenScad() {
   return "openscad";
 }
 
-ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
+async function launchOpenScadFile(filePath) {
   const { spawn } = require("child_process");
   if (!validateFilePath(filePath) || !fs.existsSync(filePath)) {
     return { ok: false, error: `File not found: ${filePath || "(no path)"}` };
   }
-
-  const prefs = loadPrefs();
 
   // If OpenSCAD is already showing this exact file, skip
   if (openScadAlive && openScadFile === filePath) {
@@ -521,6 +561,33 @@ ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
   } catch (err) {
     return { ok: false, error: "not-found" };
   }
+}
+
+ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
+  void profileId;
+  return launchOpenScadFile(filePath);
+});
+
+ipcMain.handle("open-undo-revision-in-openscad", async (_event, filePath, revisionId, profileId) => {
+  void profileId;
+  if (!validateFilePath(filePath)) return { ok: false, error: "Invalid file path" };
+  const result = undoSidecar.loadRevision(filePath, revisionId);
+  if (!result.ok) return result;
+
+  const baseName = path.basename(filePath, ".scad");
+  const shortId = String(revisionId || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || "revision";
+  const previewPath = path.join(path.dirname(filePath), `.${baseName}.history-${shortId}.scad`);
+  try {
+    await atomicWrite(previewPath, result.scadText);
+  } catch (err) {
+    return { ok: false, error: `Could not write version preview: ${err.message}` };
+  }
+
+  if (process.env.BGSD_HARNESS) {
+    return { ok: true, filePath: previewPath, harness: true };
+  }
+  const launched = await launchOpenScadFile(previewPath);
+  return { ...launched, filePath: previewPath };
 });
 
 ipcMain.handle("export-stl", async (_event, sourcePath) => {
@@ -608,6 +675,11 @@ ipcMain.handle("new-project-to-path", async (_event, profile) => {
 
   try {
     await atomicWrite(filePath, scad);
+    try {
+      undoSidecar.initializeSidecar(filePath, scad, { reset: true });
+    } catch (err) {
+      console.warn("[undo-sidecar] new project history init failed:", err.message);
+    }
     const project = importScad(fs.readFileSync(filePath, "utf-8"));
     addRecent(filePath);
     if (mainWindow) mainWindow.webContents.send("menu-open", { data: project, filePath });
@@ -630,6 +702,48 @@ ipcMain.handle("load-file-path", (_event, filePath) => {
   } catch (err) {
     return { ok: false, error: err.message };
   }
+});
+
+ipcMain.handle("get-recent-files", () => {
+  return loadRecent();
+});
+
+// --- Persistent file history IPC ---
+
+ipcMain.handle("list-undo-history", (_event, filePath) => {
+  if (!validateFilePath(filePath)) return { ok: false, error: "Invalid file path" };
+  return undoSidecar.listHistory(filePath);
+});
+
+ipcMain.handle("get-undo-history", (_event, filePath) => {
+  if (!validateFilePath(filePath)) return { ok: false, error: "Invalid file path" };
+  return undoSidecar.listHistory(filePath);
+});
+
+ipcMain.handle("load-undo-revision", (_event, filePath, revisionId) => {
+  if (!validateFilePath(filePath)) return { ok: false, error: "Invalid file path" };
+  const result = undoSidecar.loadRevision(filePath, revisionId);
+  if (!result.ok) return result;
+  try {
+    return { ...result, data: importScad(result.scadText) };
+  } catch (err) {
+    return { ok: false, error: `Revision import failed: ${err.message}` };
+  }
+});
+
+ipcMain.handle("label-undo-revision", (_event, filePath, revisionId, label) => {
+  if (!validateFilePath(filePath)) return { ok: false, error: "Invalid file path" };
+  return undoSidecar.labelRevision(filePath, revisionId, label);
+});
+
+ipcMain.handle("pin-undo-revision", (_event, filePath, revisionId, pinned) => {
+  if (!validateFilePath(filePath)) return { ok: false, error: "Invalid file path" };
+  return undoSidecar.pinRevision(filePath, revisionId, pinned);
+});
+
+ipcMain.handle("prune-undo-history", (_event, filePath, keepCount) => {
+  if (!validateFilePath(filePath)) return { ok: false, error: "Invalid file path" };
+  return undoSidecar.pruneHistory(filePath, keepCount);
 });
 
 // --- Working directory IPC ---
@@ -953,6 +1067,7 @@ ipcMain.handle("delete-file", (_event, filePath) => {
   }
   try {
     fs.unlinkSync(filePath);
+    try { undoSidecar.deleteSidecar(filePath); } catch (err) { console.warn("[undo-sidecar] delete sidecar failed:", err.message); }
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -988,6 +1103,7 @@ ipcMain.handle("rename-file", (_event, filePath, newName) => {
   }
   try {
     fs.renameSync(filePath, newPath);
+    try { undoSidecar.renameSidecar(filePath, newPath); } catch (err) { console.warn("[undo-sidecar] rename sidecar failed:", err.message); }
     return { ok: true, filePath: newPath };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -1018,7 +1134,14 @@ ipcMain.handle("duplicate-file", (_event, filePath) => {
   try {
     fs.copyFileSync(filePath, candidate);
     // Make the new file writable (the source might be a read-only repo copy)
-    try { fs.chmodSync(candidate, 0o644); } catch (_) { /* ignore */ }
+    try { fs.chmodSync(candidate, 0o644); } catch {
+      // Some filesystems ignore chmod; duplicate still succeeds if the copy exists.
+    }
+    try {
+      undoSidecar.initializeSidecar(candidate, fs.readFileSync(candidate, "utf-8"), { reset: true });
+    } catch (err) {
+      console.warn("[undo-sidecar] duplicate history init failed:", err.message);
+    }
     return { ok: true, filePath: candidate };
   } catch (err) {
     return { ok: false, error: err.message };

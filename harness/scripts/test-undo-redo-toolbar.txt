@@ -1,0 +1,15 @@
+wait app-root
+new bit
+wait toolbar-undo-button
+intent "Edit NAME so the toolbar undo button becomes available"
+js const nameInput = document.querySelector('[data-testid="line-4"] input.kv-str'); nameInput.value = 'toolbar undo'; nameInput.dispatchEvent(new Event('change', {bubbles:true}))
+js (async () => { await new Promise(r => setTimeout(r, 500)); })()
+shot undo_available
+intent "Click the toolbar undo button to restore the original NAME"
+click toolbar-undo-button
+shot undone
+intent "Click the toolbar redo button to reapply the NAME edit"
+click toolbar-redo-button
+shot redone
+scad
+js (async () => { await new Promise(r => setTimeout(r, 500)); })()

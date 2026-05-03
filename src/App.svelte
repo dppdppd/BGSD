@@ -27,11 +27,12 @@
     type Line,
   } from "./lib/stores/project";
   import { generateScad } from "./lib/scad";
-  import { startAutosave, onSaveStatus, setFilePath, getFilePath, setNeedsBackup, setReadOnly, getReadOnly, onReadOnlyEdit, saveNow, triggerSave } from "./lib/autosave";
-  import { startHistory, clearHistory, undo, redo } from "./lib/stores/history";
+  import { startAutosave, onSaveStatus, setFilePath, getFilePath, setNeedsBackup, setReadOnly, getReadOnly, onReadOnlyEdit, saveNow, saveNowDetailed, suppressNextAutosave } from "./lib/autosave";
+  import { startHistory, clearHistory, undo, redo, restoreProjectFromHistory, canUndo, canRedo } from "./lib/stores/history";
   import { getSchema } from "./lib/schema";
   import tooltips from "./lib/tooltips/en.json";
   import PreferencesModal from "./lib/components/PreferencesModal.svelte";
+  import FileHistoryModal from "./lib/components/FileHistoryModal.svelte";
   import WelcomeScreen from "./lib/components/WelcomeScreen.svelte";
   import ScadPreview from "./lib/components/ScadPreview.svelte";
 
@@ -155,10 +156,81 @@
   let prefsOpenScadPath = $state("");
   let prefsAutoOpen = $state(true);
   let prefsProxy = $state("");
+  let showFileHistory = $state(false);
+  let currentFilePath = $state<string | null>(null);
+  let currentReadOnly = $state(false);
+  let versionSaveInFlight = false;
+  let showFileMenu = $state(false);
+  let showViewMenu = $state(false);
+  let recentFiles = $state<string[]>([]);
+  let toastText = $state("");
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   let scadOutput = $derived(generateScad($project));
 
+  function rememberFilePath(path: string | null) {
+    setFilePath(path || "");
+    currentFilePath = path;
+  }
+
+  function rememberReadOnly(val: boolean) {
+    setReadOnly(val);
+    currentReadOnly = val;
+  }
+
   onSaveStatus((msg: string) => { statusMsg = msg; });
+
+  function commitActiveInput() {
+    const el = document.activeElement;
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+
+  function basename(filePath: string): string {
+    return filePath.replace(/.*[/\\]/, "");
+  }
+
+  function showToast(message: string) {
+    toastText = message;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toastText = "";
+      toastTimer = null;
+    }, 2600);
+  }
+
+  async function refreshRecentFiles() {
+    const bgsd = (window as any).bgsd;
+    const files = await bgsd?.getRecentFiles?.();
+    recentFiles = Array.isArray(files) ? files : [];
+  }
+
+  async function toggleFileMenu() {
+    showFileMenu = !showFileMenu;
+    if (showFileMenu) showViewMenu = false;
+    if (showFileMenu) await refreshRecentFiles();
+  }
+
+  function toggleViewMenu() {
+    showViewMenu = !showViewMenu;
+    if (showViewMenu) showFileMenu = false;
+  }
+
+  function setDefaultsMode(mode: "all" | "favorites" | "none") {
+    defaultsMode = mode;
+  }
+
+  async function openRecentFile(filePath: string) {
+    const bgsd = (window as any).bgsd;
+    showFileMenu = false;
+    const loaded = await bgsd?.loadFilePath?.(filePath);
+    if (loaded?.ok) {
+      await handleLoad(loaded);
+    } else {
+      statusMsg = `Open failed: ${loaded?.error || "unknown"}`;
+    }
+  }
 
   function updateTitle(filePath: string) {
     const bgsd = (window as any).bgsd;
@@ -175,6 +247,7 @@
 
   async function handleLoad(payload: any) {
     const { data, filePath } = payload;
+    suppressNextAutosave();
     project.set(data);
     clearHistory();
     updateTitle(filePath);
@@ -187,13 +260,13 @@
     const bgsd = (window as any).bgsd;
     const repoCheck = await bgsd?.checkRepoFile?.(filePath);
     if (repoCheck?.repoFile) {
-      setFilePath(filePath);
-      setReadOnly(true);
+      rememberFilePath(filePath);
+      rememberReadOnly(true);
       const name = filePath.replace(/.*[/\\]/, "");
       statusMsg = `${name} (library example — Save As to edit)`;
     } else {
-      setFilePath(filePath);
-      setReadOnly(false);
+      rememberFilePath(filePath);
+      rememberReadOnly(false);
       setNeedsBackup(!data.hasMarker);
       const name = filePath.replace(/.*[/\\]/, "");
       statusMsg = data.hasMarker ? name : `${name} (will backup .bak on first save)`;
@@ -239,7 +312,8 @@
       statusMsg = "Library example — saving a copy...";
       await saveFileAs();
       if (getFilePath()) {
-        setReadOnly(false);
+        rememberReadOnly(false);
+        currentFilePath = getFilePath();
         const name = (getFilePath() || "").replace(/.*[/\\]/, "");
         statusMsg = `Saved ${name}`;
       } else {
@@ -263,13 +337,22 @@
     const bgsd = (window as any).bgsd;
     if (bgsd?.onMenuNew) bgsd.onMenuNew((_event: any, profile: string) => newProject(profile || "bit"));
     if (bgsd?.onMenuOpen) bgsd.onMenuOpen(handleLoad);
+    if (bgsd?.onMenuSave) bgsd.onMenuSave(() => saveVersion());
     if (bgsd?.onMenuSaveAs) bgsd.onMenuSaveAs(saveFileAs);
+    if (bgsd?.onMenuFileHistory) bgsd.onMenuFileHistory(openFileHistory);
     if (bgsd?.onMenuOpenInOpenScad) bgsd.onMenuOpenInOpenScad(openInOpenScad);
     if (bgsd?.onMenuPreferences) bgsd.onMenuPreferences(openPreferencesModal);
     if (bgsd?.onMenuUndo) bgsd.onMenuUndo(() => undo());
     if (bgsd?.onMenuRedo) bgsd.onMenuRedo(() => redo());
     if (bgsd?.onMenuDefaultsMode) bgsd.onMenuDefaultsMode((mode: string) => { defaultsMode = mode as "all" | "favorites" | "none"; });
     if (bgsd?.onMenuToggleShowScad) bgsd.onMenuToggleShowScad((checked: boolean) => { showScad = checked; });
+
+    document.addEventListener("keydown", (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+      if (event.key.toLowerCase() !== "s") return;
+      event.preventDefault();
+      void saveVersion();
+    });
 
     // Load favorite keys from preferences (seed defaults on first run)
     const prefs = await bgsd?.getPreferences?.();
@@ -354,6 +437,7 @@
       ], hasMarker: true, libraryProfile: "bit", libraryInclude: "boardgame_insert_toolkit_lib.4.scad" };
     }
 
+    suppressNextAutosave();
     project.set(templateProject);
     clearHistory();
     const scadText = generateScad(templateProject);
@@ -363,6 +447,8 @@
     if (!res.ok) {
       project.set({ version: 1, lines: [], hasMarker: false });
       clearHistory();
+      rememberFilePath(null);
+      rememberReadOnly(false);
       showWelcome = true;
       statusMsg = "No file open";
       return;
@@ -376,7 +462,8 @@
       }
     }
 
-    setFilePath(res.filePath);
+    rememberFilePath(res.filePath);
+    rememberReadOnly(false);
     setNeedsBackup(false);
     updateTitle(res.filePath);
     fileLoaded = true;
@@ -396,20 +483,57 @@
   async function saveFileAs() {
     const bgsd = (window as any).bgsd;
     if (!bgsd?.saveFileAs) return;
-    const res = await bgsd.saveFileAs(scadOutput, $project.libraryProfile, getFilePath());
-    if (!res.ok) return;
-    setFilePath(res.filePath);
-    setReadOnly(false);
+    commitActiveInput();
+    await tick();
+    const res = await bgsd.saveFileAs(scadOutput, $project.libraryProfile, currentFilePath || getFilePath());
+    if (!res.ok) {
+      if (res.error) statusMsg = `Save As failed: ${res.error}`;
+      return;
+    }
+    rememberFilePath(res.filePath);
+    rememberReadOnly(false);
     updateTitle(res.filePath);
     statusMsg = `Saved ${res.filePath.replace(/.*[/\\]/, "")}`;
     // Keep OpenSCAD in sync with the new file
     launchOpenScad(res.filePath);
   }
 
+  async function saveVersion() {
+    if (versionSaveInFlight) return;
+    versionSaveInFlight = true;
+    try {
+      commitActiveInput();
+      await tick();
+      if (!currentFilePath && !getFilePath()) {
+        await saveFileAs();
+        return;
+      }
+      if (currentReadOnly || getReadOnly()) {
+        await saveFileAs();
+        return;
+      }
+      const saveResult = await saveNowDetailed({ forceNewRevision: true });
+      if (saveResult.ok) {
+        if (saveResult.filePath) {
+          rememberFilePath(saveResult.filePath);
+          updateTitle(saveResult.filePath);
+        }
+        const name = (saveResult.filePath || currentFilePath || getFilePath() || "").replace(/.*[/\\]/, "");
+        statusMsg = name ? `Version saved for ${name}` : "Version saved";
+        showToast(name ? `Version saved: ${name}` : "Version saved");
+      } else if (saveResult.error) {
+        statusMsg = `Save failed: ${saveResult.error}`;
+      }
+    } finally {
+      versionSaveInFlight = false;
+    }
+  }
+
   async function launchOpenScad(filePath: string, profile?: string) {
     const bgsd = (window as any).bgsd;
     if (!bgsd?.openInOpenScad) return;
     if (!filePath) return;
+    if (bgsd.harness) return;
 
     // Check preferences for auto-open
     const prefs = await bgsd.getPreferences?.() || { autoOpenInOpenScad: true };
@@ -438,7 +562,7 @@
   }
 
   async function copyScadPath() {
-    const fp = getFilePath();
+    const fp = currentFilePath || getFilePath();
     if (!fp) { statusMsg = "No file open"; return; }
     try {
       await navigator.clipboard.writeText(fp);
@@ -449,15 +573,40 @@
     }
   }
 
+  function openFileHistory() {
+    const fp = currentFilePath || getFilePath();
+    if (!fp) { statusMsg = "No file open"; return; }
+    if (currentReadOnly || getReadOnly()) {
+      statusMsg = "Library example — use Save As before Version History";
+      return;
+    }
+    showFileHistory = true;
+  }
+
+  async function restoreFileHistoryRevision(payload: any) {
+    restoreProjectFromHistory(payload.data);
+    collapsed = new Set();
+    editorPadBottom = 0;
+    setNeedsBackup(false);
+    await tick();
+    const saveResult = await saveNowDetailed();
+    if (!saveResult.ok) {
+      statusMsg = `Restore applied in memory; save failed: ${saveResult.error || "unknown"}`;
+      return;
+    }
+    const id = String(payload.revision?.id || "").replace(/-/g, "").slice(0, 8);
+    statusMsg = id ? `Restored version ${id}` : "Restored version";
+  }
+
   async function openInOpenScad() {
     const bgsd = (window as any).bgsd;
     if (!bgsd?.openInOpenScad) return;
 
-    let fp = getFilePath();
+    let fp = currentFilePath || getFilePath();
     if (!fp) {
       // No file yet — prompt save-as first
       await saveFileAs();
-      fp = getFilePath();
+      fp = currentFilePath || getFilePath();
       if (!fp) return;
     }
 
@@ -807,6 +956,27 @@
     }
     document.addEventListener("click", handleClick, true);
     return () => document.removeEventListener("click", handleClick, true);
+  });
+
+  $effect(() => {
+    if (!showFileMenu && !showViewMenu) return;
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".file-menu-wrap")) showFileMenu = false;
+      if (!target.closest(".view-menu-wrap")) showViewMenu = false;
+    }
+    function handleKeydown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        showFileMenu = false;
+        showViewMenu = false;
+      }
+    }
+    document.addEventListener("click", handleClick, true);
+    document.addEventListener("keydown", handleKeydown, true);
+    return () => {
+      document.removeEventListener("click", handleClick, true);
+      document.removeEventListener("keydown", handleKeydown, true);
+    };
   });
 
   /** Look up a preset's display value by constant name. */
@@ -1713,21 +1883,81 @@
   <nav class="toolbar" data-testid="toolbar">
     <button class="toolbar-home" title="Welcome page" onclick={() => { showWelcome = true; loadLibraryTree(); }}>&#8962;</button>
     <div class="toolbar-sep"></div>
-    <div class="toolbar-group">
-      <span class="toolbar-label">Show Defaults:</span>
-      <label class="toolbar-radio"><input type="radio" bind:group={defaultsMode} value="all" /> All</label>
-      <label class="toolbar-radio"><input type="radio" bind:group={defaultsMode} value="favorites" /> Favorites</label>
-      <label class="toolbar-radio"><input type="radio" bind:group={defaultsMode} value="none" /> None</label>
+    <div class="file-menu-wrap">
+      <button class="toolbar-btn file-menu-button" title="File actions" data-testid="file-menu-button" aria-haspopup="menu" aria-expanded={showFileMenu}
+        onclick={(e) => { e.stopPropagation(); void toggleFileMenu(); }}>File ▾</button>
+      {#if showFileMenu}
+        <div class="file-menu" data-testid="file-menu" role="menu">
+          <button class="file-menu-item" data-testid="menu-save-version" role="menuitem" disabled={!currentFilePath || currentReadOnly}
+            onclick={() => { showFileMenu = false; void saveVersion(); }}>
+            <span>Save Version</span><kbd>Ctrl+S</kbd>
+          </button>
+          <button class="file-menu-item" data-testid="menu-save-as" role="menuitem"
+            onclick={() => { showFileMenu = false; void saveFileAs(); }}>
+            <span>Save As...</span><kbd>Ctrl+Shift+S</kbd>
+          </button>
+          <button class="file-menu-item" data-testid="menu-copy-path" role="menuitem" disabled={!currentFilePath}
+            onclick={() => { showFileMenu = false; void copyScadPath(); }}>
+            <span>Copy Path</span>
+          </button>
+          <button class="file-menu-item" data-testid="file-history-button" role="menuitem" disabled={!currentFilePath || currentReadOnly}
+            onclick={() => { showFileMenu = false; openFileHistory(); }}>
+            <span>Version History</span>
+          </button>
+          <div class="file-menu-sep"></div>
+          <div class="file-menu-item file-menu-recent" role="menuitem" aria-haspopup="menu" tabindex="0" data-testid="menu-recent-files">
+            <span>Recent Files</span><span class="file-menu-arrow">›</span>
+            <div class="recent-flyout" role="menu" data-testid="recent-files-flyout">
+              {#if recentFiles.length === 0}
+                <div class="recent-empty">No Recent Files</div>
+              {:else}
+                {#each recentFiles as recentFile (recentFile)}
+                  <button class="recent-item" role="menuitem" title={recentFile}
+                    onclick={() => openRecentFile(recentFile)}>
+                    <span class="recent-name">{basename(recentFile)}</span>
+                    <span class="recent-path">{recentFile}</span>
+                  </button>
+                {/each}
+              {/if}
+            </div>
+          </div>
+        </div>
+      {/if}
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="view-menu-wrap">
+      <button class="toolbar-btn view-menu-button" title="View options" data-testid="view-menu-button" aria-haspopup="menu" aria-expanded={showViewMenu}
+        onclick={(e) => { e.stopPropagation(); toggleViewMenu(); }}>View ▾</button>
+      {#if showViewMenu}
+        <div class="view-menu" data-testid="view-menu" role="menu">
+          <div class="view-menu-group-label">Show Default State Parameters</div>
+          <button class="file-menu-item radio-menu-item" data-testid="view-defaults-all" role="menuitemradio" aria-checked={defaultsMode === "all"}
+            onclick={() => setDefaultsMode("all")}>
+            <span><span class="radio-dot" class:checked={defaultsMode === "all"}></span>All</span>
+          </button>
+          <button class="file-menu-item radio-menu-item" data-testid="view-defaults-favorites" role="menuitemradio" aria-checked={defaultsMode === "favorites"}
+            onclick={() => setDefaultsMode("favorites")}>
+            <span><span class="radio-dot" class:checked={defaultsMode === "favorites"}></span>Favorites</span>
+          </button>
+          <button class="file-menu-item radio-menu-item" data-testid="view-defaults-none" role="menuitemradio" aria-checked={defaultsMode === "none"}
+            onclick={() => setDefaultsMode("none")}>
+            <span><span class="radio-dot" class:checked={defaultsMode === "none"}></span>None</span>
+          </button>
+          <div class="file-menu-sep"></div>
+          <button class="file-menu-item" data-testid="view-show-scad" role="menuitemcheckbox" aria-checked={showScad}
+            onclick={() => { showScad = !showScad; }}>
+            <span><span class="check-mark">{showScad ? "✓" : ""}</span>Show SCAD</span><kbd>Ctrl+U</kbd>
+          </button>
+        </div>
+      {/if}
     </div>
     <div class="toolbar-sep"></div>
     <div class="toolbar-group">
-      <label class="toolbar-check" title="Show generated SCAD (Ctrl+U)">
-        <input type="checkbox" bind:checked={showScad} /> Show SCAD
-      </label>
+      <button class="toolbar-icon-btn" title="Undo (Ctrl+Z)" aria-label="Undo" data-testid="toolbar-undo-button" disabled={!$canUndo} onclick={() => undo()}>&#8630;</button>
+      <button class="toolbar-icon-btn" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" data-testid="toolbar-redo-button" disabled={!$canRedo} onclick={() => redo()}>&#8631;</button>
     </div>
     <div class="toolbar-sep"></div>
     <div class="toolbar-group">
-      <button class="toolbar-btn" title="Copy SCAD file path to clipboard" data-testid="toolbar-copy-path" disabled={!getFilePath()} onclick={copyScadPath}>Copy path</button>
       <button class="toolbar-btn" title="Open in OpenSCAD (Ctrl+E)" onclick={() => openInOpenScad()}>OpenSCAD</button>
       <button class="toolbar-btn toolbar-gear" title="Preferences... (Ctrl+,)" onclick={() => openPreferencesModal()}>&#x2699;</button>
     </div>
@@ -2304,6 +2534,10 @@
     </span>
   </footer>
 
+  {#if toastText}
+    <div class="toast" data-testid="save-toast" role="status" aria-live="polite">{toastText}</div>
+  {/if}
+
   <PreferencesModal
     bind:show={showPrefs}
     bind:workingDir={prefsWorkingDir}
@@ -2313,6 +2547,12 @@
     onsave={savePreferences}
     onbrowseworkingdir={browseWorkingDirPref}
     onbrowseopenscad={browseOpenScadPath}
+  />
+
+  <FileHistoryModal
+    bind:show={showFileHistory}
+    filePath={currentFilePath}
+    onrestore={restoreFileHistoryRevision}
   />
 
   {#if showIntent}
@@ -2332,29 +2572,119 @@
   }
   main { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   .toolbar {
-    display: flex; align-items: center; gap: 2px;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
     padding: 3px 8px; background: #e0e7ee; border-bottom: 1px solid #c4ced8;
-    flex-shrink: 0; font-size: 12px;
+    flex-shrink: 0; font-size: 12px; overflow: visible; row-gap: 4px;
   }
   .toolbar-home {
     background: none; border: none; cursor: pointer; font-size: 18px; line-height: 1;
     padding: 1px 4px; color: #2c3e50; border-radius: 3px;
   }
   .toolbar-home:hover { background: #c4ced8; color: #2c3e50; }
-  .toolbar-group { display: flex; align-items: center; gap: 4px; }
+  .toolbar-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .file-menu-wrap,
+  .view-menu-wrap { position: relative; flex-shrink: 0; }
+  .file-menu-button,
+  .view-menu-button { min-width: 58px; }
+  .file-menu,
+  .view-menu {
+    position: absolute; top: calc(100% + 4px); left: 0; z-index: 80;
+    min-width: 220px; padding: 5px; border: 1px solid #b4c0cb; border-radius: 4px;
+    background: #ffffff; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.18);
+  }
+  .view-menu { min-width: 250px; }
+  .file-menu-item,
+  .recent-item {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    border: none; border-radius: 3px; background: transparent; color: #263846;
+    cursor: pointer; font-size: 12px; text-align: left; padding: 6px 8px;
+  }
+  .file-menu-item:hover,
+  .file-menu-item:focus,
+  .recent-item:hover,
+  .recent-item:focus {
+    background: #edf4fa;
+    outline: none;
+  }
+  .file-menu-item:disabled {
+    opacity: 0.45; cursor: default; background: transparent;
+  }
+  .file-menu-item kbd {
+    font-family: inherit; font-size: 11px; color: #667085; background: transparent;
+  }
+  .file-menu-sep { height: 1px; background: #e5ebf0; margin: 5px 2px; }
+  .view-menu-group-label {
+    padding: 6px 8px 4px; color: #526374; font-size: 11px; font-weight: 700;
+    text-transform: uppercase;
+  }
+  .radio-menu-item span,
+  .file-menu-item span {
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .radio-dot {
+    width: 10px; height: 10px; border: 1px solid #8093a5; border-radius: 50%;
+    box-sizing: border-box; background: #ffffff;
+  }
+  .radio-dot.checked {
+    border: 3px solid #2d5a7b;
+  }
+  .check-mark {
+    width: 12px; display: inline-block; color: #2d5a7b; font-weight: 700;
+  }
+  .file-menu-recent { position: relative; }
+  .file-menu-arrow { color: #667085; font-size: 16px; line-height: 1; }
+  .recent-flyout {
+    display: none; position: absolute; top: -5px; left: 100%;
+    min-width: 310px; max-width: min(520px, calc(100vw - 280px)); max-height: 360px; overflow: auto;
+    padding: 5px; border: 1px solid #b4c0cb; border-radius: 4px;
+    background: #ffffff; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.18);
+  }
+  .file-menu-recent:hover .recent-flyout,
+  .file-menu-recent:focus-within .recent-flyout {
+    display: block;
+  }
+  .recent-item {
+    display: block; white-space: nowrap;
+  }
+  .recent-name {
+    display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis;
+  }
+  .recent-path {
+    display: block; margin-top: 2px; max-width: 470px;
+    font-family: "Courier New", monospace; font-size: 11px; color: #667085;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .recent-empty { padding: 8px; color: #667085; font-size: 12px; white-space: nowrap; }
   .toolbar-btn {
     padding: 3px 8px; border: 1px solid #b4c0cb; border-radius: 3px;
     background: #f0f4f7; cursor: pointer; font-size: 12px; color: #2c3e50;
   }
+  .toolbar-icon-btn {
+    width: 28px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid #b4c0cb; border-radius: 3px; background: #f0f4f7;
+    cursor: pointer; font-size: 17px; line-height: 1; color: #2c3e50;
+  }
   .toolbar-btn:hover { background: #fff; border-color: #8a9aab; }
   .toolbar-btn:active { background: #c4ced8; }
-  .toolbar-check { display: flex; align-items: center; gap: 3px; cursor: pointer; color: #2c3e50; font-size: 12px; }
-  .toolbar-check input { margin: 0; }
-  .toolbar-radio { display: flex; align-items: center; gap: 3px; cursor: pointer; color: #2c3e50; font-size: 12px; }
-  .toolbar-radio input { margin: 0; }
-  .toolbar-label { font-size: 12px; font-weight: 600; color: #546e7a; }
+  .toolbar-icon-btn:hover { background: #fff; border-color: #8a9aab; }
+  .toolbar-icon-btn:active { background: #c4ced8; }
+  .toolbar-btn:disabled,
+  .toolbar-icon-btn:disabled {
+    opacity: 0.48; cursor: default; background: #e7edf2; color: #7b8794;
+  }
+  .toolbar-btn:disabled:hover,
+  .toolbar-icon-btn:disabled:hover {
+    border-color: #b4c0cb; background: #e7edf2;
+  }
   .toolbar-sep { width: 1px; height: 18px; background: #b4c0cb; margin: 0 6px; }
   .content { flex: 1; overflow-y: auto; padding: 4px 0; display: flex; flex-direction: column; min-height: 0; }
+  .toast {
+    position: fixed; top: 48px; right: 14px; z-index: 100;
+    max-width: min(360px, calc(100vw - 28px));
+    background: #1f3f57; color: #ffffff; border: 1px solid #2d5a7b;
+    border-radius: 5px; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.22);
+    padding: 9px 12px; font-size: 13px; font-weight: 600;
+  }
 
   /* Split layout: editor left + SCAD pane right */
   .editor-split { display: flex; flex-direction: row; }
@@ -2637,7 +2967,7 @@
   }
   .line-row:hover .toggle-btn { opacity: 1; }
   .toggle-btn:hover:not(:disabled) { border-color: #2d5a7b; color: #2d5a7b; }
-  .toggle-btn:disabled, .toggle-btn.disabled { opacity: 0.3; cursor: default; }
+  .toggle-btn:disabled { opacity: 0.3; cursor: default; }
   .toggle-btn.active { opacity: 1; background: #2d5a7b; color: white; border-color: #2d5a7b; }
   .kv-raw-value {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 400;

@@ -19,7 +19,9 @@ try {
     const nums = files.map((f) => parseInt(f.split("_")[0], 10));
     shotCounter = Math.max(...nums) + 1;
   }
-} catch {}
+} catch {
+  // Missing or unreadable screenshot directory just means start from 0.
+}
 
 // Shot prefix: defaults to script filename (without extension) if running a script
 let shotPrefix = process.env.BGSD_SHOT_PREFIX || "";
@@ -249,7 +251,9 @@ async function handleCommand(line) {
         try {
           const { execSync: execClean } = require("child_process");
           execClean(`rm -rf "${tmpDir}"`);
-        } catch {}
+        } catch {
+          // Best-effort temp cleanup; render output already exists or failed above.
+        }
         break;
       }
 
@@ -285,6 +289,7 @@ async function handleCommand(line) {
       case "q":
         await app.close();
         process.exit(0);
+        break;
 
       default:
         console.log(`  Unknown command: ${cmd}. Type 'help'.`);

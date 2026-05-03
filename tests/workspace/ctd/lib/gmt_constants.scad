@@ -1,3 +1,9 @@
+/*
+ * Counter Tray Designer
+ * Version: 1.2
+ * https://github.com/dppdppd/counter-tray-designer
+ */
+
 include <global_constants.scad>
 
 gmt_nine_sixteenths_counter = [ nine_sixteenths_counter, nine_sixteenths_counter, counter_depth_standard_cardboard ]; // @preset COUNTER_SIZE_XYZ "9/16\" GMT (15mm)"

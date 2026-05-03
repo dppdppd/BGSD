@@ -7,8 +7,21 @@ let filePath: string | null = null;
 let needsBackup = false;
 let readOnly = false;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let suppressNextProjectSave = false;
 let saveStatus: (msg: string) => void = () => {};
 let onReadOnlySave: (() => void) | null = null;
+
+export interface SaveResult {
+  ok: boolean;
+  filePath?: string;
+  error?: string;
+  repoFile?: boolean;
+  readOnlyFile?: boolean;
+}
+
+export interface SaveOptions {
+  forceNewRevision?: boolean;
+}
 
 export function setFilePath(path: string) {
   filePath = path;
@@ -42,22 +55,26 @@ export function onSaveStatus(cb: (msg: string) => void) {
   saveStatus = cb;
 }
 
-async function doSave() {
-  if (!filePath) return;
-  if (readOnly) return;
+export function suppressNextAutosave() {
+  suppressNextProjectSave = true;
+}
+
+async function doSave(options: SaveOptions = {}): Promise<SaveResult> {
+  if (!filePath) return { ok: false, error: "No file open" };
+  if (readOnly) return { ok: false, error: "Read-only file", readOnlyFile: true };
   const bgsd = (window as any).bgsd;
-  if (!bgsd?.saveFile) return;
+  if (!bgsd?.saveFile) return { ok: false, error: "Save API unavailable" };
 
   const proj = get(project);
   const scadText = generateScad(proj);
   saveStatus("Saving...");
-  const result = await bgsd.saveFile(filePath, scadText, needsBackup, proj.libraryProfile);
+  const result = await bgsd.saveFile(filePath, scadText, needsBackup, proj.libraryProfile, options) as SaveResult;
   if (result.ok) {
     if (result.filePath && typeof result.filePath === "string") {
       filePath = result.filePath;
     }
     needsBackup = false; // Only backup once
-    saveStatus(`Saved ${new Date().toLocaleTimeString()}`);
+    saveStatus(`${options.forceNewRevision ? "Version saved" : "Saved"} ${new Date().toLocaleTimeString()}`);
   } else if (result.repoFile) {
     // Server-side safety net: file is repo-tracked
     readOnly = true;
@@ -69,11 +86,24 @@ async function doSave() {
   } else {
     saveStatus(`Save failed: ${result.error}`);
   }
+  return { ...result, filePath };
 }
 
-export async function saveNow(): Promise<string | null> {
-  await doSave();
-  return filePath;
+export async function saveNow(options: SaveOptions = {}): Promise<string | null> {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  const result = await doSave(options);
+  return result.ok ? filePath : null;
+}
+
+export async function saveNowDetailed(options: SaveOptions = {}): Promise<SaveResult> {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  return doSave(options);
 }
 
 export function triggerSave() {
@@ -89,6 +119,10 @@ export function startAutosave() {
   let first = true;
   project.subscribe(() => {
     if (first) { first = false; return; }
+    if (suppressNextProjectSave) {
+      suppressNextProjectSave = false;
+      return;
+    }
     triggerSave();
   });
 }

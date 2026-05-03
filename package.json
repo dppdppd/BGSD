@@ -1,7 +1,7 @@
 {
   "name": "bgsd",
   "private": true,
-  "version": "0.5.17",
+  "version": "0.5.23",
   "description": "Board Game Solutions Designer — visual editor for parametric OpenSCAD libraries",
   "author": "BGSD Contributors",
   "main": "main.js",
@@ -37,6 +37,7 @@
   "build": {
     "appId": "com.bgsd.app",
     "productName": "BGSD",
+    "icon": "build/icon.png",
     "directories": {
       "output": "release"
     },
@@ -50,17 +51,20 @@
       "package.json"
     ],
     "linux": {
+      "icon": "build/icon.png",
       "target": [
         "AppImage"
       ],
       "category": "Utility"
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "portable"
       ]
     },
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         "zip"
       ],

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="BGSD icon">
+  <defs>
+    <linearGradient id="bg" x1="160" y1="80" x2="864" y2="944" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2f5367"/>
+      <stop offset="0.56" stop-color="#24384a"/>
+      <stop offset="1" stop-color="#172638"/>
+    </linearGradient>
+    <linearGradient id="top" x1="248" y1="246" x2="790" y2="594" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0fff7"/>
+      <stop offset="1" stop-color="#c9eadf"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="34" stdDeviation="22" flood-color="#081421" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+
+  <rect x="72" y="72" width="880" height="880" rx="190" fill="url(#bg)"/>
+  <path d="M183 512c0-201 145-350 342-350 130 0 242 66 305 163-65-66-157-105-267-105-197 0-342 149-342 350 0 68 17 131 47 184-53-61-85-145-85-242z" fill="#3d6d7a" opacity="0.28"/>
+
+  <g filter="url(#shadow)">
+    <path d="M258 371l188 158v158L258 531z" fill="#469ba4"/>
+    <path d="M446 529l326-132v152L446 687z" fill="#2f7f91"/>
+    <path d="M258 531l188 156 326-138 0 71-326 164-188-174z" fill="#1f5d75"/>
+
+    <path d="M258 371l330-125 184 151-326 132z" fill="url(#top)"/>
+    <path d="M258 371l330-125 184 151-326 132z" fill="none" stroke="#15364b" stroke-width="28" stroke-linejoin="round"/>
+    <path d="M258 371l330-125 184 151-326 132z" fill="none" stroke="#d7f4ea" stroke-width="11" stroke-linejoin="round"/>
+
+    <path d="M368 329l190 158" stroke="#2d6c7a" stroke-width="25" stroke-linecap="round"/>
+    <path d="M484 285l190 158" stroke="#2d6c7a" stroke-width="25" stroke-linecap="round"/>
+    <path d="M332 432l328-127" stroke="#2d6c7a" stroke-width="25" stroke-linecap="round"/>
+    <path d="M442 497l326-132" stroke="#2d6c7a" stroke-width="25" stroke-linecap="round"/>
+
+    <circle cx="420" cy="385" r="42" fill="#f2b84b" stroke="#15364b" stroke-width="14"/>
+    <rect x="571" y="350" width="82" height="82" rx="18" transform="rotate(39 612 391)" fill="#f08a4b" stroke="#15364b" stroke-width="14"/>
+  </g>
+
+  <path d="M735 206l36 74 81 12-59 56 14 80-72-38-72 38 14-80-59-56 81-12z" fill="#ffc857" stroke="#15364b" stroke-width="15" stroke-linejoin="round"/>
+</svg>

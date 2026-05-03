@@ -1,3 +1,9 @@
+/*
+ * Counter Tray Designer
+ * Version: 1.2
+ * https://github.com/dppdppd/counter-tray-designer
+ */
+
 
 tray_letter = [215,250]; // @preset G_DIMENSIONS_XY "Letter"
 
