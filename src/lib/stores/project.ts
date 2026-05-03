@@ -372,18 +372,25 @@ export function duplicateScene(openIdx: number, newName: string) {
     }
     if (closeIdx < 0) return p;
 
-    // Clone the block (open through close), renaming the data wrapper
-    const cloned = p.lines.slice(openIdx, closeIdx + 1).map((l) => {
-      const c = { ...l } as Line;
-      if (c.varName === origVarName) {
-        c.varName = newName;
-        c.label = newName;
-        if (c.kind === "open") {
-          c.raw = c.raw.replace(new RegExp(`^${origVarName}(\\s*=)`), `${newName}$1`);
+    // Clone the block (open through close), renaming the data wrapper.
+    // Strip inline globals (`[ G_TOLERANCE, 0.1 ]` etc., which the importer
+    // tagged as kind:"global") — globals are file-scoped, not per-scene; the
+    // existing definitions in the source scene already apply file-wide via the
+    // virtual globals block. Cloning them produces stray editable global lines
+    // that don't belong to any scene.
+    const cloned = p.lines.slice(openIdx, closeIdx + 1)
+      .filter((l) => l.kind !== "global")
+      .map((l) => {
+        const c = { ...l } as Line;
+        if (c.varName === origVarName) {
+          c.varName = newName;
+          c.label = newName;
+          if (c.kind === "open") {
+            c.raw = c.raw.replace(new RegExp(`^${origVarName}(\\s*=)`), `${newName}$1`);
+          }
         }
-      }
-      return c;
-    });
+        return c;
+      });
 
     // Insert the cloned data block right after its original close. The single
     // Make(...) line in the file is shared across all scenes (UI dropdown
