@@ -136,14 +136,26 @@ export function deleteBlock(index: number) {
     }
     if (closeIdx < 0) return p; // unmatched — shouldn't happen
 
-    // Also remove associated makeall line immediately after the close
-    let endIdx = closeIdx + 1;
-    if (line.role === "data" && endIdx < p.lines.length &&
-        p.lines[endIdx].kind === "makeall" && p.lines[endIdx].varName === line.varName) {
-      endIdx++;
+    p.lines.splice(index, closeIdx - index + 1);
+
+    // After a scene deletion, the file should still have exactly one Make(...).
+    // If any makeall now references a varName that no longer exists, re-point
+    // it at the first remaining scene so the SCAD stays valid.
+    if (line.role === "data") {
+      const sceneVarNames = new Set(
+        p.lines.filter((l) => l.kind === "open" && l.role === "data").map((l) => l.varName)
+      );
+      const firstSceneName = p.lines.find((l) => l.kind === "open" && l.role === "data")?.varName;
+      if (firstSceneName) {
+        for (const l of p.lines) {
+          if (l.kind === "makeall" && l.varName && !sceneVarNames.has(l.varName)) {
+            l.varName = firstSceneName;
+            l.raw = `Make(${firstSceneName});`;
+          }
+        }
+      }
     }
 
-    p.lines.splice(index, endIdx - index);
     return { ...p };
   });
 }
