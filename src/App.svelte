@@ -2717,7 +2717,7 @@
 
   /* Split layout: editor left + SCAD pane right */
   .editor-split { display: flex; flex-direction: row; }
-  .editor-left { flex: 1; min-width: 0; }
+  .editor-left { flex: 1 1 auto; min-width: 560px; overflow-x: hidden; }
   :global(.editor-right) {
     width: 500px; flex-shrink: 0;
     background: #fff;

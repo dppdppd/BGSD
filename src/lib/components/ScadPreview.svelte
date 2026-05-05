@@ -42,7 +42,12 @@
     isRawGroupMember: (i: number) => boolean;
   } = $props();
 
+  const MIN_SCAD_WIDTH = 200;
+  const MIN_EDITOR_LEFT_WIDTH = 560;
+  const SPLIT_HANDLE_WIDTH = 6;
+
   let dragging = $state(false);
+  let splitHandle: HTMLDivElement | null = $state(null);
 
   function scadIndent(depth: number): string { return INDENT.repeat(depth); }
 
@@ -50,12 +55,37 @@
     return defaultsMode === "none" || (defaultsMode === "favorites" && !isFavorite(key));
   }
 
+  function availableSplitWidth(): number {
+    return splitHandle?.parentElement?.getBoundingClientRect().width || window.innerWidth;
+  }
+
+  function clampScadWidth(width: number): number {
+    const maxRightWidth = Math.max(
+      MIN_SCAD_WIDTH,
+      availableSplitWidth() - MIN_EDITOR_LEFT_WIDTH - SPLIT_HANDLE_WIDTH,
+    );
+    return Math.max(MIN_SCAD_WIDTH, Math.min(width, maxRightWidth));
+  }
+
+  $effect(() => {
+    if (!splitHandle) return;
+    const onResize = () => {
+      scadWidth = clampScadWidth(scadWidth);
+    };
+    const frame = requestAnimationFrame(onResize);
+    window.addEventListener("resize", onResize);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", onResize);
+    };
+  });
+
   function onSplitHandleDown(e: MouseEvent) {
     e.preventDefault();
     dragging = true;
     const onMove = (ev: MouseEvent) => {
       const newWidth = window.innerWidth - ev.clientX;
-      scadWidth = Math.max(200, Math.min(newWidth, window.innerWidth * 0.8));
+      scadWidth = clampScadWidth(newWidth);
     };
     const onUp = () => {
       dragging = false;
@@ -68,7 +98,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="split-handle" onmousedown={onSplitHandleDown}></div>
+<div class="split-handle" bind:this={splitHandle} onmousedown={onSplitHandleDown}></div>
 <div class="editor-right" data-testid="scad-pane" style="width: {scadWidth}px">
 {#each lines as line, i (i)}
   {#if hiddenLines.has(i)}

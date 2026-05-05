@@ -1,0 +1,9 @@
+wait app-root
+new bit
+ipc menu-toggle-show-scad true
+js (async () => { await new Promise(r => setTimeout(r, 300)); return true; })()
+shot scad_open
+js (() => { const handle = document.querySelector(".split-handle"); const rect = handle.getBoundingClientRect(); handle.dispatchEvent(new MouseEvent("mousedown", { clientX: rect.left, bubbles: true })); document.dispatchEvent(new MouseEvent("mousemove", { clientX: 0, bubbles: true })); document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })); return true; })()
+js (async () => { await new Promise(r => setTimeout(r, 300)); return true; })()
+shot scad_dragged_to_min
+js (() => { const left = document.querySelector(".editor-left").getBoundingClientRect(); const scad = document.querySelector('[data-testid="scad-pane"]').getBoundingClientRect(); const favs = [...document.querySelectorAll(".fav-btn.active")].map(el => el.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0); const maxFavRight = Math.max(...favs.map(r => r.right)); if (left.width < 555 || maxFavRight > scad.left) throw new Error(`SCAD divider overlapped favorites: left=${left.width}, maxFavoriteRight=${maxFavRight}, scadLeft=${scad.left}`); return { leftWidth: Math.round(left.width), maxFavoriteRight: Math.round(maxFavRight), scadLeft: Math.round(scad.left), scadWidth: Math.round(scad.width) }; })()
