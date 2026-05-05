@@ -1,0 +1,5 @@
+wait app-root
+new bit
+js (() => { const scad = document.querySelector('[data-testid="scad-output"]')?.textContent || ""; const m = scad.match(/boardgame_insert_toolkit_lib\.(\d+\.\d+\.\d+)\.scad/); return m ? `versioned BIT include ${m[1]}` : `missing versioned BIT include: ${(scad.split('\n')[1] || '').trim()}`; })()
+shot versioned_bit_include
+scad

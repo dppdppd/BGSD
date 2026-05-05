@@ -3,7 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const { Buffer } = require("buffer");
 const { importScad } = require("./importer");
-const { ensureLibrary, initWorkingDir, updateLibraries, checkLibraryUpdates, fetchLatestReleaseTag, isInsideWorkingDir, isRepoFile, loadManifest, profiles, setProxy, getProxy } = require("./lib/library-manager");
+const { ensureLatestLibrary, ensureLibraryForInclude, initWorkingDir, updateLibraries, checkLibraryUpdates, fetchLatestReleaseTag, isInsideWorkingDir, isRepoFile, loadManifest, profiles, setProxy } = require("./lib/library-manager");
 const { parseConstantsFile } = require("./lib/constants-parser");
 const undoSidecar = require("./lib/undo-sidecar");
 
@@ -57,15 +57,42 @@ function addRecent(filePath) {
   rebuildMenu();
 }
 
-function openFilePath(filePath) {
+const INCLUDE_RE = /^\s*include\s*<\s*(.+?)\s*>\s*;?\s*(?:\/\/.*)?$/gmi;
+
+async function ensureLibrariesForScadText(scadText, filePath) {
+  const prefs = loadPrefs();
+  const results = [];
+  const seen = new Set();
+  for (const match of String(scadText || "").matchAll(INCLUDE_RE)) {
+    const includeFile = match[1].trim();
+    if (seen.has(includeFile)) continue;
+    seen.add(includeFile);
+    try {
+      const result = await ensureLibraryForInclude(includeFile, filePath, { workingDir: prefs.workingDir });
+      if (result) results.push(result);
+    } catch (err) {
+      results.push({ ok: false, includeFile, error: err.message });
+      console.warn(`[library] failed to ensure ${includeFile}:`, err.message);
+    }
+  }
+  return results;
+}
+
+async function importScadWithLibraries(content, filePath) {
+  const libraryEnsures = await ensureLibrariesForScadText(content, filePath);
+  const project = importScad(content);
+  return { project, libraryEnsures };
+}
+
+async function openFilePath(filePath) {
   if (!validateFilePath(filePath)) {
     console.error("Open rejected: invalid file path", filePath);
     return;
   }
   try {
     const content = fs.readFileSync(filePath, "utf-8");
-    const project = importScad(content);
-    mainWindow.webContents.send("menu-open", { data: project, filePath });
+    const { project, libraryEnsures } = await importScadWithLibraries(content, filePath);
+    mainWindow.webContents.send("menu-open", { data: project, filePath, libraryEnsures });
     addRecent(filePath);
   } catch (err) {
     console.error("Open failed:", err.message);
@@ -238,16 +265,18 @@ function createWindow() {
   // Auto-load file from env or CLI arg
   const autoLoad = process.env.BGSD_OPEN || process.argv.find(a => a.endsWith(".scad"));
   if (autoLoad) {
-    try {
-      console.log("Auto-loading:", autoLoad);
-      const content = fs.readFileSync(autoLoad, "utf-8");
-      const proj = importScad(content);
-      console.log("Parsed", proj.lines.length, "lines");
-      pendingLoad = { data: proj, filePath: autoLoad };
-      addRecent(autoLoad);
-    } catch (err) {
-      console.error("Auto-load failed:", err.message);
-    }
+    void (async () => {
+      try {
+        console.log("Auto-loading:", autoLoad);
+        const content = fs.readFileSync(autoLoad, "utf-8");
+        const { project, libraryEnsures } = await importScadWithLibraries(content, autoLoad);
+        console.log("Parsed", project.lines.length, "lines");
+        pendingLoad = { data: project, filePath: autoLoad, libraryEnsures };
+        addRecent(autoLoad);
+      } catch (err) {
+        console.error("Auto-load failed:", err.message);
+      }
+    })();
   }
 }
 
@@ -315,9 +344,9 @@ ipcMain.handle("open-file", async () => {
   try {
     const filePath = result.filePaths[0];
     const content = fs.readFileSync(filePath, "utf-8");
-    const project = importScad(content);
+    const { project, libraryEnsures } = await importScadWithLibraries(content, filePath);
     addRecent(filePath);
-    return { ok: true, filePath, data: project };
+    return { ok: true, filePath, data: project, libraryEnsures };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -655,7 +684,16 @@ ipcMain.handle("browse-openscad", async () => {
 ipcMain.handle("new-project-to-path", async (_event, profile) => {
   const os = require("os");
   const profileObj = profiles[profile];
-  const includeFile = profileObj ? profileObj.include : "boardgame_insert_toolkit_lib.4.scad";
+  const prefs = loadPrefs();
+  let includeFile = profileObj ? profileObj.include : "boardgame_insert_toolkit_lib.4.scad";
+  if (profileObj?.latestFilePattern) {
+    try {
+      const latest = await ensureLatestLibrary(profile, { workingDir: prefs.workingDir });
+      includeFile = latest.include;
+    } catch (err) {
+      console.warn(`[new-project] latest ${profile} library probe failed:`, err.message);
+    }
+  }
   const templates = {
     bit: `// BGSD\ninclude <${includeFile}>;\ndata = [\n    [ OBJECT_BOX, [\n        [ NAME, "box 1" ],\n        [ BOX_SIZE_XYZ, [50, 50, 20] ],\n    ]],\n];\nMake(data);`,
     ctd: `// BGSD\ninclude <${includeFile}>;\nscene_1 = [\n    [ TRAY,\n        [ COUNTER_SET,\n            [ COUNTER_SIZE_XYZ, [13.3, 13.3, 3] ],\n        ],\n    ],\n    [ LID,\n    ],\n];\nMake(scene_1);`,
@@ -663,7 +701,6 @@ ipcMain.handle("new-project-to-path", async (_event, profile) => {
   const scad = templates[profile] || templates.bit;
 
   // Use working directory if set, otherwise fall back to tmpdir
-  const prefs = loadPrefs();
   let filePath;
   if (prefs.workingDir && profileObj) {
     const designsDir = path.join(prefs.workingDir, profile, profileObj.designsDir || "my_designs");
@@ -690,15 +727,15 @@ ipcMain.handle("new-project-to-path", async (_event, profile) => {
 });
 
 // --- Load file by path (for new-project round-trip) ---
-ipcMain.handle("load-file-path", (_event, filePath) => {
+ipcMain.handle("load-file-path", async (_event, filePath) => {
   if (!validateFilePath(filePath)) {
     return { ok: false, error: "Invalid file path" };
   }
   try {
     const content = fs.readFileSync(filePath, "utf-8");
-    const project = importScad(content);
+    const { project, libraryEnsures } = await importScadWithLibraries(content, filePath);
     addRecent(filePath);
-    return { ok: true, data: project, filePath };
+    return { ok: true, data: project, filePath, libraryEnsures };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -801,6 +838,16 @@ ipcMain.handle("update-libraries", async () => {
     }
 
     return { ok: true, messages };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle("ensure-latest-library", async (_event, profileId) => {
+  const prefs = loadPrefs();
+  try {
+    const latest = await ensureLatestLibrary(profileId, { workingDir: prefs.workingDir });
+    return { ok: true, ...latest };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -1175,10 +1222,24 @@ ipcMain.handle("get-presets", (_event, publisherConstantsFile) => {
   return map;
 });
 
+async function refreshLatestLibrariesOnStartup() {
+  const prefs = loadPrefs();
+  for (const [profileId, profile] of Object.entries(profiles)) {
+    if (!profile.latestFilePattern) continue;
+    try {
+      const latest = await ensureLatestLibrary(profileId, { workingDir: prefs.workingDir });
+      console.log(`[library] latest ${profileId}: ${latest.filename}`);
+    } catch (err) {
+      console.warn(`[library] latest ${profileId} probe failed:`, err.message);
+    }
+  }
+}
+
 app.whenReady().then(() => {
   const prefs = loadPrefs();
   if (prefs.proxy) setProxy(prefs.proxy);
   createWindow();
+  void refreshLatestLibrariesOnStartup();
 });
 app.on("window-all-closed", () => app.quit());
 

@@ -148,7 +148,7 @@ async function handleCommand(line) {
           await app.evaluate(({ BrowserWindow }, payload) => {
             const win = BrowserWindow.getAllWindows()[0];
             if (win) win.webContents.send("menu-open", payload);
-          }, { data: loadResult.data, filePath: loadResult.filePath });
+          }, loadResult);
           await page.waitForTimeout(500);
           console.log(`  Opened: ${openPath}`);
         } else {
@@ -207,8 +207,11 @@ async function handleCommand(line) {
           const re = new RegExp(prof.includePattern, "i");
           if (re.test(scad)) {
             const cacheDir = path.join(userDataDir, "lib-cache", profileId);
-            for (const libFile of prof.files) {
-              const basename = path.basename(libFile);
+            const includeNames = [...scad.matchAll(/include\s*<\s*(.+?)\s*>/gi)]
+              .map((m) => path.basename(m[1].trim()))
+              .filter((name) => re.test(name));
+            const fallbackNames = (prof.files || []).map((libFile) => path.basename(libFile));
+            for (const basename of [...new Set([...includeNames, ...fallbackNames])]) {
               const src = path.join(cacheDir, basename);
               if (fs.existsSync(src)) {
                 fs.copyFileSync(src, path.join(libDir, basename));

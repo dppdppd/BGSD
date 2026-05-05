@@ -1,5 +1,5 @@
 {
-  "version": "4.00",
+  "version": "4.0.8",
   "types": {
     "bool": "Checkbox (true/false)",
     "number": "Numeric input",
@@ -69,6 +69,9 @@
         "LID_FIT_UNDER_B":              { "type": "bool", "default": true, "help": "Lid fits under the box (cap style)" },
         "LID_SOLID_B":                  { "type": "bool", "default": false, "help": "Solid lid (no pattern cutouts)" },
         "LID_HEIGHT":                   { "type": "number", "default": 4.0, "step": 0.5, "help": "Lid height in mm (default: 4 cap, 2 inset)" },
+        "LID_TYPE":                     { "type": "enum", "values": ["LID_CAP", "LID_INSET", "LID_SLIDING"], "default": "LID_CAP", "help": "Lid style. If omitted, BIT uses legacy cap/inset behavior." },
+        "LID_SLIDE_SIDE":               { "type": "enum", "values": ["FRONT", "BACK", "LEFT", "RIGHT"], "default": "FRONT", "help": "Side a sliding lid opens from" },
+        "LID_FRAME_WIDTH":              { "type": "number", "default": 1.5, "step": 0.1, "help": "Perimeter frame width on patterned sliding lids (defaults to box wall thickness; 0 omits frame)" },
         "LID_INSET_B":                  { "type": "bool", "default": false, "help": "Inset lid (sits inside box walls)" },
         "LID_CUTOUT_SIDES_4B":          { "type": "4bool", "default": [false, false, false, false], "help": "Lid finger cutouts [front, back, left, right]" },
         "LID_TABS_4B":                  { "type": "4bool", "default": [true, true, true, true], "help": "Lid retention tabs [front, back, left, right]" },

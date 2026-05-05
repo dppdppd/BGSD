@@ -6,11 +6,14 @@
     "files": [
       "release/lib/boardgame_insert_toolkit_lib.4.scad"
     ],
+    "libDir": "release/lib",
+    "latestFilePattern": "^release/lib/boardgame_insert_toolkit_lib\\.\\d+(?:\\.\\d+){2}\\.scad$",
     "include": "../lib/boardgame_insert_toolkit_lib.4.scad",
+    "includeTemplate": "../lib/{filename}",
     "entry": "Make",
     "dataVar": "data",
     "schema": "schema/bit.schema.json",
-    "includePattern": "boardgame_insert_toolkit_lib\\.\\d+\\.scad",
+    "includePattern": "boardgame_insert_toolkit_lib\\.\\d+(?:\\.\\d+){0,2}\\.scad",
     "designsDir": "my_designs"
   },
   "ctd": {

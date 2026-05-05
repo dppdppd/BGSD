@@ -1,0 +1,17 @@
+wait app-root
+new bit
+ipc menu-defaults-mode "all"
+js (async () => { await new Promise(r => setTimeout(r, 400)); })()
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot 01_virtual_lid_options
+js (() => { const row = document.querySelector('[data-testid="virtual-lid-LID_TYPE"]'); const select = row?.querySelector('select'); if (!select) return 'missing LID_TYPE select'; return [...select.options].map(o => o.value).join(','); })()
+js (() => { const select = document.querySelector('[data-testid="virtual-lid-LID_TYPE"] select'); if (!select) return 'missing LID_TYPE select'; select.value = 'LID_SLIDING'; select.dispatchEvent(new Event('change', { bubbles: true })); return 'set LID_SLIDING'; })()
+js (async () => { await new Promise(r => setTimeout(r, 400)); })()
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot 02_after_lid_type
+js (() => { const select = document.querySelector('[data-testid="virtual-LID_SLIDE_SIDE"] select'); if (!select) return 'missing LID_SLIDE_SIDE select'; select.value = 'LEFT'; select.dispatchEvent(new Event('change', { bubbles: true })); return 'set LEFT'; })()
+js (() => { const input = document.querySelector('[data-testid="virtual-LID_FRAME_WIDTH"] input.kv-num'); if (!input) return 'missing LID_FRAME_WIDTH input'; input.value = '4'; input.dispatchEvent(new Event('change', { bubbles: true })); return 'set frame 4'; })()
+js (async () => { await new Promise(r => setTimeout(r, 400)); })()
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot 03_sliding_lid_settings
+scad

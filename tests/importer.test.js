@@ -46,6 +46,12 @@ Make(data);`;
     expect(inc.includeFile).toContain("boardgame_insert_toolkit_lib");
   });
 
+  it("detects BIT profile from versioned library filenames", () => {
+    const project = importScad("// BGSD\ninclude <../lib/boardgame_insert_toolkit_lib.4.0.8.scad>;\ndata = [\n];\nMake(data);");
+    expect(project.libraryProfile).toBe("bit");
+    expect(project.libraryInclude).toBe("../lib/boardgame_insert_toolkit_lib.4.0.8.scad");
+  });
+
   it("classifies Make() lines", () => {
     const project = importScad("// BGSD\ninclude <boardgame_insert_toolkit_lib.4.scad>;\ndata = [\n];\nMake(data);");
     const make = project.lines.find((l) => l.kind === "makeall");

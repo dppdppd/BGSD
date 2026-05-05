@@ -120,6 +120,8 @@
   }
   let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
   let favoriteKeys = $state<Set<string>>(new Set());
+  const FAVORITE_KEYS_VERSION = 2;
+  const FAVORITE_KEYS_ADDED_IN_V2 = ["LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH"];
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
   // and docs/guidance/CTD-PARAMETERS.md (3+ designs). Seeded on first run.
   const DEFAULT_FAVORITE_KEYS = [
@@ -128,7 +130,7 @@
     "FTR_SHAPE_VERTICAL_B", "FTR_SHAPE_ROTATED_B",
     "FTR_PADDING_XY", "FTR_PADDING_HEIGHT_ADJUST_XY",
     "FTR_CUTOUT_SIDES_4B", "POSITION_XY", "ROTATION",
-    "LID_SOLID_B",
+    "LID_SOLID_B", "LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH",
     "LBL_TEXT", "LBL_SIZE", "LBL_PLACEMENT",
     "G_DIMENSIONS_XY", "G_FLOOR_THICKNESS_N", "G_MIN_PADDING_XY", "G_FRAME_STYLE_N",
     "COUNTER_SIZE_XYZ", "COUNTER_MARGINS_POST_LENGTH_FRACTION_N",
@@ -246,7 +248,7 @@
   let fileLoaded = false;
 
   async function handleLoad(payload: any) {
-    const { data, filePath } = payload;
+    const { data, filePath, libraryEnsures } = payload;
     suppressNextAutosave();
     project.set(data);
     clearHistory();
@@ -270,6 +272,16 @@
       setNeedsBackup(!data.hasMarker);
       const name = filePath.replace(/.*[/\\]/, "");
       statusMsg = data.hasMarker ? name : `${name} (will backup .bak on first save)`;
+    }
+
+    const libDownloads = (libraryEnsures || []).filter((r: any) => r?.downloaded?.length > 0);
+    const libFailures = (libraryEnsures || []).filter((r: any) => r?.ok === false);
+    if (libDownloads.length > 0) {
+      const names = libDownloads.map((r: any) => r.filename || r.includeFile).filter(Boolean).join(", ");
+      statusMsg = `Downloaded library: ${names}`;
+    } else if (libFailures.length > 0) {
+      const names = libFailures.map((r: any) => r.includeFile || r.filename || "library").join(", ");
+      statusMsg = `Library download failed: ${names}`;
     }
 
     // Load presets for CTD projects
@@ -357,10 +369,15 @@
     // Load favorite keys from preferences (seed defaults on first run)
     const prefs = await bgsd?.getPreferences?.();
     if (prefs?.favoriteKeys && Array.isArray(prefs.favoriteKeys)) {
-      favoriteKeys = new Set(prefs.favoriteKeys);
+      const migrated = new Set(prefs.favoriteKeys);
+      if (prefs.favoriteKeysVersion !== FAVORITE_KEYS_VERSION) {
+        for (const key of FAVORITE_KEYS_ADDED_IN_V2) migrated.add(key);
+        await bgsd?.setPreferences?.({ favoriteKeys: [...migrated], favoriteKeysVersion: FAVORITE_KEYS_VERSION });
+      }
+      favoriteKeys = migrated;
     } else {
       favoriteKeys = new Set(DEFAULT_FAVORITE_KEYS);
-      await bgsd?.setPreferences?.({ favoriteKeys: [...DEFAULT_FAVORITE_KEYS] });
+      await bgsd?.setPreferences?.({ favoriteKeys: [...DEFAULT_FAVORITE_KEYS], favoriteKeysVersion: FAVORITE_KEYS_VERSION });
     }
 
     // Load working directory status
@@ -405,13 +422,21 @@
 
   async function newProject(profile: string = "bit") {
     const bgsd = (window as any).bgsd;
+    let includeFile = profile === "ctd"
+      ? "../lib/counter_tray_designer_lib.1.scad"
+      : "../lib/boardgame_insert_toolkit_lib.4.scad";
+    if (profile === "bit" && bgsd?.ensureLatestLibrary) {
+      const latest = await bgsd.ensureLatestLibrary("bit");
+      if (latest?.ok && latest.include) includeFile = latest.include;
+      else if (latest?.error) statusMsg = `BIT latest check failed: ${latest.error}`;
+    }
 
     // Always show Save As dialog so the user can choose a filename
     let templateProject: any;
     if (profile === "ctd") {
       templateProject = { version: 1, lines: [
         { raw: "// BGSD", kind: "marker", depth: 0 },
-        { raw: "include <../lib/counter_tray_designer_lib.1.scad>;", kind: "include", depth: 0 },
+        { raw: `include <${includeFile}>;`, kind: "include", depth: 0 },
         { raw: "scene_1 = [", kind: "open", depth: 0, role: "data", label: "scene_1", varName: "scene_1" },
         { raw: "    [ TRAY,", kind: "open", depth: 1, role: "object", label: "TRAY" },
         { raw: "        [ COUNTER_SET,", kind: "open", depth: 2, role: "counter_set", label: "COUNTER_SET" },
@@ -422,11 +447,11 @@
         { raw: "    ],", kind: "close", depth: 1, role: "object", label: "LID" },
         { raw: "];", kind: "close", depth: 0, role: "data", label: "scene_1", varName: "scene_1" },
         { raw: "Make(scene_1);", kind: "makeall", depth: 0, varName: "scene_1" },
-      ], hasMarker: true, libraryProfile: "ctd", libraryInclude: "counter_tray_designer_lib.1.scad" };
+      ], hasMarker: true, libraryProfile: "ctd", libraryInclude: includeFile.replace(/.*[/\\]/, "") };
     } else {
       templateProject = { version: 1, lines: [
         { raw: "// BGSD", kind: "marker", depth: 0 },
-        { raw: "include <../lib/boardgame_insert_toolkit_lib.4.scad>;", kind: "include", depth: 0 },
+        { raw: `include <${includeFile}>;`, kind: "include", depth: 0 },
         { raw: "data = [", kind: "open", depth: 0, role: "data", label: "data", varName: "data" },
         { raw: "    [ OBJECT_BOX, [", kind: "open", depth: 1, role: "object", label: "OBJECT_BOX", mergedOpen: true },
         { raw: '        [ NAME, "box 1" ],', kind: "kv", depth: 2, kvKey: "NAME", kvValue: "box 1" },
@@ -434,7 +459,7 @@
         { raw: "    ]],", kind: "close", depth: 1, role: "object", label: "OBJECT_BOX", mergedClose: true },
         { raw: "];", kind: "close", depth: 0, role: "data", label: "data", varName: "data" },
         { raw: "Make(data);", kind: "makeall", depth: 0, varName: "data" },
-      ], hasMarker: true, libraryProfile: "bit", libraryInclude: "boardgame_insert_toolkit_lib.4.scad" };
+      ], hasMarker: true, libraryProfile: "bit", libraryInclude: includeFile.replace(/.*[/\\]/, "") };
     }
 
     suppressNextAutosave();
@@ -477,7 +502,7 @@
     if (!bgsd?.openFile) return;
     const res = await bgsd.openFile();
     if (!res.ok) { if (res.error) statusMsg = `Open failed: ${res.error}`; return; }
-    handleLoad({ data: res.data, filePath: res.filePath });
+    handleLoad(res);
   }
 
   async function saveFileAs() {
@@ -901,7 +926,7 @@
     if (nm) { const gk = nm[1].toUpperCase(); if (GLOBAL_NAMES.has(gk)) return { raw, kind: "global", depth, globalKey: gk, globalValue: parseFloat(nm[2]) }; }
     const sm = raw.match(/^\s*(g_\w+)\s*=\s*"([^"]*)"\s*;\s*(?:\/\/.*)?$/i);
     if (sm) { const gk = sm[1].toUpperCase(); if (GLOBAL_NAMES.has(gk)) return { raw, kind: "global", depth, globalKey: gk, globalValue: sm[2] }; }
-    if (/^\s*include\s*<\s*(?:\.\.\/lib\/)?boardgame_insert_toolkit_lib\.\d+\.scad\s*>\s*;?\s*(?:\/\/.*)?$/i.test(raw)) return { raw, kind: "include", depth };
+    if (/^\s*include\s*<\s*(?:\.\.\/lib\/)?boardgame_insert_toolkit_lib\.\d+(?:\.\d+){0,2}\.scad\s*>\s*;?\s*(?:\/\/.*)?$/i.test(raw)) return { raw, kind: "include", depth };
     if (/^\s*include\s*<\s*(?:\.\.\/lib\/)?counter_tray_designer_lib\.\d+\.scad\s*>\s*;?\s*(?:\/\/.*)?$/i.test(raw)) return { raw, kind: "include", depth };
     if (/^\s*\/\/\s*(?:BGSD|BITGUI)\b/i.test(raw)) return { raw, kind: "marker", depth };
     const makeM = raw.match(/^\s*Make\s*\(\s*(\w+)\s*\)\s*;\s*(?:\/\/.*)?$/);
@@ -2240,6 +2265,10 @@
               <span class="kv-control">
                 {#if rkt === "bool"}
                   <input type="checkbox" checked={val === true} onchange={(e) => onChange(e.currentTarget.checked)} />
+                {:else if rkt === "enum"}
+                  <select value={val} onchange={(e) => onChange(e.currentTarget.value)}>
+                    {#each srow.def.values || [] as v}<option value={v}>{v}</option>{/each}
+                  </select>
                 {:else if rkt === "number"}
                   <input class="kv-num" type="number" step={getStep(srow.key)} value={val} onchange={(e) => onChange(parseNum(e.currentTarget.value))} />
                 {:else if rkt === "string"}

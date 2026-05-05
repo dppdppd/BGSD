@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld("bgsd", {
   browseWorkingDir: () => ipcRenderer.invoke("browse-working-dir"),
   initWorkingDir: (dirPath) => ipcRenderer.invoke("init-working-dir", dirPath),
   updateLibraries: () => ipcRenderer.invoke("update-libraries"),
+  ensureLatestLibrary: (profile) => ipcRenderer.invoke("ensure-latest-library", profile),
   getWorkingDirStatus: () => ipcRenderer.invoke("get-working-dir-status"),
   checkUpdates: () => ipcRenderer.invoke("check-updates"),
   selfUpdate: () => ipcRenderer.invoke("self-update"),
