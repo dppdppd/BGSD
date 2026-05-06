@@ -30,6 +30,7 @@ if (!shotPrefix && process.env.BGSD_HARNESS_SCRIPT) {
 }
 
 let app, page;
+let currentFilePath = null;
 
 async function screenshot(label) {
   const num = String(shotCounter++).padStart(3, "0");
@@ -123,6 +124,7 @@ async function handleCommand(line) {
         );
         await page.waitForTimeout(500);
         if (result?.ok) {
+          currentFilePath = result.filePath;
           console.log(`  New ${profile} project: ${result.filePath}`);
         } else {
           console.log(`  Failed: ${result?.error || "unknown"}`);
@@ -144,6 +146,7 @@ async function handleCommand(line) {
           openPath
         );
         if (loadResult?.ok) {
+          currentFilePath = openPath;
           // Send menu-open to renderer to trigger handleLoad
           await app.evaluate(({ BrowserWindow }, payload) => {
             const win = BrowserWindow.getAllWindows()[0];
@@ -155,6 +158,19 @@ async function handleCommand(line) {
           console.log(`  Open failed: ${loadResult?.error || "unknown"}`);
         }
         await screenshot(`open_${path.basename(openPath, ".scad")}`);
+        break;
+      }
+
+      case "external-append": {
+        if (!currentFilePath) {
+          console.log("  No current file path");
+          break;
+        }
+        const text = rest.trim() || `// external change ${Date.now()}`;
+        fs.appendFileSync(currentFilePath, `\n${text}\n`, "utf-8");
+        console.log(`  External append: ${currentFilePath}`);
+        await page.waitForTimeout(2600);
+        await screenshot("external_append");
         break;
       }
 
@@ -280,6 +296,7 @@ async function handleCommand(line) {
     wait <testid>             Wait for element
     new <bit|ctd>             Create new project (no dialog)
     open <filepath>           Open a .scad file by path
+    external-append <text>     Append text to the current file outside BGSD
     scad                      Print current SCAD output
     render [label]            Render SCAD with OpenSCAD to PNG
     help                      Show this help

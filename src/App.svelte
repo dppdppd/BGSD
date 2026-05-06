@@ -27,7 +27,7 @@
     type Line,
   } from "./lib/stores/project";
   import { generateScad } from "./lib/scad";
-  import { startAutosave, onSaveStatus, setFilePath, getFilePath, setNeedsBackup, setReadOnly, getReadOnly, onReadOnlyEdit, saveNow, saveNowDetailed, suppressNextAutosave } from "./lib/autosave";
+  import { startAutosave, onSaveStatus, setFilePath, getFilePath, setNeedsBackup, setReadOnly, getReadOnly, onReadOnlyEdit, onExternalFileChange, saveNowDetailed, suppressNextAutosave, setFileState, getFileState, markExternalFileChange, clearExternalFileChange } from "./lib/autosave";
   import { startHistory, clearHistory, undo, redo, restoreProjectFromHistory, canUndo, canRedo } from "./lib/stores/history";
   import { getSchema } from "./lib/schema";
   import tooltips from "./lib/tooltips/en.json";
@@ -167,6 +167,9 @@
   let recentFiles = $state<string[]>([]);
   let toastText = $state("");
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  let externalFileChange = $state<any | null>(null);
+  let externalResolveBusy = $state(false);
+  let externalCheckInFlight = false;
 
   let scadOutput = $derived(generateScad($project));
 
@@ -200,6 +203,88 @@
       toastText = "";
       toastTimer = null;
     }, 2600);
+  }
+
+  function showExternalFileChange(result: any) {
+    const fp = currentFilePath || getFilePath();
+    if (!fp) return;
+    if (result?.filePath && result.filePath !== fp) return;
+    const next = { ...result, filePath: fp, externalChange: true };
+    externalFileChange = next;
+    markExternalFileChange(next);
+    statusMsg = next.deleted ? "File deleted outside BGSD" : "File changed outside BGSD";
+    showToast(statusMsg);
+  }
+
+  async function checkExternalFileChange() {
+    if (externalCheckInFlight || externalFileChange || currentReadOnly || getReadOnly()) return;
+    const fp = currentFilePath || getFilePath();
+    const knownState = getFileState();
+    if (!fp || !knownState) return;
+    const bgsd = (window as any).bgsd;
+    if (!bgsd?.checkFileState) return;
+
+    externalCheckInFlight = true;
+    try {
+      const result = await bgsd.checkFileState(fp, knownState);
+      if (result?.ok && result.changed) showExternalFileChange(result);
+    } catch (_) {
+      // Polling should stay quiet unless the main process can confirm a conflict.
+    } finally {
+      externalCheckInFlight = false;
+    }
+  }
+
+  async function reloadExternalFile() {
+    const fp = externalFileChange?.filePath;
+    if (!fp) return;
+    const bgsd = (window as any).bgsd;
+    if (!bgsd?.loadFilePath) return;
+    externalResolveBusy = true;
+    try {
+      const loaded = await bgsd.loadFilePath(fp);
+      if (loaded?.ok) {
+        externalFileChange = null;
+        clearExternalFileChange();
+        await handleLoad(loaded);
+        statusMsg = `Reloaded ${basename(fp)}`;
+        showToast(`Reloaded from disk: ${basename(fp)}`);
+      } else {
+        statusMsg = `Reload failed: ${loaded?.error || "unknown"}`;
+      }
+    } finally {
+      externalResolveBusy = false;
+    }
+  }
+
+  async function overwriteExternalFile() {
+    externalResolveBusy = true;
+    try {
+      commitActiveInput();
+      await tick();
+      const result = await saveNowDetailed({ allowOverwriteExternal: true, forceNewRevision: true });
+      if (result.ok) {
+        if (result.fileState) setFileState(result.fileState);
+        clearExternalFileChange();
+        externalFileChange = null;
+        const name = basename(result.filePath || currentFilePath || getFilePath() || "");
+        statusMsg = name ? `Saved ${name}` : "Saved";
+        showToast(name ? `Saved ${name}` : "Saved");
+      } else if (result.error) {
+        statusMsg = `Save failed: ${result.error}`;
+      }
+    } finally {
+      externalResolveBusy = false;
+    }
+  }
+
+  async function saveExternalFileAs() {
+    externalResolveBusy = true;
+    try {
+      await saveFileAs();
+    } finally {
+      externalResolveBusy = false;
+    }
   }
 
   async function refreshRecentFiles() {
@@ -248,10 +333,12 @@
   let fileLoaded = false;
 
   async function handleLoad(payload: any) {
-    const { data, filePath, libraryEnsures } = payload;
+    const { data, filePath, fileState, libraryEnsures } = payload;
     suppressNextAutosave();
     project.set(data);
     clearHistory();
+    externalFileChange = null;
+    clearExternalFileChange();
     updateTitle(filePath);
     fileLoaded = true;
     showWelcome = false;
@@ -273,6 +360,7 @@
       const name = filePath.replace(/.*[/\\]/, "");
       statusMsg = data.hasMarker ? name : `${name} (will backup .bak on first save)`;
     }
+    setFileState(fileState || null);
 
     const libDownloads = (libraryEnsures || []).filter((r: any) => r?.downloaded?.length > 0);
     const libFailures = (libraryEnsures || []).filter((r: any) => r?.ok === false);
@@ -317,6 +405,8 @@
     showIntent = !!(window as any).bgsd?.harness;
     startAutosave();
     startHistory();
+    onExternalFileChange(showExternalFileChange);
+    setInterval(() => { void checkExternalFileChange(); }, 2000);
 
     // When a read-only library file is edited, prompt Save As
     onReadOnlyEdit(async () => {
@@ -489,6 +579,7 @@
 
     rememberFilePath(res.filePath);
     rememberReadOnly(false);
+    setFileState(res.fileState || null);
     setNeedsBackup(false);
     updateTitle(res.filePath);
     fileLoaded = true;
@@ -505,22 +596,26 @@
     handleLoad(res);
   }
 
-  async function saveFileAs() {
+  async function saveFileAs(): Promise<boolean> {
     const bgsd = (window as any).bgsd;
-    if (!bgsd?.saveFileAs) return;
+    if (!bgsd?.saveFileAs) return false;
     commitActiveInput();
     await tick();
     const res = await bgsd.saveFileAs(scadOutput, $project.libraryProfile, currentFilePath || getFilePath());
     if (!res.ok) {
       if (res.error) statusMsg = `Save As failed: ${res.error}`;
-      return;
+      return false;
     }
     rememberFilePath(res.filePath);
     rememberReadOnly(false);
+    setFileState(res.fileState || null);
+    clearExternalFileChange();
+    externalFileChange = null;
     updateTitle(res.filePath);
     statusMsg = `Saved ${res.filePath.replace(/.*[/\\]/, "")}`;
     // Keep OpenSCAD in sync with the new file
     launchOpenScad(res.filePath);
+    return true;
   }
 
   async function saveVersion() {
@@ -635,8 +730,9 @@
       if (!fp) return;
     }
 
-    const savedPath = await saveNow();
-    const openPath = savedPath || fp;
+    const saveResult = await saveNowDetailed();
+    if (saveResult.externalChange) return;
+    const openPath = saveResult.ok ? (saveResult.filePath || fp) : fp;
 
     // For manual launch (Tools menu), bypass auto-open pref check
     const res = await bgsd.openInOpenScad(openPath, $project.libraryProfile);
@@ -2543,7 +2639,7 @@
     {/if}
   </section>
 
-  <footer class="status-bar" class:status-error={statusMsg.startsWith("Library:") || statusMsg.startsWith("OpenSCAD")} data-testid="status-bar">
+  <footer class="status-bar" class:status-error={statusMsg.startsWith("Library:") || statusMsg.startsWith("OpenSCAD") || statusMsg.startsWith("File changed") || statusMsg.startsWith("File deleted")} data-testid="status-bar">
     <span data-testid="save-status">{statusMsg}</span>
     <span class="status-versions" data-testid="status-versions">
       <span class="status-version-app" title={bgsdVersionTooltip()}>BGSD {bgsdVersion}</span>
@@ -2565,6 +2661,27 @@
 
   {#if toastText}
     <div class="toast" data-testid="save-toast" role="status" aria-live="polite">{toastText}</div>
+  {/if}
+
+  {#if externalFileChange}
+    <div class="prefs-overlay" role="presentation" data-testid="external-change-modal">
+      <div class="external-change-modal" role="dialog" aria-modal="true" aria-labelledby="external-change-title">
+        <h2 id="external-change-title" class="external-change-title">
+          {externalFileChange.deleted ? "File deleted outside BGSD" : "File changed outside BGSD"}
+        </h2>
+        <p class="external-change-text">
+          {externalFileChange.deleted
+            ? "The file on disk is gone. BGSD has paused autosave for this design."
+            : "The file on disk was modified by another program. BGSD has paused autosave to avoid overwriting those changes."}
+        </p>
+        <p class="external-change-path" title={externalFileChange.filePath}>{externalFileChange.filePath}</p>
+        <div class="external-change-actions">
+          <button class="prefs-btn" data-testid="external-change-reload" disabled={externalResolveBusy || externalFileChange.deleted} onclick={reloadExternalFile}>Reload from Disk</button>
+          <button class="prefs-btn" data-testid="external-change-save-as" disabled={externalResolveBusy} onclick={saveExternalFileAs}>Save As...</button>
+          <button class="prefs-btn primary" data-testid="external-change-overwrite" disabled={externalResolveBusy} onclick={overwriteExternalFile}>Overwrite File</button>
+        </div>
+      </div>
+    </div>
   {/if}
 
   <PreferencesModal
@@ -3175,6 +3292,24 @@
   :global(.prefs-btn:hover) { background: #f5f5f5; }
   :global(.prefs-btn.primary) { background: #2d5a7b; color: white; border-color: #2d5a7b; }
   :global(.prefs-btn.primary:hover) { background: #1e3f5a; }
+  .external-change-modal {
+    background: white; border-radius: 8px; padding: 22px 26px;
+    width: min(620px, calc(100vw - 40px)); box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  }
+  .external-change-title {
+    margin: 0 0 10px; font-size: 18px; color: #8a3d10;
+  }
+  .external-change-text {
+    margin: 0 0 12px; color: #2c3e50; line-height: 1.45;
+  }
+  .external-change-path {
+    margin: 0; padding: 8px 10px; border: 1px solid #d7dee6; border-radius: 4px;
+    background: #f5f8fb; color: #526374; font-family: "Courier New", monospace;
+    font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .external-change-actions {
+    display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; flex-wrap: wrap;
+  }
   :global(.prefs-divider) { border-top: 1px solid #e0e0e0; margin: 16px 0 12px; }
   :global(.prefs-about) { text-align: center; }
   :global(.prefs-links) { display: flex; justify-content: center; gap: 6px; font-size: 13px; flex-wrap: wrap; }

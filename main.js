@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell, net } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 const { Buffer } = require("buffer");
 const { importScad } = require("./importer");
 const { ensureLatestLibrary, ensureLibraryForInclude, initWorkingDir, updateLibraries, checkLibraryUpdates, fetchLatestReleaseTag, isInsideWorkingDir, isRepoFile, loadManifest, profiles, setProxy } = require("./lib/library-manager");
@@ -91,8 +92,9 @@ async function openFilePath(filePath) {
   }
   try {
     const content = fs.readFileSync(filePath, "utf-8");
+    const fileState = fileSnapshot(filePath, content);
     const { project, libraryEnsures } = await importScadWithLibraries(content, filePath);
-    mainWindow.webContents.send("menu-open", { data: project, filePath, libraryEnsures });
+    mainWindow.webContents.send("menu-open", { data: project, filePath, fileState, libraryEnsures });
     addRecent(filePath);
   } catch (err) {
     console.error("Open failed:", err.message);
@@ -269,9 +271,10 @@ function createWindow() {
       try {
         console.log("Auto-loading:", autoLoad);
         const content = fs.readFileSync(autoLoad, "utf-8");
+        const fileState = fileSnapshot(autoLoad, content);
         const { project, libraryEnsures } = await importScadWithLibraries(content, autoLoad);
         console.log("Parsed", project.lines.length, "lines");
-        pendingLoad = { data: project, filePath: autoLoad, libraryEnsures };
+        pendingLoad = { data: project, filePath: autoLoad, fileState, libraryEnsures };
         addRecent(autoLoad);
       } catch (err) {
         console.error("Auto-load failed:", err.message);
@@ -289,6 +292,51 @@ function validateFilePath(filePath) {
   const resolved = path.resolve(filePath);
   // Ensure the resolved path starts with a valid root (not escaped via ../)
   return resolved === filePath || !filePath.includes("..");
+}
+
+function fileSnapshot(filePath, content = undefined) {
+  if (!validateFilePath(filePath) || !fs.existsSync(filePath)) {
+    return { exists: false, size: 0, mtimeMs: 0, sha256: "" };
+  }
+  const stat = fs.statSync(filePath);
+  const text = content === undefined ? fs.readFileSync(filePath, "utf-8") : String(content);
+  return {
+    exists: true,
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    sha256: crypto.createHash("sha256").update(text).digest("hex"),
+  };
+}
+
+function normalizeFileState(state) {
+  if (!state || typeof state !== "object") return null;
+  return {
+    exists: state.exists !== false,
+    size: Number(state.size || 0),
+    mtimeMs: Number(state.mtimeMs || 0),
+    sha256: typeof state.sha256 === "string" ? state.sha256 : "",
+  };
+}
+
+function fileStatesMatch(expectedState, actualState) {
+  const expected = normalizeFileState(expectedState);
+  const actual = normalizeFileState(actualState);
+  if (!expected || !actual) return true;
+  if (expected.exists !== actual.exists) return false;
+  if (!expected.exists) return true;
+  if (expected.sha256 && actual.sha256) return expected.sha256 === actual.sha256;
+  return expected.size === actual.size && expected.mtimeMs === actual.mtimeMs;
+}
+
+function externalChangeSaveResult(filePath, fileState) {
+  return {
+    ok: false,
+    externalChange: true,
+    deleted: !fileState.exists,
+    filePath,
+    fileState,
+    error: fileState.exists ? "File changed outside BGSD" : "File deleted outside BGSD",
+  };
 }
 
 async function atomicWrite(filePath, content) {
@@ -344,9 +392,10 @@ ipcMain.handle("open-file", async () => {
   try {
     const filePath = result.filePaths[0];
     const content = fs.readFileSync(filePath, "utf-8");
+    const fileState = fileSnapshot(filePath, content);
     const { project, libraryEnsures } = await importScadWithLibraries(content, filePath);
     addRecent(filePath);
-    return { ok: true, filePath, data: project, libraryEnsures };
+    return { ok: true, filePath, fileState, data: project, libraryEnsures };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -355,13 +404,24 @@ ipcMain.handle("open-file", async () => {
 ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, profileId, saveOptions = {}) => {
   try {
     void profileId;
+    if (!validateFilePath(filePath)) {
+      return { ok: false, error: "Invalid file path" };
+    }
     // Reject saves to repo-tracked files — they'll be overwritten on library update
     const prefs = loadPrefs();
     if (isRepoFile(filePath, prefs.workingDir)) {
       return { ok: false, error: "repo-file", repoFile: true };
     }
 
-    const previousText = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : null;
+    let previousText = null;
+    let currentState = fileSnapshot(filePath);
+    if (currentState.exists) {
+      previousText = fs.readFileSync(filePath, "utf-8");
+      currentState = fileSnapshot(filePath, previousText);
+    }
+    if (!saveOptions?.allowOverwriteExternal && saveOptions?.fileState && !fileStatesMatch(saveOptions.fileState, currentState)) {
+      return externalChangeSaveResult(filePath, currentState);
+    }
 
     // Detect read-only files (e.g. manually copied into working dir)
     if (fs.existsSync(filePath)) {
@@ -393,6 +453,13 @@ ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, prof
       }
     }
 
+    if (!saveOptions?.allowOverwriteExternal && saveOptions?.fileState) {
+      const preWriteState = fileSnapshot(filePath);
+      if (!fileStatesMatch(saveOptions.fileState, preWriteState)) {
+        return externalChangeSaveResult(filePath, preWriteState);
+      }
+    }
+
     if (needsBackup && fs.existsSync(filePath)) {
       const bakPath = filePath + ".bak";
       if (!fs.existsSync(bakPath)) {
@@ -400,6 +467,7 @@ ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, prof
       }
     }
     await atomicWrite(filePath, scadText);
+    const fileState = fileSnapshot(filePath);
     try {
       undoSidecar.recordSavedRevision(filePath, previousText, scadText, {
         coalesce: !saveOptions?.forceNewRevision,
@@ -408,7 +476,7 @@ ipcMain.handle("save-file", async (_event, filePath, scadText, needsBackup, prof
     } catch (err) {
       console.warn("[undo-sidecar] save history failed:", err.message);
     }
-    return { ok: true, filePath };
+    return { ok: true, filePath, fileState };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -443,6 +511,7 @@ ipcMain.handle("save-file-as", async (_event, scadText, profileId, currentPath) 
     const samePath = currentPath && path.resolve(result.filePath) === path.resolve(currentPath);
     const previousText = fs.existsSync(result.filePath) ? fs.readFileSync(result.filePath, "utf-8") : null;
     await atomicWrite(result.filePath, scadText);
+    const fileState = fileSnapshot(result.filePath);
     try { fs.chmodSync(result.filePath, 0o644); } catch {
       // Some filesystems ignore chmod; save-as still proceeds if the file was written.
     }
@@ -455,7 +524,25 @@ ipcMain.handle("save-file-as", async (_event, scadText, profileId, currentPath) 
     } catch (err) {
       console.warn("[undo-sidecar] save-as history init failed:", err.message);
     }
-    return { ok: true, filePath: result.filePath };
+    return { ok: true, filePath: result.filePath, fileState };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle("check-file-state", (_event, filePath, knownState) => {
+  if (!validateFilePath(filePath)) {
+    return { ok: false, error: "Invalid file path" };
+  }
+  try {
+    const fileState = fileSnapshot(filePath);
+    return {
+      ok: true,
+      filePath,
+      fileState,
+      changed: !fileStatesMatch(knownState, fileState),
+      deleted: !fileState.exists,
+    };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -712,6 +799,7 @@ ipcMain.handle("new-project-to-path", async (_event, profile) => {
 
   try {
     await atomicWrite(filePath, scad);
+    const fileState = fileSnapshot(filePath);
     try {
       undoSidecar.initializeSidecar(filePath, scad, { reset: true });
     } catch (err) {
@@ -719,8 +807,8 @@ ipcMain.handle("new-project-to-path", async (_event, profile) => {
     }
     const project = importScad(fs.readFileSync(filePath, "utf-8"));
     addRecent(filePath);
-    if (mainWindow) mainWindow.webContents.send("menu-open", { data: project, filePath });
-    return { ok: true, filePath };
+    if (mainWindow) mainWindow.webContents.send("menu-open", { data: project, filePath, fileState });
+    return { ok: true, filePath, fileState };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -733,9 +821,10 @@ ipcMain.handle("load-file-path", async (_event, filePath) => {
   }
   try {
     const content = fs.readFileSync(filePath, "utf-8");
+    const fileState = fileSnapshot(filePath, content);
     const { project, libraryEnsures } = await importScadWithLibraries(content, filePath);
     addRecent(filePath);
-    return { ok: true, data: project, filePath, libraryEnsures };
+    return { ok: true, data: project, filePath, fileState, libraryEnsures };
   } catch (err) {
     return { ok: false, error: err.message };
   }

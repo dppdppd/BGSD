@@ -1,0 +1,7 @@
+wait app-root
+new bit
+external-append // changed by another editor
+js (() => { const modal = document.querySelector('[data-testid="external-change-modal"]'); if (!modal) throw new Error("external change modal missing"); return modal.textContent.trim(); })()
+click external-change-reload
+js (() => { const modal = document.querySelector('[data-testid="external-change-modal"]'); if (modal) throw new Error("external change modal still shown"); const scad = document.querySelector('[data-testid="scad-output"]')?.textContent || ""; if (!scad.includes("changed by another editor")) throw new Error("external disk change was not reloaded"); return document.querySelector('[data-testid="save-status"]')?.textContent || ""; })()
+shot external_change_reloaded
