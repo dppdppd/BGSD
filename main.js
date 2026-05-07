@@ -684,6 +684,175 @@ ipcMain.handle("open-in-openscad", async (_event, filePath, profileId) => {
   return launchOpenScadFile(filePath);
 });
 
+function unquoteOpenScadEchoValue(value) {
+  const text = String(value || "").trim();
+  if (text.length >= 2 && text.startsWith("\"") && text.endsWith("\"")) {
+    return text.slice(1, -1).replace(/\\"/g, "\"").replace(/\\\\/g, "\\");
+  }
+  return text;
+}
+
+function parseBgsdEchoIssue(raw) {
+  const echoMatch = raw.match(/^ECHO:\s*(.*)$/i);
+  if (!echoMatch) return null;
+
+  const payload = unquoteOpenScadEchoValue(echoMatch[1]);
+  const match = payload.match(/^BGSD_(ERROR|WARNING|INFO)\b\s*(.*)$/i);
+  if (!match) return null;
+
+  const severity = match[1].toLowerCase() === "error"
+    ? "error"
+    : match[1].toLowerCase() === "warning"
+      ? "warning"
+      : "info";
+  let rest = match[2].trim();
+  const metadata = {};
+  while (rest.startsWith("[")) {
+    const metaMatch = rest.match(/^\[([a-zA-Z][a-zA-Z0-9_-]*)=([^\]\s]+)\]\s*/);
+    if (!metaMatch) break;
+    metadata[metaMatch[1]] = metaMatch[2];
+    rest = rest.slice(metaMatch[0].length).trim();
+  }
+  rest = rest.replace(/^:\s*/, "").trim();
+
+  return {
+    severity,
+    message: rest || payload,
+    line: null,
+    file: null,
+    raw,
+    ...metadata,
+  };
+}
+
+function parseOpenScadIssues(output, fallbackExitIssue = null, tempScadPath = "", sourcePath = "") {
+  const issues = [];
+  const lines = String(output || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const tempName = tempScadPath ? path.basename(tempScadPath) : "";
+  const sourceName = sourcePath ? path.basename(sourcePath) : "generated SCAD";
+
+  for (const raw of lines) {
+    const echoIssue = parseBgsdEchoIssue(raw);
+    if (echoIssue) {
+      issues.push(echoIssue);
+      continue;
+    }
+    if (/^ECHO:/i.test(raw)) continue;
+    const severityMatch = raw.match(/\b(ERROR|WARNING):\s*(.*)$/i);
+    const looksLikeIssue = severityMatch || /\b(can't open|cannot open|parser error|syntax error|undefined operation)\b/i.test(raw);
+    if (!looksLikeIssue) continue;
+
+    const severity = severityMatch
+      ? (severityMatch[1].toLowerCase() === "warning" ? "warning" : "error")
+      : "error";
+    let message = severityMatch ? severityMatch[2].trim() : raw;
+    if (tempName) message = message.split(tempName).join(sourceName);
+    message = message.replace(/\s+/g, " ");
+
+    const lineMatch = raw.match(/\bline\s+(\d+)\b/i);
+    const fileMatch = raw.match(/\bfile\s+(.+?)(?:,|\s+line\b|$)/i);
+    let file = fileMatch ? fileMatch[1].trim() : null;
+    if (file && tempName && path.basename(file) === tempName) file = sourcePath || null;
+    issues.push({
+      severity,
+      message: message || raw,
+      line: lineMatch ? Number.parseInt(lineMatch[1], 10) : null,
+      file,
+      raw,
+    });
+  }
+
+  if (fallbackExitIssue && !issues.some((issue) => issue.severity === "error")) {
+    issues.push(fallbackExitIssue);
+  }
+
+  return issues;
+}
+
+function tempOpenScadPaths(sourcePath) {
+  const baseDir = validateFilePath(sourcePath) && fs.existsSync(path.dirname(sourcePath || ""))
+    ? path.dirname(sourcePath)
+    : app.getPath("temp");
+  const stem = `.bgsd-check-${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+  return {
+    scadPath: path.join(baseDir, `${stem}.scad`),
+    outputPath: path.join(baseDir, `${stem}.csg`),
+  };
+}
+
+async function unlinkIfExists(filePath) {
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (err) {
+    if (err.code !== "ENOENT") console.warn("[check-openscad] cleanup failed:", err.message);
+  }
+}
+
+ipcMain.handle("check-openscad", async (_event, payload) => {
+  const { execFile } = require("child_process");
+  const requestId = payload?.requestId ?? null;
+  const scadText = String(payload?.scadText || "");
+  const filePath = payload?.filePath || "";
+  if (!scadText.trim()) {
+    return { ok: true, requestId, issues: [], elapsedMs: 0 };
+  }
+
+  const cmd = findOpenScad();
+  const { scadPath, outputPath } = tempOpenScadPaths(filePath);
+  const cwd = path.dirname(scadPath);
+  const started = Date.now();
+
+  try {
+    await ensureLibrariesForScadText(scadText, filePath);
+  } catch (err) {
+    console.warn("[check-openscad] library ensure failed:", err.message);
+  }
+
+  try {
+    await fs.promises.writeFile(scadPath, scadText, "utf-8");
+  } catch (err) {
+    return {
+      ok: false,
+      requestId,
+      error: err.message,
+      issues: [{ severity: "error", message: `Could not prepare OpenSCAD check: ${err.message}`, line: null, file: null, raw: err.message }],
+      elapsedMs: Date.now() - started,
+    };
+  }
+
+  return new Promise((resolve) => {
+    execFile(cmd, ["-o", outputPath, scadPath], { cwd, timeout: 30000 }, (err, stdout, stderr) => {
+      void (async () => {
+        await Promise.all([unlinkIfExists(scadPath), unlinkIfExists(outputPath)]);
+
+        const output = [stdout, stderr].filter(Boolean).join("\n");
+        if (err?.code === "ENOENT") {
+          resolve({
+            ok: false,
+            requestId,
+            error: "not-found",
+            issues: [{ severity: "error", message: "OpenSCAD executable was not found.", line: null, file: null, raw: err.message }],
+            elapsedMs: Date.now() - started,
+          });
+          return;
+        }
+
+        const fallbackExitIssue = err
+          ? { severity: "error", message: (stderr || err.message || "OpenSCAD check failed").trim(), line: null, file: null, raw: stderr || err.message }
+          : null;
+        resolve({
+          ok: !err,
+          requestId,
+          exitCode: err?.code ?? 0,
+          signal: err?.signal ?? null,
+          issues: parseOpenScadIssues(output, fallbackExitIssue, scadPath, filePath),
+          elapsedMs: Date.now() - started,
+        });
+      })();
+    });
+  });
+});
+
 ipcMain.handle("open-undo-revision-in-openscad", async (_event, filePath, revisionId, profileId) => {
   void profileId;
   if (!validateFilePath(filePath)) return { ok: false, error: "Invalid file path" };

@@ -1,0 +1,19 @@
+wait app-root
+new bit
+wait openscad-check-chip
+js (async () => { for (let i = 0; i < 80; i++) { const text = document.querySelector('[data-testid="openscad-check-chip"]')?.textContent?.trim() || ""; if (text && !/^(OpenSCAD|Stale|Checking)$/.test(text)) return text; await new Promise(r => setTimeout(r, 250)); } return document.querySelector('[data-testid="openscad-check-chip"]')?.textContent?.trim() || ""; })()
+shot diagnostics_after_check
+click openscad-check-chip
+shot diagnostics_panel_initial
+click openscad-check-chip
+js (async () => { const input = [...document.querySelectorAll('input.kv-str')].find((el) => el.value === "box 1"); if (!input) throw new Error("NAME input not found"); input.value = "diagnostics box"; input.dispatchEvent(new Event("input", { bubbles: true })); await new Promise(r => setTimeout(r, 80)); return document.querySelector('[data-testid="openscad-check-chip"]')?.textContent?.trim() || ""; })()
+shot diagnostics_stale_after_edit
+js (() => { const input = [...document.querySelectorAll('input.kv-str')].find((el) => el.value === "diagnostics box"); if (!input) throw new Error("edited NAME input not found"); input.dispatchEvent(new Event("change", { bubbles: true })); return true; })()
+js (async () => { for (let i = 0; i < 80; i++) { const text = document.querySelector('[data-testid="openscad-check-chip"]')?.textContent?.trim() || ""; if (text && !/^(OpenSCAD|Stale|Checking)$/.test(text)) return text; await new Promise(r => setTimeout(r, 250)); } return document.querySelector('[data-testid="openscad-check-chip"]')?.textContent?.trim() || ""; })()
+external-append echo("BGSD_WARNING [line=10] [code=BGSD-TEST-001] [key=NAME] [context=element]: Harness echo warning");
+wait external-change-modal
+click external-change-reload
+js (async () => { for (let i = 0; i < 80; i++) { const text = document.querySelector('[data-testid="openscad-check-chip"]')?.textContent?.trim() || ""; if (/warning|error/.test(text)) return text; await new Promise(r => setTimeout(r, 250)); } throw new Error("diagnostics issue state not reached"); })()
+shot diagnostics_issue_chip
+click openscad-check-chip
+shot diagnostics_issue_panel

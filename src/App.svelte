@@ -173,6 +173,43 @@
 
   let scadOutput = $derived(generateScad($project));
 
+  type OpenScadIssue = {
+    severity: "error" | "warning" | "info";
+    message: string;
+    line: number | null;
+    file: string | null;
+    code?: string;
+    key?: string;
+    context?: string;
+    raw?: string;
+  };
+  type DiagnosticsStatus = "idle" | "stale" | "checking" | "valid" | "issues" | "unavailable";
+  const DIAGNOSTICS_DEBOUNCE_MS = 1200;
+  let diagnosticsStatus = $state<DiagnosticsStatus>("idle");
+  let diagnosticsIssues = $state<OpenScadIssue[]>([]);
+  let diagnosticsOpen = $state(false);
+  let diagnosticsMessage = $state("OpenSCAD check has not run.");
+  let diagnosticsLastCheckedScad = "";
+  let diagnosticsLastObservedScad = "";
+  let diagnosticsTimer: ReturnType<typeof setTimeout> | null = null;
+  let diagnosticsInFlight = $state(false);
+  let diagnosticsQueued = false;
+  let diagnosticsRequestId = 0;
+  let diagnosticsErrorCount = $derived(diagnosticsIssues.filter((issue) => issue.severity === "error").length);
+  let diagnosticsWarningCount = $derived(diagnosticsIssues.filter((issue) => issue.severity === "warning").length);
+  let diagnosticsProblemCount = $derived(diagnosticsErrorCount + diagnosticsWarningCount);
+  let diagnosticsLabel = $derived.by(() => {
+    if (diagnosticsStatus === "valid") return "Valid";
+    if (diagnosticsStatus === "issues") {
+      if (diagnosticsErrorCount > 0) return `${diagnosticsErrorCount} error${diagnosticsErrorCount === 1 ? "" : "s"}`;
+      return `${diagnosticsWarningCount} warning${diagnosticsWarningCount === 1 ? "" : "s"}`;
+    }
+    if (diagnosticsStatus === "checking") return "Checking";
+    if (diagnosticsStatus === "stale") return "Stale";
+    if (diagnosticsStatus === "unavailable") return "Check failed";
+    return "OpenSCAD";
+  });
+
   function rememberFilePath(path: string | null) {
     setFilePath(path || "");
     currentFilePath = path;
@@ -204,6 +241,169 @@
       toastTimer = null;
     }, 2600);
   }
+
+  function normalizeOpenScadIssue(issue: any): OpenScadIssue {
+    const severity = issue?.severity === "warning" || issue?.severity === "info" ? issue.severity : "error";
+    const numericLine = Number(issue?.line);
+    return {
+      severity,
+      message: String(issue?.message || issue?.raw || "OpenSCAD reported an issue."),
+      line: Number.isFinite(numericLine) && numericLine > 0 ? numericLine : null,
+      file: typeof issue?.file === "string" && issue.file.trim() ? issue.file.trim() : null,
+      code: typeof issue?.code === "string" && issue.code.trim() ? issue.code.trim() : undefined,
+      key: typeof issue?.key === "string" && issue.key.trim() ? issue.key.trim() : undefined,
+      context: typeof issue?.context === "string" && issue.context.trim() ? issue.context.trim() : undefined,
+      raw: issue?.raw ? String(issue.raw) : undefined,
+    };
+  }
+
+  function clearDiagnosticsTimer() {
+    if (!diagnosticsTimer) return;
+    clearTimeout(diagnosticsTimer);
+    diagnosticsTimer = null;
+  }
+
+  function canRunOpenScadDiagnostics(): boolean {
+    return !showWelcome && !!scadOutput.trim();
+  }
+
+  function setDiagnosticsIdle() {
+    clearDiagnosticsTimer();
+    diagnosticsStatus = "idle";
+    diagnosticsIssues = [];
+    diagnosticsMessage = "OpenSCAD check has not run.";
+    diagnosticsLastCheckedScad = "";
+    diagnosticsLastObservedScad = scadOutput;
+  }
+
+  function scheduleOpenScadDiagnostics(delay = DIAGNOSTICS_DEBOUNCE_MS) {
+    if (!canRunOpenScadDiagnostics()) return;
+    clearDiagnosticsTimer();
+    diagnosticsTimer = setTimeout(() => {
+      diagnosticsTimer = null;
+      void runOpenScadDiagnostics();
+    }, delay);
+  }
+
+  function markOpenScadDiagnosticsStale() {
+    if (!canRunOpenScadDiagnostics()) {
+      setDiagnosticsIdle();
+      return;
+    }
+    if (scadOutput === diagnosticsLastCheckedScad && diagnosticsStatus !== "checking") return;
+    diagnosticsStatus = "stale";
+    diagnosticsMessage = diagnosticsInFlight
+      ? "OpenSCAD check is stale; another check is finishing."
+      : "OpenSCAD check is stale.";
+    scheduleOpenScadDiagnostics();
+  }
+
+  function markOpenScadDiagnosticsEditing() {
+    if (!canRunOpenScadDiagnostics()) return;
+    diagnosticsStatus = "stale";
+    diagnosticsMessage = "OpenSCAD check is stale.";
+    scheduleOpenScadDiagnostics(DIAGNOSTICS_DEBOUNCE_MS + 500);
+  }
+
+  async function runOpenScadDiagnostics() {
+    if (!canRunOpenScadDiagnostics()) {
+      setDiagnosticsIdle();
+      return;
+    }
+    if (diagnosticsInFlight) {
+      diagnosticsQueued = true;
+      return;
+    }
+
+    const bgsd = (window as any).bgsd;
+    if (!bgsd?.checkOpenScad) {
+      diagnosticsStatus = "unavailable";
+      diagnosticsIssues = [{ severity: "error", message: "OpenSCAD check API is unavailable.", line: null, file: null }];
+      diagnosticsMessage = "OpenSCAD check API is unavailable.";
+      return;
+    }
+
+    const textAtStart = scadOutput;
+    const requestId = ++diagnosticsRequestId;
+    diagnosticsInFlight = true;
+    diagnosticsStatus = "checking";
+    diagnosticsMessage = "Checking with OpenSCAD...";
+
+    try {
+      const result = await bgsd.checkOpenScad({
+        scadText: textAtStart,
+        filePath: currentFilePath || getFilePath(),
+        requestId,
+      });
+      if (result?.requestId !== requestId) return;
+      if (scadOutput !== textAtStart) {
+        diagnosticsStatus = "stale";
+        diagnosticsMessage = "OpenSCAD check is stale.";
+        return;
+      }
+
+      diagnosticsLastCheckedScad = textAtStart;
+      const issues = Array.isArray(result?.issues) ? result.issues.map(normalizeOpenScadIssue) : [];
+      diagnosticsIssues = issues;
+
+      if (result?.error === "not-found") {
+        diagnosticsStatus = "unavailable";
+        diagnosticsMessage = "OpenSCAD executable was not found.";
+      } else if (result?.ok === false && issues.length === 0) {
+        diagnosticsStatus = "unavailable";
+        diagnosticsIssues = [{ severity: "error", message: String(result?.error || "OpenSCAD check failed."), line: null, file: null }];
+        diagnosticsMessage = "OpenSCAD check failed.";
+      } else if (issues.some((issue) => issue.severity === "error" || issue.severity === "warning")) {
+        const problemCount = issues.filter((issue) => issue.severity === "error" || issue.severity === "warning").length;
+        diagnosticsStatus = "issues";
+        diagnosticsMessage = `OpenSCAD found ${problemCount} issue${problemCount === 1 ? "" : "s"}.`;
+      } else {
+        diagnosticsStatus = "valid";
+        diagnosticsMessage = "OpenSCAD check passed.";
+      }
+    } catch (err: any) {
+      if (scadOutput !== textAtStart) {
+        diagnosticsStatus = "stale";
+        diagnosticsMessage = "OpenSCAD check is stale.";
+      } else {
+        diagnosticsStatus = "unavailable";
+        diagnosticsIssues = [{ severity: "error", message: err?.message || "OpenSCAD check failed.", line: null, file: null }];
+        diagnosticsMessage = "OpenSCAD check failed.";
+      }
+    } finally {
+      diagnosticsInFlight = false;
+      if (diagnosticsQueued || (canRunOpenScadDiagnostics() && scadOutput !== diagnosticsLastCheckedScad)) {
+        diagnosticsQueued = false;
+        markOpenScadDiagnosticsStale();
+      }
+    }
+  }
+
+  function toggleDiagnosticsPanel() {
+    diagnosticsOpen = !diagnosticsOpen;
+    showFileMenu = false;
+    showViewMenu = false;
+  }
+
+  function diagnosticsEmptyText(): string {
+    if (diagnosticsStatus === "valid") return "OpenSCAD reported no issues.";
+    if (diagnosticsStatus === "checking") return "Checking with OpenSCAD...";
+    if (diagnosticsStatus === "stale") return "OpenSCAD results are stale.";
+    if (diagnosticsStatus === "idle") return "OpenSCAD check has not run.";
+    return "No OpenSCAD issue details are available.";
+  }
+
+  $effect(() => {
+    const text = scadOutput;
+    const editorVisible = !showWelcome;
+    if (!editorVisible) {
+      setDiagnosticsIdle();
+      return;
+    }
+    if (text === diagnosticsLastObservedScad && text === diagnosticsLastCheckedScad) return;
+    diagnosticsLastObservedScad = text;
+    markOpenScadDiagnosticsStale();
+  });
 
   function showExternalFileChange(result: any) {
     const fp = currentFilePath || getFilePath();
@@ -426,6 +626,7 @@
     // After 1 s of input inactivity, commit the focused control so autosave picks it up.
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     document.addEventListener("input", () => {
+      markOpenScadDiagnosticsEditing();
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         const el = document.activeElement;
@@ -1091,6 +1292,23 @@
         showFileMenu = false;
         showViewMenu = false;
       }
+    }
+    document.addEventListener("click", handleClick, true);
+    document.addEventListener("keydown", handleKeydown, true);
+    return () => {
+      document.removeEventListener("click", handleClick, true);
+      document.removeEventListener("keydown", handleKeydown, true);
+    };
+  });
+
+  $effect(() => {
+    if (!diagnosticsOpen) return;
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".diagnostics-wrap")) diagnosticsOpen = false;
+    }
+    function handleKeydown(e: KeyboardEvent) {
+      if (e.key === "Escape") diagnosticsOpen = false;
     }
     document.addEventListener("click", handleClick, true);
     document.addEventListener("keydown", handleKeydown, true);
@@ -2079,6 +2297,49 @@
     </div>
     <div class="toolbar-sep"></div>
     <div class="toolbar-group">
+      <div class="diagnostics-wrap">
+        <button
+          class="diagnostics-chip {diagnosticsStatus}"
+          title={diagnosticsMessage}
+          aria-haspopup="dialog"
+          aria-expanded={diagnosticsOpen}
+          data-testid="openscad-check-chip"
+          onclick={toggleDiagnosticsPanel}
+        >
+          <span class="diagnostics-dot"></span>
+          <span>{diagnosticsLabel}</span>
+        </button>
+        {#if diagnosticsOpen}
+          <div class="diagnostics-panel" data-testid="openscad-issues-panel" role="dialog" aria-label="OpenSCAD issues">
+            <div class="diagnostics-panel-head">
+              <span class="diagnostics-title">OpenSCAD Check</span>
+              <button class="diagnostics-refresh" title="Run OpenSCAD check now" disabled={diagnosticsInFlight} onclick={() => runOpenScadDiagnostics()}>↻</button>
+            </div>
+            <div class="diagnostics-summary" class:problem={diagnosticsProblemCount > 0}>{diagnosticsMessage}</div>
+            {#if diagnosticsIssues.length === 0}
+              <div class="diagnostics-empty">{diagnosticsEmptyText()}</div>
+            {:else}
+              <div class="diagnostics-list">
+                {#each diagnosticsIssues as issue, idx}
+                  <div class="diagnostics-issue {issue.severity}" data-testid="openscad-issue-{idx}">
+                    <span class="issue-severity">{issue.severity}</span>
+                    <span class="issue-message">{issue.message}</span>
+                    {#if issue.line}
+                      <span class="issue-location">line {issue.line}</span>
+                    {/if}
+                    {#if issue.file}
+                      <span class="issue-file">{basename(issue.file)}</span>
+                    {/if}
+                    {#if issue.code || issue.key || issue.context}
+                      <span class="issue-meta">{[issue.code, issue.key ? `key ${issue.key}` : null, issue.context ? `context ${issue.context}` : null].filter(Boolean).join(" · ")}</span>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
       <button class="toolbar-btn" title="Open in OpenSCAD (Ctrl+E)" onclick={() => openInOpenScad()}>OpenSCAD</button>
       <button class="toolbar-btn toolbar-gear" title="Preferences... (Ctrl+,)" onclick={() => openPreferencesModal()}>&#x2699;</button>
     </div>
@@ -2821,6 +3082,85 @@
   .toolbar-btn:disabled:hover,
   .toolbar-icon-btn:disabled:hover {
     border-color: #b4c0cb; background: #e7edf2;
+  }
+  .diagnostics-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .diagnostics-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    min-width: 82px; height: 24px; box-sizing: border-box;
+    padding: 3px 8px; border: 1px solid #b4c0cb; border-radius: 12px;
+    background: #f0f4f7; color: #2c3e50; cursor: pointer;
+    font-size: 12px; font-weight: 700;
+  }
+  .diagnostics-chip:hover { background: #fff; border-color: #8a9aab; }
+  .diagnostics-chip.valid { background: #e7f5eb; border-color: #7db58a; color: #2f6b3f; }
+  .diagnostics-chip.issues { background: #fff1d7; border-color: #d69a45; color: #7a4b08; }
+  .diagnostics-chip.unavailable { background: #fdecea; border-color: #d99b92; color: #9b2f25; }
+  .diagnostics-chip.stale { background: #f7f1df; border-color: #d1bd7a; color: #715c16; }
+  .diagnostics-chip.checking { background: #e6f0f7; border-color: #8daec6; color: #2d5a7b; }
+  .diagnostics-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #8a9aab; flex-shrink: 0;
+  }
+  .diagnostics-chip.valid .diagnostics-dot { background: #3d914e; }
+  .diagnostics-chip.issues .diagnostics-dot { background: #d4800e; }
+  .diagnostics-chip.unavailable .diagnostics-dot { background: #c0392b; }
+  .diagnostics-chip.stale .diagnostics-dot { background: #b58d18; }
+  .diagnostics-chip.checking .diagnostics-dot { background: #2d7db3; animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+  .diagnostics-panel {
+    position: absolute; top: calc(100% + 4px); left: 0; z-index: 90;
+    width: min(520px, calc(100vw - 24px)); max-height: 360px; overflow: hidden;
+    display: flex; flex-direction: column;
+    border: 1px solid #b4c0cb; border-radius: 5px;
+    background: #ffffff; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.18);
+  }
+  .diagnostics-panel-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 8px 10px; border-bottom: 1px solid #e5ebf0; background: #f5f8fb;
+  }
+  .diagnostics-title { font-size: 13px; font-weight: 700; color: #2c3e50; }
+  .diagnostics-refresh {
+    width: 24px; height: 22px; display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid #b4c0cb; border-radius: 3px; background: #ffffff;
+    color: #2c3e50; cursor: pointer; font-size: 14px; line-height: 1;
+  }
+  .diagnostics-refresh:hover:not(:disabled) { background: #edf4fa; border-color: #8a9aab; }
+  .diagnostics-refresh:disabled { opacity: 0.5; cursor: default; }
+  .diagnostics-summary {
+    padding: 7px 10px; border-bottom: 1px solid #edf1f5;
+    color: #526374; font-size: 12px; line-height: 1.35;
+  }
+  .diagnostics-summary.problem { color: #7a4b08; font-weight: 700; }
+  .diagnostics-empty {
+    padding: 12px 10px; color: #667085; font-size: 12px;
+  }
+  .diagnostics-list {
+    overflow: auto;
+    max-height: 260px;
+  }
+  .diagnostics-issue {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 7px;
+    align-items: start; padding: 8px 10px; border-bottom: 1px solid #edf1f5;
+    font-size: 12px; color: #263846;
+  }
+  .diagnostics-issue:last-child { border-bottom: none; }
+  .issue-severity {
+    padding: 1px 5px; border-radius: 3px; text-transform: uppercase;
+    font-size: 10px; font-weight: 700; line-height: 1.4;
+    background: #e5ebf0; color: #526374;
+  }
+  .diagnostics-issue.error .issue-severity { background: #fdecea; color: #c0392b; }
+  .diagnostics-issue.warning .issue-severity { background: #fff1d7; color: #8a5a0a; }
+  .issue-message { min-width: 0; line-height: 1.35; word-break: break-word; }
+  .issue-location,
+  .issue-file,
+  .issue-meta {
+    grid-column: 2 / 4; color: #667085; font-family: "Courier New", monospace;
+    font-size: 11px;
   }
   .toolbar-sep { width: 1px; height: 18px; background: #b4c0cb; margin: 0 6px; }
   .content { flex: 1; overflow-y: auto; padding: 4px 0; display: flex; flex-direction: column; min-height: 0; }
