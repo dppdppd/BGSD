@@ -1,5 +1,5 @@
 {
-  "version": "4.4.0",
+  "version": "4.5.0",
   "types": {
     "bool": "Checkbox (true/false)",
     "number": "Numeric input",
@@ -105,6 +105,7 @@
         "LID_HEIGHT":                   { "type": "number", "default": 4.0, "step": 0.5, "help": "Lid height in mm (default: 4 cap, 2 inset)" },
         "LID_TYPE":                     { "type": "enum", "values": ["LID_CAP", "LID_INSET", "LID_SLIDING"], "default": "LID_CAP", "help": "Lid style. If omitted, BIT uses legacy cap/inset behavior." },
         "LID_SLIDE_SIDE":               { "type": "enum", "values": ["FRONT", "BACK", "LEFT", "RIGHT"], "default": "FRONT", "help": "Side a sliding lid opens from" },
+        "LID_DETENT_LOCK_ANGLE":        { "type": "number", "default": 45, "step": 5, "help": "Sliding lid detent lock-side angle in degrees; use 90 for a vertical lock face, lower values bevel the lock side" },
         "LID_FRAME_WIDTH":              { "type": "number", "default": 2.0, "step": 0.1, "help": "Perimeter frame width on patterned sliding lids (defaults to box wall thickness; 0 omits frame)" },
         "LID_INSET_B":                  { "type": "bool", "default": false, "help": "Inset lid (sits inside box walls)" },
         "LID_CUTOUT_SIDES_4B":          { "type": "4bool", "default": [false, false, false, false], "help": "Lid finger cutouts [front, back, left, right]" },
@@ -181,7 +182,7 @@
     "G_VALIDATE_KEYS_B":       { "type": "bool",   "default": true,  "help": "Warn about unknown/malformed keys" },
     "G_VALIDATE_PHYSICAL_B":   { "type": "bool",   "default": true,  "help": "Warn about known physical fit and printability risks" },
     "G_WALL_THICKNESS":        { "type": "number", "default": 2.0,   "step": 0.1, "help": "Default wall thickness in mm" },
-    "G_DETENT_THICKNESS":      { "type": "number", "default": 0.25,  "step": 0.05, "help": "Thickness of lid/box detent in mm" },
+    "G_DETENT_THICKNESS":      { "type": "number", "default": 0.8,   "step": 0.05, "help": "Thickness of lid/box detent in mm" },
     "G_DETENT_SPACING":        { "type": "number", "default": 2,     "step": 0.5, "help": "Length of detent in mm" },
     "G_DETENT_DIST_FROM_CORNER": { "type": "number", "default": 1.5, "step": 0.5, "help": "Distance from corner to start detent" },
     "G_DETENT_MIN_SPACING":    { "type": "number", "default": 40,    "step": 1, "help": "Min spacing for extra detents" },

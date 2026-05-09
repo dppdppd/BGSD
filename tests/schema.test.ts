@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import bitSchema from "../schema/bit.schema.json";
 
 describe("BIT schema", () => {
-  it("tracks BIT 4.4.0 lid, divider, shape-axis, and validation options", () => {
-    expect(bitSchema.version).toBe("4.4.0");
+  it("tracks BIT 4.5.0 lid, divider, shape-axis, and validation options", () => {
+    expect(bitSchema.version).toBe("4.5.0");
 
     const lidKeys = bitSchema.contexts.lid.keys;
     const featureKeys = bitSchema.contexts.feature.keys;
@@ -20,6 +20,10 @@ describe("BIT schema", () => {
       type: "enum",
       values: ["FRONT", "BACK", "LEFT", "RIGHT"],
       default: "FRONT",
+    });
+    expect(lidKeys.LID_DETENT_LOCK_ANGLE).toMatchObject({
+      type: "number",
+      default: 45,
     });
     expect(lidKeys.LID_FRAME_WIDTH).toMatchObject({
       type: "number",
@@ -90,6 +94,10 @@ describe("BIT schema", () => {
     expect(globals.G_WALL_THICKNESS).toMatchObject({
       type: "number",
       default: 2.0,
+    });
+    expect(globals.G_DETENT_THICKNESS).toMatchObject({
+      type: "number",
+      default: 0.8,
     });
     expect(globals.G_LID_THICKNESS).toMatchObject({
       type: "number_or_false",
