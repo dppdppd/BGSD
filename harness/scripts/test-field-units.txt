@@ -1,0 +1,9 @@
+wait app-root
+new bit
+intent "Numeric and numeric-like fields display schema-derived unit suffixes."
+click view-menu-button
+click view-defaults-all
+js (() => { const button = [...document.querySelectorAll('button.add-btn')].find((b) => b.title === 'Add BOX_FEATURE block'); if (!button) throw new Error('Add BOX_FEATURE button not found'); button.click(); return 'feature added'; })()
+js document.querySelector('[data-testid="content-area"]').scrollTop = 0
+shot field_units
+js (() => { const units = [...document.querySelectorAll('.unit-suffix')].map((e) => e.textContent.trim()); if (!units.includes('mm')) throw new Error('mm unit suffix missing'); if (!units.includes('%')) throw new Error('percent unit suffix missing'); if (!units.includes('deg')) throw new Error('degree unit suffix missing'); return units.join(','); })()

@@ -1477,6 +1477,20 @@
   const i18n = tooltips as Record<string, { label?: string; tooltip?: string }>;
   function tip(key: string): string { return i18n[key]?.tooltip || ""; }
   function label(key: string): string { return i18n[key]?.label || key; }
+  function unitForSchema(key: string, def: any): string {
+    const explicit = typeof def?.unit === "string" ? def.unit : typeof def?.units === "string" ? def.units : "";
+    if (explicit.trim()) return explicit.trim();
+    const upperKey = key.toUpperCase();
+    const metadata = `${def?.help || ""} ${tip(key)}`.toLowerCase();
+    if (upperKey.includes("_PCT") || metadata.includes("%") || /\bpercent\b/.test(metadata)) return "%";
+    if (/\bdegrees?\b/.test(metadata)) return "deg";
+    if (/\bmm\b|\d\s*mm\b|millimet(?:er|re)/.test(metadata)) return "mm";
+    return "";
+  }
+  function unitForField(key: string, def: any): string {
+    if (!["number", "number_or_false", "xyz_or_false", "xy", "xyz", "position_xy", "4num"].includes(def?.type)) return "";
+    return unitForSchema(key, def);
+  }
   function toRaw(i: number) {
     const l = $project.lines[i];
     if (!l || l.kind === "open" || l.kind === "close") return; // brackets are never raw
@@ -2464,6 +2478,13 @@
   </span>
 {/snippet}
 
+{#snippet unitSuffix(key, def)}
+  {@const unit = unitForField(key, def)}
+  {#if unit}
+    <span class="unit-suffix" title="Unit: {unit}">{unit}</span>
+  {/if}
+{/snippet}
+
 {#snippet presetBtn(key, onChange, id)}
   {#if $presets[key]?.length}
     <span class="preset-wrap">
@@ -2743,6 +2764,7 @@
                 {:else}
                   <input class="kv-str" type="text" value={gVal ?? ""} onchange={(e) => gOnChange(e.currentTarget.value)} />
                 {/if}
+                {@render unitSuffix(row.key, gDef)}
               </span>
               {@render presetBtn(row.key, gOnChange, `global-${row.key}`)}
               {#if row.isReal && row.lineIndex !== null}
@@ -2855,6 +2877,7 @@
               {:else}
                 <span class="kv-fallback">{JSON.stringify(val)}</span>
               {/if}
+              {@render unitSuffix(row.key, row.def)}
             </span>
             {@render presetBtn(row.key, onChange, `schema-${i}-${row.key}`)}
             {#if row.isReal && row.lineIndex !== null}
@@ -2919,6 +2942,7 @@
                 {:else}
                   <span class="kv-fallback">{JSON.stringify(val)}</span>
                 {/if}
+                {@render unitSuffix(srow.key, srow.def)}
               </span>
               <button class="comment-btn" title="Add comment" onclick={() => materializeVirtualLidKvWithComment(i, srow.key, srow.def, lidChildDepth)}>//</button>
               <span class="spacer"></span>
@@ -3087,6 +3111,7 @@
             {:else}
               <span class="kv-fallback">{JSON.stringify(line.kvValue)}</span>
             {/if}
+            {@render unitSuffix(line.kvKey, ks)}
           </span>
           {@render presetBtn(line.kvKey, (v: any) => updateKv(i, v, sd), `kv-${i}-${line.kvKey}`)}
           {@render commentBtn(line, i)}
@@ -3732,6 +3757,7 @@
   .kv-control select { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #c8d1da; border-radius: 2px; background: white; }
   .kv-control input[type="checkbox"] { width: 18px; height: 18px; accent-color: #2d5a7b; }
   .kv-fallback { color: #999; font-size: 13px; }
+  .unit-suffix { align-self: center; min-width: 20px; color: #607080; font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; }
   .side-label { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; }
   .side-tag { color: #999; font-size: 11px; font-weight: 600; width: 12px; text-align: center; }
 

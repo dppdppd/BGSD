@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import bitSchema from "../schema/bit.schema.json";
 
 describe("BIT schema", () => {
-  it("tracks BIT 4.3.1 lid, divider, and validation options", () => {
-    expect(bitSchema.version).toBe("4.3.1");
+  it("tracks BIT 4.4.0 lid, divider, shape-axis, and validation options", () => {
+    expect(bitSchema.version).toBe("4.4.0");
 
     const lidKeys = bitSchema.contexts.lid.keys;
     const featureKeys = bitSchema.contexts.feature.keys;
@@ -33,7 +33,7 @@ describe("BIT schema", () => {
     expect(featureKeys.FTR_SHAPE_AXIS).toMatchObject({
       type: "enum",
       values: ["X", "Y"],
-      default: "X",
+      default: "Y",
     });
     expect(featureKeys.FTR_SHAPE_ROTATED_B).toBeUndefined();
     expect(featureDividerKeys.DIV_LAYOUT_BAYS).toMatchObject({

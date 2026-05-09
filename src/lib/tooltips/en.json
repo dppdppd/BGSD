@@ -22,7 +22,7 @@
   "FTR_COMPARTMENT_SIZE_XYZ":    { "label": "Compartment Size",    "tooltip": "Interior size of each compartment [width, depth, height] in mm" },
   "FTR_NUM_COMPARTMENTS_XY":     { "label": "Grid Count",          "tooltip": "Grid layout [columns, rows] — how many compartments in each direction" },
   "FTR_SHAPE":                   { "label": "Shape",               "tooltip": "Compartment cross-section shape" },
-  "FTR_SHAPE_AXIS":              { "label": "Shape Axis",          "tooltip": "Axis used to orient asymmetric compartment shapes: X or Y" },
+  "FTR_SHAPE_AXIS":              { "label": "Shape Axis",          "tooltip": "Axis used to orient asymmetric compartment shapes: X or Y. BIT default: Y." },
   "FTR_SHAPE_VERTICAL_B":        { "label": "Shape Vertical",      "tooltip": "Orient shape for vertical piece stacks (extrude sideways instead of up)" },
   "FTR_PADDING_XY":              { "label": "Padding",             "tooltip": "Spacing between adjacent compartments [x, y] in mm" },
   "FTR_PADDING_HEIGHT_ADJUST_XY":{ "label": "Padding Height Adj.", "tooltip": "Height adjustment for padding walls [x, y] — typically negative values" },
