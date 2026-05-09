@@ -222,7 +222,7 @@
       return `${diagnosticsWarningCount} warning${diagnosticsWarningCount === 1 ? "" : "s"}`;
     }
     if (diagnosticsStatus === "checking") return "Checking";
-    if (diagnosticsStatus === "stale") return "Stale";
+    if (diagnosticsStatus === "stale") return "Evaluating...";
     if (diagnosticsStatus === "unavailable") return "Check failed";
     return "OpenSCAD";
   });
@@ -345,15 +345,15 @@
     if (scadOutput === diagnosticsLastCheckedScad && diagnosticsStatus !== "checking") return;
     diagnosticsStatus = "stale";
     diagnosticsMessage = diagnosticsInFlight
-      ? "OpenSCAD check is stale; another check is finishing."
-      : "OpenSCAD check is stale.";
+      ? "OpenSCAD is evaluating current changes; another check is finishing."
+      : "OpenSCAD is evaluating current changes.";
     scheduleOpenScadDiagnostics();
   }
 
   function markOpenScadDiagnosticsEditing() {
     if (!canRunOpenScadDiagnostics()) return;
     diagnosticsStatus = "stale";
-    diagnosticsMessage = "OpenSCAD check is stale.";
+    diagnosticsMessage = "OpenSCAD is evaluating current changes.";
     scheduleOpenScadDiagnostics(DIAGNOSTICS_DEBOUNCE_MS + 500);
   }
 
@@ -390,7 +390,7 @@
       if (result?.requestId !== requestId) return;
       if (scadOutput !== textAtStart) {
         diagnosticsStatus = "stale";
-        diagnosticsMessage = "OpenSCAD check is stale.";
+        diagnosticsMessage = "OpenSCAD is evaluating current changes.";
         return;
       }
 
@@ -416,7 +416,7 @@
     } catch (err: any) {
       if (scadOutput !== textAtStart) {
         diagnosticsStatus = "stale";
-        diagnosticsMessage = "OpenSCAD check is stale.";
+        diagnosticsMessage = "OpenSCAD is evaluating current changes.";
       } else {
         diagnosticsStatus = "unavailable";
         diagnosticsIssues = [{ severity: "error", message: err?.message || "OpenSCAD check failed.", line: null, file: null }];
@@ -440,7 +440,7 @@
   function diagnosticsEmptyText(): string {
     if (diagnosticsStatus === "valid") return "OpenSCAD reported no issues.";
     if (diagnosticsStatus === "checking") return "Checking with OpenSCAD...";
-    if (diagnosticsStatus === "stale") return "OpenSCAD results are stale.";
+    if (diagnosticsStatus === "stale") return "OpenSCAD is evaluating current changes.";
     if (diagnosticsStatus === "idle") return "OpenSCAD check has not run.";
     return "No OpenSCAD issue details are available.";
   }
