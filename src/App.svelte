@@ -26,8 +26,8 @@
     constantLabels,
     type Line,
   } from "./lib/stores/project";
-  import { generateScad } from "./lib/scad";
-  import { startAutosave, onSaveStatus, setFilePath, getFilePath, setNeedsBackup, setReadOnly, getReadOnly, onReadOnlyEdit, onExternalFileChange, saveNowDetailed, suppressNextAutosave, setFileState, getFileState, markExternalFileChange, clearExternalFileChange } from "./lib/autosave";
+  import { generateScadWithSourceMap } from "./lib/scad";
+  import { startAutosave, onSaveStatus, setFilePath, getFilePath, setNeedsBackup, setReadOnly, getReadOnly, onReadOnlyEdit, onExternalFileChange, saveNowDetailed, suppressNextAutosave, setFileState, getFileState, isSaveInFlight, markExternalFileChange, clearExternalFileChange } from "./lib/autosave";
   import { startHistory, clearHistory, undo, redo, restoreProjectFromHistory, canUndo, canRedo } from "./lib/stores/history";
   import { getSchema } from "./lib/schema";
   import tooltips from "./lib/tooltips/en.json";
@@ -120,8 +120,16 @@
   }
   let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
   let favoriteKeys = $state<Set<string>>(new Set());
-  const FAVORITE_KEYS_VERSION = 2;
+  const FAVORITE_KEYS_VERSION = 4;
   const FAVORITE_KEYS_ADDED_IN_V2 = ["LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH"];
+  const FAVORITE_KEYS_ADDED_IN_V3 = [
+    "FTR_DIVIDERS", "DIV_AXIS", "DIV_OUTPUT_ONLY_B",
+    "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_VALIDATE_PHYSICAL_B",
+  ];
+  const FAVORITE_KEYS_ADDED_IN_V4 = [
+    "DIV_LAYOUT_BAYS", "DIV_LAYOUT_BAY_SIZE", "DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B",
+  ];
+  const REMOVED_FAVORITE_KEYS = ["DIV_NUM_DIVIDERS", "DIV_SLOT_DEPTH", "DIV_RAILS_B"];
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
   // and docs/guidance/CTD-PARAMETERS.md (3+ designs). Seeded on first run.
   const DEFAULT_FAVORITE_KEYS = [
@@ -130,8 +138,11 @@
     "FTR_SHAPE_VERTICAL_B", "FTR_SHAPE_ROTATED_B",
     "FTR_PADDING_XY", "FTR_PADDING_HEIGHT_ADJUST_XY",
     "FTR_CUTOUT_SIDES_4B", "POSITION_XY", "ROTATION",
+    "FTR_DIVIDERS", "DIV_LAYOUT_BAYS", "DIV_LAYOUT_BAY_SIZE", "DIV_AXIS",
+    "DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B",
     "LID_SOLID_B", "LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH",
     "LBL_TEXT", "LBL_SIZE", "LBL_PLACEMENT",
+    "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_VALIDATE_PHYSICAL_B",
     "G_DIMENSIONS_XY", "G_FLOOR_THICKNESS_N", "G_MIN_PADDING_XY", "G_FRAME_STYLE_N",
     "COUNTER_SIZE_XYZ", "COUNTER_MARGINS_POST_LENGTH_FRACTION_N",
     "PRINT_COUNT_N", "ROWS_N", "COUNTER_SHAPE",
@@ -171,15 +182,20 @@
   let externalResolveBusy = $state(false);
   let externalCheckInFlight = false;
 
-  let scadOutput = $derived(generateScad($project));
+  let generatedScad = $derived(generateScadWithSourceMap($project));
+  let scadOutput = $derived(generatedScad.text);
+  let scadSourceMap = $derived(generatedScad.sourceMap);
 
   type OpenScadIssue = {
     severity: "error" | "warning" | "info";
     message: string;
     line: number | null;
+    targetLines: number[];
+    targetKeys: string[];
     file: string | null;
     code?: string;
     key?: string;
+    keys?: string;
     context?: string;
     raw?: string;
   };
@@ -242,16 +258,44 @@
     }, 2600);
   }
 
+  function parseIssueNumberList(value: any): number[] {
+    return String(value ?? "")
+      .split(",")
+      .map((v) => Number(v.trim()))
+      .filter((v) => Number.isFinite(v) && v > 0);
+  }
+
+  function parseIssueStringList(value: any): string[] {
+    return String(value ?? "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+
+  function uniqueStrings(values: string[]): string[] {
+    return [...new Set(values)];
+  }
+
+  function uniqueNumbers(values: number[]): number[] {
+    return [...new Set(values)];
+  }
+
   function normalizeOpenScadIssue(issue: any): OpenScadIssue {
     const severity = issue?.severity === "warning" || issue?.severity === "info" ? issue.severity : "error";
     const numericLine = Number(issue?.line);
+    const line = Number.isFinite(numericLine) && numericLine > 0 ? numericLine : null;
+    const targetLines = uniqueNumbers([...(line ? [line] : []), ...parseIssueNumberList(issue?.lines)]);
+    const targetKeys = uniqueStrings([...parseIssueStringList(issue?.key), ...parseIssueStringList(issue?.keys)]);
     return {
       severity,
       message: String(issue?.message || issue?.raw || "OpenSCAD reported an issue."),
-      line: Number.isFinite(numericLine) && numericLine > 0 ? numericLine : null,
+      line,
+      targetLines,
+      targetKeys,
       file: typeof issue?.file === "string" && issue.file.trim() ? issue.file.trim() : null,
       code: typeof issue?.code === "string" && issue.code.trim() ? issue.code.trim() : undefined,
       key: typeof issue?.key === "string" && issue.key.trim() ? issue.key.trim() : undefined,
+      keys: typeof issue?.keys === "string" && issue.keys.trim() ? issue.keys.trim() : undefined,
       context: typeof issue?.context === "string" && issue.context.trim() ? issue.context.trim() : undefined,
       raw: issue?.raw ? String(issue.raw) : undefined,
     };
@@ -393,6 +437,106 @@
     return "No OpenSCAD issue details are available.";
   }
 
+  function addIssueToLineMap(map: Map<number, OpenScadIssue[]>, lineIndex: number | null | undefined, issue: OpenScadIssue) {
+    if (lineIndex == null || lineIndex < 0 || lineIndex >= $project.lines.length) return;
+    const existing = map.get(lineIndex) ?? [];
+    if (!existing.includes(issue)) existing.push(issue);
+    map.set(lineIndex, existing);
+  }
+
+  function lineMatchesDiagnosticKey(line: Line, key: string): boolean {
+    return (line.kind === "kv" && line.kvKey === key) || (line.kind === "global" && line.globalKey === key);
+  }
+
+  function diagnosticBoxName(issue: OpenScadIssue): string {
+    const contextMatch = issue.context?.match(/(?:^|\/)box[:=]([^/]+)/i);
+    if (contextMatch) return contextMatch[1].replace(/_/g, " ");
+    const messageMatch = issue.message.match(/\bbox\s+"([^"]+)"/i);
+    return messageMatch?.[1] ?? "";
+  }
+
+  function findAncestorOpenMatching(lineIndex: number, predicate: (line: Line, index: number) => boolean): number {
+    let balance = 0;
+    for (let i = lineIndex - 1; i >= 0; i--) {
+      const line = $project.lines[i];
+      if (line.kind === "close") {
+        balance += line.mergedClose ? 2 : 1;
+      } else if (line.kind === "open") {
+        const openCount = line.mergedOpen ? 2 : 1;
+        if (balance > 0) {
+          balance -= openCount;
+        } else if (predicate(line, i)) {
+          return i;
+        }
+      }
+    }
+    return -1;
+  }
+
+  function lineBelongsToBox(lineIndex: number, boxName: string): boolean {
+    if (!boxName) return true;
+    return findAncestorOpenMatching(
+      lineIndex,
+      (line, index) => line.role === "object" && line.label === "OBJECT_BOX" && findChildName(index) === boxName,
+    ) >= 0;
+  }
+
+  function inferredDiagnosticKeys(issue: OpenScadIssue): string[] {
+    if (issue.targetKeys.length) return issue.targetKeys;
+    const code = issue.code?.toUpperCase();
+    const message = issue.message.toLowerCase();
+    if (code === "BIT-PHYSICAL" && /exceeds usable interior|too tall|footprint/.test(message)) {
+      return ["BOX_SIZE_XYZ", "FTR_COMPARTMENT_SIZE_XYZ"];
+    }
+    return [];
+  }
+
+  let diagnosticsByLineIndex = $derived.by(() => {
+    const map = new Map<number, OpenScadIssue[]>();
+    if (diagnosticsStatus !== "issues" || scadOutput !== diagnosticsLastCheckedScad) return map;
+
+    for (const issue of diagnosticsIssues) {
+      for (const lineNumber of issue.targetLines) {
+        addIssueToLineMap(map, scadSourceMap[lineNumber - 1], issue);
+      }
+
+      const boxName = diagnosticBoxName(issue);
+      for (const key of inferredDiagnosticKeys(issue)) {
+        for (let i = 0; i < $project.lines.length; i++) {
+          if (!lineMatchesDiagnosticKey($project.lines[i], key)) continue;
+          if (!lineBelongsToBox(i, boxName)) continue;
+          addIssueToLineMap(map, i, issue);
+        }
+      }
+    }
+
+    return map;
+  });
+
+  function diagnosticsForLine(lineIndex: number | null | undefined): OpenScadIssue[] {
+    if (lineIndex == null) return [];
+    return diagnosticsByLineIndex.get(lineIndex) ?? [];
+  }
+
+  function lineDiagnosticSeverity(lineIndex: number | null | undefined): "error" | "warning" | "info" | null {
+    const issues = diagnosticsForLine(lineIndex);
+    if (issues.some((issue) => issue.severity === "error")) return "error";
+    if (issues.some((issue) => issue.severity === "warning")) return "warning";
+    if (issues.length) return "info";
+    return null;
+  }
+
+  function lineDiagnosticTitle(lineIndex: number | null | undefined): string {
+    const issues = diagnosticsForLine(lineIndex);
+    if (!issues.length) return "";
+    return issues.map((issue) => `${issue.severity}: ${issue.message}`).join("\n");
+  }
+
+  function openDiagnosticsFromLine(event: MouseEvent) {
+    event.stopPropagation();
+    diagnosticsOpen = true;
+  }
+
   $effect(() => {
     const text = scadOutput;
     const editorVisible = !showWelcome;
@@ -417,7 +561,7 @@
   }
 
   async function checkExternalFileChange() {
-    if (externalCheckInFlight || externalFileChange || currentReadOnly || getReadOnly()) return;
+    if (externalCheckInFlight || externalFileChange || currentReadOnly || getReadOnly() || isSaveInFlight()) return;
     const fp = currentFilePath || getFilePath();
     const knownState = getFileState();
     if (!fp || !knownState) return;
@@ -427,6 +571,7 @@
     externalCheckInFlight = true;
     try {
       const result = await bgsd.checkFileState(fp, knownState);
+      if (isSaveInFlight() || knownState !== getFileState()) return;
       if (result?.ok && result.changed) showExternalFileChange(result);
     } catch (_) {
       // Polling should stay quiet unless the main process can confirm a conflict.
@@ -661,8 +806,21 @@
     const prefs = await bgsd?.getPreferences?.();
     if (prefs?.favoriteKeys && Array.isArray(prefs.favoriteKeys)) {
       const migrated = new Set(prefs.favoriteKeys);
-      if (prefs.favoriteKeysVersion !== FAVORITE_KEYS_VERSION) {
+      const favoriteVersion = Number(prefs.favoriteKeysVersion || 1);
+      let changedFavorites = favoriteVersion !== FAVORITE_KEYS_VERSION;
+      if (favoriteVersion < 2) {
         for (const key of FAVORITE_KEYS_ADDED_IN_V2) migrated.add(key);
+      }
+      if (favoriteVersion < 3) {
+        for (const key of FAVORITE_KEYS_ADDED_IN_V3) migrated.add(key);
+      }
+      if (favoriteVersion < 4) {
+        for (const key of FAVORITE_KEYS_ADDED_IN_V4) migrated.add(key);
+      }
+      for (const key of REMOVED_FAVORITE_KEYS) {
+        if (migrated.delete(key)) changedFavorites = true;
+      }
+      if (changedFavorites) {
         await bgsd?.setPreferences?.({ favoriteKeys: [...migrated], favoriteKeysVersion: FAVORITE_KEYS_VERSION });
       }
       favoriteKeys = migrated;
@@ -1177,6 +1335,7 @@
     INTERIOR:"INTERIOR",EXTERIOR:"EXTERIOR",BOTH:"BOTH",
     FRONT:"FRONT",BACK:"BACK",LEFT:"LEFT",RIGHT:"RIGHT",
     FRONT_WALL:"FRONT_WALL",BACK_WALL:"BACK_WALL",LEFT_WALL:"LEFT_WALL",RIGHT_WALL:"RIGHT_WALL",
+    X:"X",Y:"Y",
     CENTER:"CENTER",BOTTOM:"BOTTOM",AUTO:"AUTO",MAX:"MAX",
     SHAPE_SQUARE:"SHAPE_SQUARE",SHAPE_CIRCLE:"SHAPE_CIRCLE",
     SHAPE_TRIANGLE:"SHAPE_TRIANGLE",SHAPE_HEX:"SHAPE_HEX",
@@ -1211,6 +1370,24 @@
     return { ok: false, value: null };
   }
 
+  function parseNumberOrFalse(text: string): number | false {
+    const t = text.trim().toLowerCase();
+    if (t === "false" || t === "f") return false;
+    return parseNum(text);
+  }
+
+  function parseXyzOrFalse(text: string): any {
+    const t = text.trim().toLowerCase();
+    if (t === "false" || t === "f") return false;
+    const parsed = parseSimpleValue(text);
+    return parsed.ok ? parsed.value : text.trim();
+  }
+
+  function parseFlexibleValue(text: string): any {
+    const parsed = parseSimpleValue(text);
+    return parsed.ok ? parsed.value : text.trim();
+  }
+
   const KV_RE = /^\s*\[\s*([_A-Z][A-Z0-9_]*)\s*,\s*(.*?)\s*\]\s*,?\s*(?:\/\/.*)?$/;
 
   let GLOBAL_NAMES = $derived(new Set(Object.keys((activeSchema as any).globals || {})));
@@ -1223,6 +1400,14 @@
     if (nm) { const gk = nm[1].toUpperCase(); if (GLOBAL_NAMES.has(gk)) return { raw, kind: "global", depth, globalKey: gk, globalValue: parseFloat(nm[2]) }; }
     const sm = raw.match(/^\s*(g_\w+)\s*=\s*"([^"]*)"\s*;\s*(?:\/\/.*)?$/i);
     if (sm) { const gk = sm[1].toUpperCase(); if (GLOBAL_NAMES.has(gk)) return { raw, kind: "global", depth, globalKey: gk, globalValue: sm[2] }; }
+    const gm = raw.match(/^\s*(g_\w+)\s*=\s*(.+?)\s*;\s*(?:\/\/.*)?$/i);
+    if (gm) {
+      const gk = gm[1].toUpperCase();
+      if (GLOBAL_NAMES.has(gk)) {
+        const parsed = parseSimpleValue(gm[2]);
+        if (parsed.ok) return { raw, kind: "global", depth, globalKey: gk, globalValue: parsed.value };
+      }
+    }
     if (/^\s*include\s*<\s*(?:\.\.\/lib\/)?boardgame_insert_toolkit_lib\.\d+(?:\.\d+){0,2}\.scad\s*>\s*;?\s*(?:\/\/.*)?$/i.test(raw)) return { raw, kind: "include", depth };
     if (/^\s*include\s*<\s*(?:\.\.\/lib\/)?counter_tray_designer_lib\.\d+\.scad\s*>\s*;?\s*(?:\/\/.*)?$/i.test(raw)) return { raw, kind: "include", depth };
     if (/^\s*\/\/\s*(?:BGSD|BITGUI)\b/i.test(raw)) return { raw, kind: "marker", depth };
@@ -1618,6 +1803,7 @@
     params: "element",
     feature: "feature",
     feature_list: "feature",
+    feature_divider_params: "feature_divider",
     label_params: "label",
     lid_params: "lid",
     counter_set_params: "counter_set",
@@ -1627,6 +1813,7 @@
   const MERGED_INNER_ROLE: Record<string, string> = {
     object: "params",
     feature_list: "feature",
+    feature_dividers: "feature_divider_params",
     label: "label_params",
     lid: "lid_params",
     counter_set: "counter_set_params",
@@ -1669,6 +1856,9 @@
       // Non-merged BOX_LID close (flat format from addLid or single-bracket import):
       // children are direct kv pairs at depth+1, like lid_params
       ctx = "lid";
+    } else if (role === "feature_dividers" && !line.mergedClose) {
+      // Non-merged FTR_DIVIDERS close: children are direct kv pairs
+      ctx = "feature_divider";
     } else if (role === "label" && !line.mergedClose) {
       // Non-merged LABEL close (flat format from addLabel): children are direct kv pairs
       ctx = "label";
@@ -1895,6 +2085,8 @@
     if (line.role === "params") return { text: "object params", inferred: true };
     if (line.role === "feature_list") return { text: label(line.label || "BOX_FEATURE") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "feature") return { text: "feature list", inferred: true };
+    if (line.role === "feature_dividers") return { text: label(line.label || "FTR_DIVIDERS") + nameSuffix(lineIndex), inferred: false };
+    if (line.role === "feature_divider_params") return { text: "feature divider params", inferred: true };
     if (line.role === "label") return { text: label(line.label || "LABEL") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "label_params") return { text: "label params", inferred: true };
     if (line.role === "lid") return { text: label(line.label || "BOX_LID") + nameSuffix(lineIndex), inferred: false };
@@ -2072,6 +2264,21 @@
     });
   }
 
+  /** Insert an FTR_DIVIDERS block before `closeIndex` (inside a BOX_FEATURE close). */
+  function addFeatureDividers(closeIndex: number, depth: number) {
+    const d = depth;
+    const ind = (n: number) => "    ".repeat(n);
+    const lines: Line[] = [
+      { raw: `${ind(d)}[ FTR_DIVIDERS,`, kind: "open", depth: d, role: "feature_dividers", label: "FTR_DIVIDERS" },
+      { raw: `${ind(d+1)}[ DIV_LAYOUT_BAYS, 2 ],`, kind: "kv", depth: d + 1, kvKey: "DIV_LAYOUT_BAYS", kvValue: 2 },
+      { raw: `${ind(d)}],`, kind: "close", depth: d, role: "feature_dividers", label: "FTR_DIVIDERS" },
+    ];
+    project.update((p) => {
+      p.lines.splice(closeIndex, 0, ...lines);
+      return { ...p };
+    });
+  }
+
   /** Insert a BOX_LID block before `closeIndex` (flat format). */
   function addLid(closeIndex: number, depth: number) {
     const d = depth;
@@ -2198,6 +2405,21 @@
   {:else}
     <button class="comment-btn" title="Add comment" onclick={() => toggleCommentEdit(i)}>//</button>
   {/if}
+{/snippet}
+
+{#snippet diagnosticSlot(lineIndex)}
+  {@const severity = lineDiagnosticSeverity(lineIndex)}
+  <span class="line-diagnostic-slot">
+    {#if severity}
+      <button
+        class="line-diagnostic-marker {severity}"
+        data-testid="diagnostic-line-{lineIndex}"
+        title={lineDiagnosticTitle(lineIndex)}
+        aria-label="OpenSCAD {severity} on this line"
+        onclick={openDiagnosticsFromLine}
+      >!</button>
+    {/if}
+  </span>
 {/snippet}
 
 {#snippet presetBtn(key, onChange, id)}
@@ -2330,8 +2552,8 @@
                     {#if issue.file}
                       <span class="issue-file">{basename(issue.file)}</span>
                     {/if}
-                    {#if issue.code || issue.key || issue.context}
-                      <span class="issue-meta">{[issue.code, issue.key ? `key ${issue.key}` : null, issue.context ? `context ${issue.context}` : null].filter(Boolean).join(" · ")}</span>
+                    {#if issue.code || issue.key || issue.keys || issue.context}
+                      <span class="issue-meta">{[issue.code, issue.key ? `key ${issue.key}` : null, issue.keys ? `keys ${issue.keys}` : null, issue.context ? `context ${issue.context}` : null].filter(Boolean).join(" · ")}</span>
                     {/if}
                   </div>
                 {/each}
@@ -2381,8 +2603,8 @@
         <!-- This global line is rendered in the virtual globals block above -->
 
       {:else if line.kind === "open"}
-        {@const collapsible = !["params", "label_params", "lid_params", "feature", "counter_set_params"].includes(line.role || "")}
-        {@const deletable = line.role === "data" ? sceneNames.length > 1 : !["data_list", "params", "label_params", "lid_params", "feature", "counter_set_params"].includes(line.role || "")}
+        {@const collapsible = !["params", "label_params", "lid_params", "feature", "feature_divider_params", "counter_set_params"].includes(line.role || "")}
+        {@const deletable = line.role === "data" ? sceneNames.length > 1 : !["data_list", "params", "label_params", "lid_params", "feature", "feature_divider_params", "counter_set_params"].includes(line.role || "")}
         <div class="line-row struct open" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
           {#if collapsible}
             <button class="collapse-btn" title={collapsed.has(i) ? "Expand" : "Collapse"}
@@ -2401,7 +2623,7 @@
             <span class={structLabel(line, i).inferred ? "struct-label inferred" : "struct-label"}>{structLabel(line, i).text}</span>
           {/if}
           <span class="struct-bracket">{collapsed.has(i) ? "[ ... ]" : "["}</span>
-          {#if line.role === "object" || line.role === "feature_list" || line.role === "lid" || line.role === "counter_set"}
+          {#if line.role === "object" || line.role === "feature_list" || line.role === "feature_dividers" || line.role === "lid" || line.role === "counter_set"}
             {@const dbg = getDebugState(i)}
             <button class="debug-toggle" class:active={dbg.active} title="Highlight in OpenSCAD (#)"
               aria-pressed={dbg.active} aria-label="Toggle debug highlight"
@@ -2433,8 +2655,9 @@
             {@const gOnChange = row.isReal
               ? (v: any) => updateGlobalWithDefault(row.lineIndex!, v, gDef.default)
               : (v: any) => onVirtualGlobalChange(row.key, gDef, v)}
-            <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} style="{padDepth(1)}; {bracketStyle(1)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
+            <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} class:has-diagnostic={lineDiagnosticSeverity(row.lineIndex) != null} class:diagnostic-error={lineDiagnosticSeverity(row.lineIndex) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(row.lineIndex) === "warning"} style="{padDepth(1)}; {bracketStyle(1)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
               <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
+              {@render diagnosticSlot(row.lineIndex)}
               <span class="kv-control">
                 {#if row.isReal && rawValueEditing.has(row.lineIndex!)}
                   <input class="kv-raw-value" type="text" spellcheck="false"
@@ -2449,6 +2672,12 @@
                   </select>
                 {:else if gDef.type === "number"}
                   <input class="kv-num" type="number" step={getStep(row.key)} value={gVal} onchange={(e) => gOnChange(parseNum(e.currentTarget.value))} />
+                {:else if gDef.type === "number_or_false"}
+                  <input class="kv-str" type="text" value={formatKvValue(gVal)} onchange={(e) => gOnChange(parseNumberOrFalse(e.currentTarget.value))} />
+                {:else if gDef.type === "xyz_or_false"}
+                  <input class="kv-str" type="text" value={formatKvValue(gVal)} onchange={(e) => gOnChange(parseXyzOrFalse(e.currentTarget.value))} />
+                {:else if gDef.type === "bool_string_list"}
+                  <input class="kv-str" type="text" value={formatKvValue(gVal)} onchange={(e) => gOnChange(parseFlexibleValue(e.currentTarget.value))} />
                 {:else if gDef.type === "xy"}
                   {#if typeof gVal === "string" && $knownConstantsStore.has(gVal)}
                     <span class="preset-pill" title={gVal + " → " + resolvePresetValue(gVal)}>{$constantLabels[gVal] || gVal}</span>
@@ -2498,8 +2727,9 @@
             ? (v) => updateKv(row.lineIndex, v, row.def.default)
             : (v) => onVirtualChange(closeIdx, row.key, row.def, v)}
           {@const val = row.value}
-          <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} style="{padDepth(row.depth)}; {bracketStyle(row.depth)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
+          <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} class:has-diagnostic={lineDiagnosticSeverity(row.lineIndex) != null} class:diagnostic-error={lineDiagnosticSeverity(row.lineIndex) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(row.lineIndex) === "warning"} style="{padDepth(row.depth)}; {bracketStyle(row.depth)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
             <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
+            {@render diagnosticSlot(row.lineIndex)}
             <span class="kv-control">
               {#if row.isReal && rawValueEditing.has(row.lineIndex!)}
                 <input class="kv-raw-value" type="text" spellcheck="false"
@@ -2514,6 +2744,12 @@
                 </select>
               {:else if rkt === "number"}
                 <input class="kv-num" type="number" step={getStep(row.key)} value={val} onchange={(e) => onChange(parseNum(e.currentTarget.value))} />
+              {:else if rkt === "number_or_false"}
+                <input class="kv-str" type="text" value={formatKvValue(val)} onchange={(e) => onChange(parseNumberOrFalse(e.currentTarget.value))} />
+              {:else if rkt === "xyz_or_false"}
+                <input class="kv-str" type="text" value={formatKvValue(val)} onchange={(e) => onChange(parseXyzOrFalse(e.currentTarget.value))} />
+              {:else if rkt === "bool_string_list"}
+                <input class="kv-str" type="text" value={formatKvValue(val)} onchange={(e) => onChange(parseFlexibleValue(e.currentTarget.value))} />
               {:else if rkt === "string"}
                 <input class="kv-str" type="text" value={val ?? ""} onchange={(e) => onChange(e.currentTarget.value)} />
               {:else if rkt === "xyz"}
@@ -2656,7 +2892,7 @@
           {/if}
         {/if}
         <!-- Add buttons on their own line, indented inside the block -->
-        {#if line.role === "data" || (line.role === "params" && $project.libraryProfile !== "ctd") || (line.role === "object" && $project.libraryProfile !== "ctd") || ((line.role === "lid" || line.role === "lid_params") && $project.libraryProfile !== "ctd")}
+        {#if line.role === "data" || (line.role === "params" && $project.libraryProfile !== "ctd") || (line.role === "object" && $project.libraryProfile !== "ctd") || (line.role === "feature_list" && $project.libraryProfile !== "ctd") || ((line.role === "lid" || line.role === "lid_params") && $project.libraryProfile !== "ctd")}
           {@const addDepth = (line.depth ?? 0) + 1}
           <div class="line-row add-row virtual" style="{padDepth(addDepth)}; {bracketStyle(addDepth)}" data-testid="add-{i}">
             {#if line.role === "data"}
@@ -2673,6 +2909,10 @@
               {@const childDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, childDepth)}>+ Label</button>
               <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, childDepth)}>+ Feature</button>
+            {:else if line.role === "feature_list"}
+              {@const featureChildDepth = (line.depth ?? 0) + 1}
+              <button class="add-btn" title="Add LABEL block inside feature" onclick={() => addLabel(i, featureChildDepth)}>+ Label</button>
+              <button class="add-btn" title="Add FTR_DIVIDERS block" onclick={() => addFeatureDividers(i, featureChildDepth)}>+ Dividers</button>
             {:else if line.role === "lid" || line.role === "lid_params"}
               {@const lidChildDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add LABEL block inside lid" onclick={() => addLabel(i, lidChildDepth)}>+ Label</button>
@@ -2711,8 +2951,9 @@
         {@const kt = getKeyType(line.kvKey)}
         {@const ks = getKeySchema(line.kvKey)}
         {@const sd = getSchemaDefault(line.kvKey)}
-        <div class="line-row kv" class:is-default={isDefault(line.kvKey, line.kvValue)} style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+        <div class="line-row kv" class:is-default={isDefault(line.kvKey, line.kvValue)} class:has-diagnostic={lineDiagnosticSeverity(i) != null} class:diagnostic-error={lineDiagnosticSeverity(i) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(i) === "warning"} style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
           <span class="kv-key" title={tip(line.kvKey || "")}>{label(line.kvKey || "")}</span>
+          {@render diagnosticSlot(i)}
           <span class="kv-control">
             {#if rawValueEditing.has(i)}
               <input class="kv-raw-value" type="text" spellcheck="false"
@@ -2729,6 +2970,15 @@
             {:else if kt === "number"}
               <input class="kv-num" type="number" step={getStep(line.kvKey)} value={line.kvValue}
                 onchange={(e) => updateKv(i, parseNum(e.currentTarget.value), sd)} />
+            {:else if kt === "number_or_false"}
+              <input class="kv-str" type="text" value={formatKvValue(line.kvValue)}
+                onchange={(e) => updateKv(i, parseNumberOrFalse(e.currentTarget.value), sd)} />
+            {:else if kt === "xyz_or_false"}
+              <input class="kv-str" type="text" value={formatKvValue(line.kvValue)}
+                onchange={(e) => updateKv(i, parseXyzOrFalse(e.currentTarget.value), sd)} />
+            {:else if kt === "bool_string_list"}
+              <input class="kv-str" type="text" value={formatKvValue(line.kvValue)}
+                onchange={(e) => updateKv(i, parseFlexibleValue(e.currentTarget.value), sd)} />
             {:else if kt === "string"}
               <input class="kv-str" type="text" value={line.kvValue ?? ""}
                 onchange={(e) => updateKv(i, e.currentTarget.value, sd)} />
@@ -3402,6 +3652,25 @@
   .line-badge { font-size: 11px; color: #999; background: #eee; padding: 1px 5px; border-radius: 2px; font-weight: 500; }
 
   .kv-key { font-weight: 700; color: #2c3e50; min-width: 180px; flex-shrink: 0; }
+  .line-row.has-diagnostic { box-shadow: inset 3px 0 0 #d4800e; }
+  .line-row.diagnostic-error { box-shadow: inset 3px 0 0 #c0392b; }
+  .line-diagnostic-slot {
+    width: 18px; min-width: 18px; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .line-diagnostic-marker {
+    width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
+    border: none; border-radius: 0; clip-path: polygon(50% 4%, 98% 96%, 2% 96%);
+    background: #d4800e; color: #ffffff; cursor: pointer;
+    font-family: Arial, sans-serif; font-size: 11px; font-weight: 800; line-height: 1;
+    padding-top: 3px;
+  }
+  .line-diagnostic-marker.error {
+    background: #c0392b; color: #ffffff;
+  }
+  .line-diagnostic-marker.info {
+    background: #2d7db3; color: #ffffff;
+  }
+  .line-diagnostic-marker:hover { filter: brightness(0.97); }
   .kv-control { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
   .kv-num { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #c8d1da; border-radius: 2px; width: 56px; background: white; }
   .kv-num.xs { width: 44px; }

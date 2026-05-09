@@ -707,6 +707,7 @@ function parseBgsdEchoIssue(raw) {
       : "info";
   let rest = match[2].trim();
   const metadata = {};
+  rest = rest.replace(/^:\s*/, "").trim();
   while (rest.startsWith("[")) {
     const metaMatch = rest.match(/^\[([a-zA-Z][a-zA-Z0-9_-]*)=([^\]\s]+)\]\s*/);
     if (!metaMatch) break;

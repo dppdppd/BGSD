@@ -239,7 +239,7 @@ function formatGlobalRaw(key: string, value: any, inline?: boolean, existingRaw?
   }
   if (typeof value === "boolean") return `${key} = ${value ? "true" : "false"};`;
   if (typeof value === "number") return `${key} = ${value};`;
-  if (Array.isArray(value)) return `${key} = [${value.join(", ")}];`;
+  if (Array.isArray(value)) return `${key} = [${value.map(formatKvValue).join(", ")}];`;
   return `${key} = "${value}";`;
 }
 
@@ -250,7 +250,7 @@ function formatInlineGlobalRaw(key: string, value: any): string {
 function formatInlineGlobalRawWithIndent(key: string, value: any, indent: string): string {
   if (typeof value === "boolean") return `${indent}[ ${key}, ${value} ],`;
   if (typeof value === "number") return `${indent}[ ${key}, ${value} ],`;
-  if (Array.isArray(value)) return `${indent}[ ${key}, [${value.join(", ")}] ],`;
+  if (Array.isArray(value)) return `${indent}[ ${key}, [${value.map(formatKvValue).join(", ")}] ],`;
   return `${indent}[ ${key}, "${value ?? ""}" ],`;
 }
 

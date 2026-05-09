@@ -8,6 +8,7 @@ let needsBackup = false;
 let readOnly = false;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let suppressNextProjectSave = false;
+let saveInFlight = false;
 let saveStatus: (msg: string) => void = () => {};
 let onReadOnlySave: (() => void) | null = null;
 let onExternalChange: ((result: SaveResult) => void) | null = null;
@@ -88,6 +89,10 @@ export function getFileState(): FileState | null {
   return fileState;
 }
 
+export function isSaveInFlight(): boolean {
+  return saveInFlight;
+}
+
 export function markExternalFileChange(result: SaveResult) {
   externalChangePending = true;
   externalChangeResult = result;
@@ -113,7 +118,13 @@ async function doSave(options: SaveOptions = {}): Promise<SaveResult> {
   const proj = get(project);
   const scadText = generateScad(proj);
   saveStatus("Saving...");
-  const result = await bgsd.saveFile(filePath, scadText, needsBackup, proj.libraryProfile, { ...options, fileState }) as SaveResult;
+  saveInFlight = true;
+  let result: SaveResult;
+  try {
+    result = await bgsd.saveFile(filePath, scadText, needsBackup, proj.libraryProfile, { ...options, fileState }) as SaveResult;
+  } finally {
+    saveInFlight = false;
+  }
   if (result.ok) {
     if (result.filePath && typeof result.filePath === "string") {
       filePath = result.filePath;

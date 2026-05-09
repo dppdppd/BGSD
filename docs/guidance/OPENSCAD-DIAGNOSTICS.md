@@ -44,6 +44,7 @@ After the prefix, BIT and CTD may add simple bracketed metadata fields before th
 
 ```scad
 echo("BGSD_WARNING [line=42] [code=BIT-LID-001] [key=LID_TYPE] [context=lid]: LID_TYPE is ignored when lids are disabled.");
+echo("BGSD_WARNING [code=BIT-PHYSICAL] [keys=BOX_SIZE_XYZ,FTR_COMPARTMENT_SIZE_XYZ] [context=box:box_1]: compartment exceeds the usable box interior.");
 ```
 
 Supported metadata fields:
@@ -51,13 +52,19 @@ Supported metadata fields:
 | Field | Example | Meaning |
 |-------|---------|---------|
 | `line` | `42` | 1-based line number in the generated design SCAD that BGSD should mark as the diagnostic target. |
+| `lines` | `42,48` | Multiple generated design SCAD line numbers to mark for one issue. |
 | `code` | `BIT-LID-001` | Stable diagnostic identifier for docs, tests, and future filtering. |
 | `key` | `LID_TYPE` | Primary parameter involved. |
+| `keys` | `BOX_SIZE_XYZ,FTR_COMPARTMENT_SIZE_XYZ` | Multiple parameters involved in one issue. BGSD marks matching editable rows. |
 | `context` | `lid` | Schema context, such as `element`, `feature`, `lid`, `label`, `divider`, `tray`, or `counter_set`. |
 
 Metadata values should not contain spaces or `]`. Put user-facing explanation in the message after the colon.
 
-`line` is the most important field for BGSD markup. It should point at the design line the user can edit, not the BIT or CTD library line that emitted the `echo()`. If the library cannot identify a user-editable generated SCAD line, omit `line` rather than guessing.
+`line` is the most precise field for BGSD markup. It should point at the design line the user can edit, not the BIT or CTD library line that emitted the `echo()`. If the library cannot identify a user-editable generated SCAD line, omit `line` rather than guessing and provide `key` / `keys` instead.
+
+For cross-field validation, prefer one structured issue with `keys=...` so BGSD can mark every editable parameter involved. For example, a compartment that exceeds the box interior should target both `BOX_SIZE_XYZ` and `FTR_COMPARTMENT_SIZE_XYZ`.
+
+When using `context` to narrow key matching, keep values token-safe. For named boxes, use `context=box:<name_with_spaces_replaced_by_underscores>`; BGSD converts underscores back to spaces for row targeting.
 
 ## Message Guidelines
 
@@ -66,7 +73,8 @@ Metadata values should not contain spaces or `]`. Put user-facing explanation in
 - Keep each message self-contained. The diagnostics panel may show messages outside the OpenSCAD console context.
 - Do not emit the same warning from inside a loop for every generated primitive. Guard diagnostics so each design issue appears once per relevant object.
 - Use stable `code` values once published. Renaming a code should be treated like a compatibility change.
-- Include `[line=N]` whenever the issue is tied to a specific user-editable generated SCAD line. BGSD can use that line to highlight or jump to the relevant source row.
+- Include `[line=N]` whenever the issue is tied to a specific user-editable generated SCAD line. BGSD uses that line to mark the relevant editor row.
+- Include `[keys=KEY_A,KEY_B]` for warnings caused by relationships between multiple parameters.
 
 ## Fatal Validation
 

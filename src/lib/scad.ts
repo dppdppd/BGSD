@@ -1,5 +1,19 @@
-import type { Project, Line } from "./stores/project";
+import { formatKvValue, type Project } from "./stores/project";
 import { INDENT } from "./config";
+
+export interface GeneratedScad {
+  text: string;
+  /** 0-based generated SCAD line -> 0-based project line index. */
+  sourceMap: (number | null)[];
+}
+
+function pushGeneratedLine(out: string[], sourceMap: (number | null)[], text: string, sourceIndex: number | null) {
+  const parts = String(text).split("\n");
+  for (const part of parts) {
+    out.push(part);
+    sourceMap.push(sourceIndex);
+  }
+}
 
 /**
  * Generate SCAD output from line-based project.
@@ -7,43 +21,45 @@ import { INDENT } from "./config";
  * Recognized lines (include, marker, makeall, global, kv) are regenerated.
  * Structural lines (open, close) and raw lines are emitted verbatim.
  */
-export function generateScad(project: Project): string {
+export function generateScadWithSourceMap(project: Project): GeneratedScad {
   const out: string[] = [];
+  const sourceMap: (number | null)[] = [];
 
-  for (const line of project.lines) {
+  for (let i = 0; i < project.lines.length; i++) {
+    const line = project.lines[i];
     switch (line.kind) {
       case "include":
       case "marker":
-        out.push(line.raw);
+        pushGeneratedLine(out, sourceMap, line.raw, i);
         break;
       case "makeall":
-        out.push(`Make(${line.varName || "data"});`);
+        pushGeneratedLine(out, sourceMap, `Make(${line.varName || "data"});`, i);
         break;
       case "modulevar":
         // Emit verbatim: file-scope variable like g_make_filler = 1;
-        out.push(line.raw);
+        pushGeneratedLine(out, sourceMap, line.raw, i);
         break;
       case "global": {
         // v4 format: emit as [ G_KEY, value ] inside data array
         const gk = line.globalKey ?? "";
         const indent = (line.raw ?? "").match(/^(\s*)/)?.[1] ?? INDENT;
         if (typeof line.globalValue === "boolean") {
-          out.push(`${indent}[ ${gk}, ${line.globalValue} ],`);
+          pushGeneratedLine(out, sourceMap, `${indent}[ ${gk}, ${line.globalValue} ],`, i);
         } else if (typeof line.globalValue === "number") {
-          out.push(`${indent}[ ${gk}, ${line.globalValue} ],`);
+          pushGeneratedLine(out, sourceMap, `${indent}[ ${gk}, ${line.globalValue} ],`, i);
         } else if (Array.isArray(line.globalValue)) {
-          out.push(`${indent}[ ${gk}, [${line.globalValue.join(", ")}] ],`);
+          pushGeneratedLine(out, sourceMap, `${indent}[ ${gk}, [${line.globalValue.map(formatKvValue).join(", ")}] ],`, i);
         } else if (gk) {
-          out.push(`${indent}[ ${gk}, "${line.globalValue ?? ""}" ],`);
+          pushGeneratedLine(out, sourceMap, `${indent}[ ${gk}, "${line.globalValue ?? ""}" ],`, i);
         }
         break;
       }
       case "blank":
-        out.push("");
+        pushGeneratedLine(out, sourceMap, "", i);
         break;
       case "variable":
       case "comment":
-        out.push(line.raw);
+        pushGeneratedLine(out, sourceMap, line.raw, i);
         break;
       case "kv":
       case "open":
@@ -51,10 +67,14 @@ export function generateScad(project: Project): string {
       case "raw":
       default:
         // Emit verbatim — kv lines have their raw regenerated on edit via updateKv().
-        out.push(line.raw);
+        pushGeneratedLine(out, sourceMap, line.raw, i);
         break;
     }
   }
 
-  return out.join("\n");
+  return { text: out.join("\n"), sourceMap };
+}
+
+export function generateScad(project: Project): string {
+  return generateScadWithSourceMap(project).text;
 }

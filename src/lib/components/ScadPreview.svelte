@@ -146,7 +146,7 @@
       <div class="scad-line scad-virtual"></div>
       <div class="scad-line scad-virtual"></div>
     {/if}
-    {#if line.role === "data" || (line.role === "params" && libraryProfile !== "ctd") || (line.role === "object" && libraryProfile !== "ctd") || ((line.role === "lid" || line.role === "lid_params") && libraryProfile !== "ctd")}
+    {#if line.role === "data" || (line.role === "params" && libraryProfile !== "ctd") || (line.role === "object" && libraryProfile !== "ctd") || (line.role === "feature_list" && libraryProfile !== "ctd") || ((line.role === "lid" || line.role === "lid_params") && libraryProfile !== "ctd")}
       <div class="scad-line scad-virtual"></div>
     {/if}
     {#if line.role === "counter_set" && libraryProfile === "ctd" && isLastOfKind(i)}

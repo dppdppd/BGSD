@@ -41,6 +41,30 @@
     return isNaN(n) ? 0 : n;
   }
 
+  function parseFlexibleValue(text) {
+    const t = String(text ?? "").trim();
+    if (t.toLowerCase() === "false" || t.toLowerCase() === "f") return false;
+    if (/^\[.*\]$/.test(t)) {
+      return t.slice(1, -1)
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => {
+          const n = parseFloat(part);
+          return isNaN(n) ? part : n;
+        });
+    }
+    const n = parseFloat(t);
+    return isNaN(n) ? t : n;
+  }
+
+  function formatValue(value) {
+    if (value === false) return "false";
+    if (value === true) return "true";
+    if (Array.isArray(value)) return `[${value.join(", ")}]`;
+    return value ?? "";
+  }
+
   const SIDE_LABELS = ["F", "B", "L", "R"];
 </script>
 
@@ -136,6 +160,16 @@
           value={param.value}
           onchange={(e) => update(parseNum(e.currentTarget.value))}
           data-testid="kv-{param.key}-val"
+        />
+
+      {:else if keyType === "xyz_or_false"}
+        <input
+          class="str-input wide"
+          type="text"
+          value={formatValue(param.value)}
+          onchange={(e) => update(parseFlexibleValue(e.currentTarget.value))}
+          data-testid="kv-{param.key}-val"
+          placeholder="false or [x, y, z]"
         />
 
       {:else if keyType === "string"}

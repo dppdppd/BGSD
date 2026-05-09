@@ -12,6 +12,7 @@ const KNOWN_CONSTANTS = {
   FRONT: "FRONT", BACK: "BACK", LEFT: "LEFT", RIGHT: "RIGHT",
   FRONT_WALL: "FRONT_WALL", BACK_WALL: "BACK_WALL",
   LEFT_WALL: "LEFT_WALL", RIGHT_WALL: "RIGHT_WALL",
+  X: "X", Y: "Y",
   CENTER: "CENTER", BOTTOM: "BOTTOM",
   AUTO: "AUTO", MAX: "MAX",
   SHAPE_SQUARE: "SHAPE_SQUARE", SHAPE_CIRCLE: "SHAPE_CIRCLE",
@@ -66,6 +67,7 @@ for (const info of Object.values(schemaInfoByProfile)) {
 const GLOBAL_BOOL_RE = /^\s*(g_\w+)\s*=\s*(true|false|t|f|0|1)\s*;\s*(?:\/\/.*)?$/i;
 const GLOBAL_NUM_RE  = /^\s*(g_\w+)\s*=\s*(-?\d+(?:\.\d+)?)\s*;\s*(?:\/\/.*)?$/i;
 const GLOBAL_STR_RE  = /^\s*(g_\w+)\s*=\s*"([^"]*)"\s*;\s*(?:\/\/.*)?$/i;
+const GLOBAL_VALUE_RE = /^\s*(g_\w+)\s*=\s*(.+?)\s*;\s*(?:\/\/.*)?$/i;
 const INCLUDE_RE = /^\s*include\s*<\s*(.+?)\s*>\s*;?\s*(?:\/\/.*)?$/i;
 const MARKER_RE = /^\s*\/\/\s*(?:BGSD|BITGUI)\b/i;
 const MAKEALL_RE = /^\s*MakeAll\s*\(\s*\)\s*;\s*(?:\/\/.*)?$/;
@@ -205,7 +207,7 @@ function collapseMultilineValues(text) {
 // on their own lines, and commas fixed).
 
 const FORMAT_STRUCTURAL_KEYS_BY_PROFILE = {
-  bit: new Set(["BOX_FEATURE", "BOX_LID", "LABEL"]),
+  bit: new Set(["BOX_FEATURE", "BOX_LID", "LABEL", "FTR_DIVIDERS"]),
   ctd: new Set(["COUNTER_SET"]),
 };
 // Merged set for profile-unaware contexts
@@ -1107,6 +1109,18 @@ function importScad(scadText) {
         continue;
       }
     }
+    const valueMatch = raw.match(GLOBAL_VALUE_RE);
+    if (valueMatch) {
+      const gKey = valueMatch[1].toUpperCase();
+      if (activeGlobalNames.has(gKey)) {
+        const parsed = parseSimpleValue(valueMatch[2]);
+        if (parsed.ok) {
+          if (isGlobalDefault(gKey, parsed.value, activeGlobalDefaults)) continue;
+          lines.push({ raw, kind: "global", depth, globalKey: gKey, globalValue: parsed.value });
+          continue;
+        }
+      }
+    }
     const inclMatch = raw.match(INCLUDE_RE);
     if (inclMatch) { lines.push({ raw, kind: "include", depth, includeFile: inclMatch[1].trim() }); continue; }
     if (MARKER_RE.test(raw)) { lines.push({ raw, kind: "marker", depth }); continue; }
@@ -1207,6 +1221,7 @@ function importScad(scadText) {
       if (key === "BOX_FEATURE") role = "feature_list";
       else if (key === "BOX_LID") role = "lid";
       else if (key === "LABEL") role = "label";
+      else if (key === "FTR_DIVIDERS") role = "feature_dividers";
       else if (key === "COUNTER_SET") role = "counter_set";
 
       if (role) {
@@ -1215,6 +1230,7 @@ function importScad(scadText) {
         if (role === "feature_list") { childRole = "feature"; }
         else if (role === "lid") { childRole = "lid_params"; }
         else if (role === "label") { childRole = "label_params"; }
+        else if (role === "feature_dividers") { childRole = "feature_divider_params"; }
         else if (role === "counter_set") { childRole = "counter_set_params"; }
 
         lines.push({ raw, kind: "open", depth, role, label: key, mergedOpen: true });
@@ -1238,6 +1254,7 @@ function importScad(scadText) {
       if (key === "BOX_FEATURE") role = "feature_list";
       else if (key === "BOX_LID") role = "lid";
       else if (key === "LABEL") role = "label";
+      else if (key === "FTR_DIVIDERS") role = "feature_dividers";
       else if (key === "COUNTER_SET") role = "counter_set";
 
       if (role) {
@@ -1262,6 +1279,7 @@ function importScad(scadText) {
       else if (parent?.role === "feature_list") { role = "feature"; label = "feature list"; }
       else if (parent?.role === "lid") { role = "lid_params"; label = "lid params"; }
       else if (parent?.role === "label") { role = "label_params"; label = "label params"; }
+      else if (parent?.role === "feature_dividers") { role = "feature_divider_params"; label = "feature divider params"; }
       else if (parent?.role === "counter_set") { role = "counter_set_params"; label = "counter_set params"; }
       else if (parent?.role === "data") { role = "data_list"; label = "data list"; }
 
@@ -1419,6 +1437,18 @@ function reimportBlock(text, baseDepth) {
         continue;
       }
     }
+    const valueMatch = raw.match(GLOBAL_VALUE_RE);
+    if (valueMatch) {
+      const gKey = valueMatch[1].toUpperCase();
+      if (GLOBAL_NAMES.has(gKey)) {
+        const parsed = parseSimpleValue(valueMatch[2]);
+        if (parsed.ok) {
+          if (isGlobalDefault(gKey, parsed.value)) continue;
+          lines.push({ raw, kind: "global", depth, globalKey: gKey, globalValue: parsed.value });
+          continue;
+        }
+      }
+    }
     const inclMatchR = raw.match(INCLUDE_RE);
     if (inclMatchR) { lines.push({ raw, kind: "include", depth, includeFile: inclMatchR[1].trim() }); continue; }
     if (MARKER_RE.test(raw)) { lines.push({ raw, kind: "marker", depth }); continue; }
@@ -1512,12 +1542,14 @@ function reimportBlock(text, baseDepth) {
       if (key === "BOX_FEATURE") role = "feature_list";
       else if (key === "BOX_LID") role = "lid";
       else if (key === "LABEL") role = "label";
+      else if (key === "FTR_DIVIDERS") role = "feature_dividers";
       else if (key === "COUNTER_SET") role = "counter_set";
       if (role) {
         let childRole = "list";
         if (role === "feature_list") { childRole = "feature"; }
         else if (role === "lid") { childRole = "lid_params"; }
         else if (role === "label") { childRole = "label_params"; }
+        else if (role === "feature_dividers") { childRole = "feature_divider_params"; }
         else if (role === "counter_set") { childRole = "counter_set_params"; }
         lines.push({ raw, kind: "open", depth, role, label: key, mergedOpen: true });
         stack.push({ role, label: key });
@@ -1539,6 +1571,7 @@ function reimportBlock(text, baseDepth) {
       if (key === "BOX_FEATURE") role = "feature_list";
       else if (key === "BOX_LID") role = "lid";
       else if (key === "LABEL") role = "label";
+      else if (key === "FTR_DIVIDERS") role = "feature_dividers";
       else if (key === "COUNTER_SET") role = "counter_set";
       if (role) {
         lines.push({ raw, kind: "open", depth, role, label: key });
@@ -1561,6 +1594,7 @@ function reimportBlock(text, baseDepth) {
       else if (parent?.role === "feature_list") { role = "feature"; label = "feature list"; }
       else if (parent?.role === "lid") { role = "lid_params"; label = "lid params"; }
       else if (parent?.role === "label") { role = "label_params"; label = "label params"; }
+      else if (parent?.role === "feature_dividers") { role = "feature_divider_params"; label = "feature divider params"; }
       else if (parent?.role === "counter_set") { role = "counter_set_params"; label = "counter_set params"; }
       else if (parent?.role === "data") { role = "data_list"; label = "data list"; }
       lines.push({ raw, kind: "open", depth, role, label });

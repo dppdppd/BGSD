@@ -1,0 +1,15 @@
+wait app-root
+new bit
+wait openscad-check-chip
+intent "Oversized compartment should surface an OpenSCAD physical warning"
+js (async () => { const btn = [...document.querySelectorAll('button.add-btn')].find((b) => b.title === 'Add BOX_FEATURE block'); if (!btn) throw new Error('Add BOX_FEATURE button not found'); btn.click(); await new Promise((r) => setTimeout(r, 200)); })()
+js (async () => { const row = [...document.querySelectorAll('.line-row.kv')].find((r) => r.querySelector('.kv-key')?.textContent?.trim() === 'Compartment Size'); if (!row) throw new Error('Compartment Size row not found'); const input = row.querySelector('input'); if (!input) throw new Error('Compartment Size x input not found'); input.value = '80'; input.dispatchEvent(new Event('change', { bubbles: true })); for (let i = 0; i < 40; i++) { const scad = document.querySelector('[data-testid="scad-output"]')?.textContent || ''; if (scad.includes('[ FTR_COMPARTMENT_SIZE_XYZ, [80, 40, 15] ]')) return scad; await new Promise((r) => setTimeout(r, 50)); } throw new Error('SCAD did not update to oversized compartment'); })()
+shot oversized_compartment_values
+js (async () => { for (let i = 0; i < 120; i++) { const text = document.querySelector('[data-testid="openscad-check-chip"]')?.textContent?.trim() || ""; if (/warning|error/.test(text)) return text; await new Promise((r) => setTimeout(r, 250)); } throw new Error("oversized compartment diagnostics warning not reached"); })()
+shot oversized_compartment_chip
+js (() => { const rowFor = (label) => [...document.querySelectorAll('.line-row.kv')].find((r) => r.querySelector('.kv-key')?.textContent?.trim() === label); const boxRow = rowFor('Box Size'); const compRow = rowFor('Compartment Size'); if (!boxRow?.querySelector('.line-diagnostic-marker.warning')) throw new Error('Box Size warning marker not found'); if (!compRow?.querySelector('.line-diagnostic-marker.warning')) throw new Error('Compartment Size warning marker not found'); return 'Box Size and Compartment Size warning markers found'; })()
+shot oversized_compartment_line_markers
+click openscad-check-chip
+js (() => { const text = document.querySelector('[data-testid="openscad-issues-panel"]')?.textContent || ""; if (!/physical validation/i.test(text) || !/exceeds usable interior|too tall/i.test(text)) throw new Error(`expected oversized compartment warning, got: ${text}`); return text; })()
+shot oversized_compartment_panel
+scad

@@ -47,9 +47,59 @@ Make(data);`;
   });
 
   it("detects BIT profile from versioned library filenames", () => {
-    const project = importScad("// BGSD\ninclude <../lib/boardgame_insert_toolkit_lib.4.0.8.scad>;\ndata = [\n];\nMake(data);");
+    const project = importScad("// BGSD\ninclude <../lib/boardgame_insert_toolkit_lib.4.2.0.scad>;\ndata = [\n];\nMake(data);");
     expect(project.libraryProfile).toBe("bit");
-    expect(project.libraryInclude).toBe("../lib/boardgame_insert_toolkit_lib.4.0.8.scad");
+    expect(project.libraryInclude).toBe("../lib/boardgame_insert_toolkit_lib.4.2.0.scad");
+  });
+
+  it("parses BIT 4.3.0 generated divider layout feature blocks", () => {
+    const scad = `// BGSD
+include <../lib/boardgame_insert_toolkit_lib.4.3.0.scad>;
+data = [
+    [ OBJECT_BOX, [
+        [ NAME, "box 1" ],
+        [ BOX_FEATURE,
+            [ FTR_COMPARTMENT_SIZE_XYZ, [40, 40, 15] ],
+            [ FTR_DIVIDERS,
+                [ DIV_LAYOUT_BAYS, 3 ],
+                [ DIV_LAYOUT_BAY_SIZE, 0 ],
+                [ DIV_AXIS, Y ],
+                [ DIV_RAIL_SIZE_XYZ, [1, 1.5, 15] ],
+                [ DIV_NO_RAILS_B, false ],
+            ],
+        ],
+    ]],
+];
+Make(data);`;
+    const project = importScad(scad);
+    expect(project.libraryProfile).toBe("bit");
+    expect(project.lines.some((l) => l.kind === "open" && l.role === "feature_dividers")).toBe(true);
+    expect(project.lines.some((l) => l.kind === "close" && l.role === "feature_dividers")).toBe(true);
+    expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "DIV_AXIS")?.kvValue).toBe("Y");
+    expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "DIV_LAYOUT_BAYS")?.kvValue).toBe(3);
+    expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "DIV_RAIL_SIZE_XYZ")?.kvValue).toEqual([1, 1.5, 15]);
+  });
+
+  it("does not keep removed BIT 4.2 divider keys structured", () => {
+    const scad = `// BGSD
+include <../lib/boardgame_insert_toolkit_lib.4.2.0.scad>;
+data = [
+    [ OBJECT_BOX, [
+        [ BOX_FEATURE,
+            [ FTR_COMPARTMENT_SIZE_XYZ, [40, 40, 15] ],
+            [ FTR_DIVIDERS,
+                [ DIV_NUM_DIVIDERS, 2 ],
+                [ DIV_RAILS_B, true ],
+            ],
+        ],
+    ]],
+];
+Make(data);`;
+    const project = importScad(scad);
+    expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "DIV_NUM_DIVIDERS")).toBeUndefined();
+    expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "DIV_RAILS_B")).toBeUndefined();
+    expect(project.lines.some((l) => l.kind === "raw" && l.raw.includes("DIV_NUM_DIVIDERS"))).toBe(true);
+    expect(project.lines.some((l) => l.kind === "raw" && l.raw.includes("DIV_RAILS_B"))).toBe(true);
   });
 
   it("classifies Make() lines", () => {
