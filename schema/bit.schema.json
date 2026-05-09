@@ -1,5 +1,5 @@
 {
-  "version": "4.3.0",
+  "version": "4.3.1",
   "types": {
     "bool": "Checkbox (true/false)",
     "number": "Numeric input",
@@ -13,7 +13,7 @@
     "table_list": "List of nested key-value tables",
     "string_list": "List of strings",
     "number_or_false": "Numeric input or false",
-    "xyz_or_false": "Three numeric inputs [x, y, z] or false",
+    "xyz_or_false": "Three-value input [x, y, z] or false; string constants such as MAX are allowed where BIT accepts them",
     "bool_string_list": "Boolean, string selector, or list of string selectors",
     "position_xy": "Two inputs: each is number, CENTER, or MAX"
   },
@@ -76,7 +76,7 @@
         "DIV_AXIS":                  { "type": "enum", "values": ["X", "Y"], "default": "X", "help": "Axis used to place generated divider slots" },
         "DIV_LAYOUT_BAYS":           { "type": "number", "default": 0, "step": 1, "help": "Number of bays along the divider axis; generated divider count is bays - 1" },
         "DIV_LAYOUT_BAY_SIZE":       { "type": "number", "default": 0, "step": 0.5, "help": "Bay span along the divider axis in mm; 0 evenly spaces generated dividers" },
-        "DIV_RAIL_SIZE_XYZ":         { "type": "xyz_or_false", "default": false, "help": "Rail groove size [thickness, width, height]; false uses BIT's wall/compartment-based default" },
+        "DIV_RAIL_SIZE_XYZ":         { "type": "xyz_or_false", "default": false, "help": "Rail groove size [thickness, width, height]; height can be MAX; false uses BIT's wall/compartment-based default" },
         "DIV_NO_RAILS_B":            { "type": "bool", "default": false, "help": "If true, omit matching box-side divider rail grooves" },
         "DIV_OUTPUT_ONLY_B":         { "type": "bool", "default": false, "help": "If true, output only this generated divider subgroup and suppress its parent box" },
         "DIV_THICKNESS":             { "type": "number", "default": 0.5, "step": 0.1, "help": "Divider card thickness in mm" },
@@ -90,7 +90,6 @@
         "DIV_TAB_TEXT_SPACING":      { "type": "number", "default": 1.1, "step": 0.1, "help": "Tab text letter spacing" },
         "DIV_TAB_TEXT_CHAR_THRESHOLD": { "type": "number", "default": 4, "step": 1, "help": "Auto-shrink text above this many characters" },
         "DIV_TAB_TEXT_EMBOSSED_B":   { "type": "bool", "default": false, "help": "Raised text (true) vs cut-through (false)" },
-        "DIV_FRAME_SIZE_XY":         { "type": "xy", "default": [80, 80], "help": "Frame dimensions [width, height]" },
         "DIV_FRAME_TOP":             { "type": "number", "default": 10, "step": 1, "help": "Frame top border width" },
         "DIV_FRAME_BOTTOM":          { "type": "number", "default": 10, "step": 1, "help": "Frame bottom border width" },
         "DIV_FRAME_COLUMN":          { "type": "number", "default": 7, "step": 1, "help": "Frame column divider width" },

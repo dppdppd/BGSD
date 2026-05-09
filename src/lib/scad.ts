@@ -1,6 +1,8 @@
 import { formatKvValue, type Project } from "./stores/project";
 import { INDENT } from "./config";
 
+const FLAT_OBJECT_LABELS = new Set(["OBJECT_BOX", "OBJECT_DIVIDERS", "OBJECT_SPACER", "TRAY", "LID"]);
+
 export interface GeneratedScad {
   text: string;
   /** 0-based generated SCAD line -> 0-based project line index. */
@@ -13,6 +15,32 @@ function pushGeneratedLine(out: string[], sourceMap: (number | null)[], text: st
     out.push(part);
     sourceMap.push(sourceIndex);
   }
+}
+
+function generatedRaw(line: Project["lines"][number]): string {
+  if (
+    line.kind === "open" &&
+    line.role === "object" &&
+    line.mergedOpen &&
+    line.label &&
+    FLAT_OBJECT_LABELS.has(line.label)
+  ) {
+    const match = String(line.raw || "").match(/^(\s*)\[\s*(OBJECT_BOX|OBJECT_DIVIDERS|OBJECT_SPACER|TRAY|LID)\s*,\s*\[\s*(\/\/.*)?$/);
+    if (match) return `${match[1]}[ ${match[2]},${match[3] ? ` ${match[3]}` : ""}`;
+  }
+
+  if (
+    line.kind === "close" &&
+    line.role === "object" &&
+    line.mergedClose &&
+    line.label &&
+    FLAT_OBJECT_LABELS.has(line.label)
+  ) {
+    const match = String(line.raw || "").match(/^(\s*)\]\s*\]\s*(,?)\s*(\/\/.*)?$/);
+    if (match) return `${match[1]}]${match[2] || ""}${match[3] ? ` ${match[3]}` : ""}`;
+  }
+
+  return line.raw;
 }
 
 /**
@@ -67,7 +95,7 @@ export function generateScadWithSourceMap(project: Project): GeneratedScad {
       case "raw":
       default:
         // Emit verbatim — kv lines have their raw regenerated on edit via updateKv().
-        pushGeneratedLine(out, sourceMap, line.raw, i);
+        pushGeneratedLine(out, sourceMap, generatedRaw(line), i);
         break;
     }
   }

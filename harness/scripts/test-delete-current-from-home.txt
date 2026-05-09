@@ -1,0 +1,11 @@
+wait app-root
+new bit
+intent "Deleting the current design from the homepage should not show the outside-edit dialog"
+js (() => { const status = document.querySelector('[data-testid="status-bar"]')?.textContent || ''; const match = status.match(/bgsd_bit_(\d+)\.scad/); if (!match) throw new Error(`current BIT filename not found in status: ${status}`); window.__bgsdDeleteTestId = match[1]; return match[1]; })()
+js (async () => { const home = document.querySelector('.toolbar-home'); if (!home) throw new Error('home button not found'); home.click(); await new Promise((r) => setTimeout(r, 500)); })()
+wait welcome-screen
+js (async () => { const id = window.__bgsdDeleteTestId; window.confirm = () => true; for (let i = 0; i < 20; i++) { const file = [...document.querySelectorAll('.welcome-library-game.user-file')].find((b) => b.textContent.includes(id)); if (file) { file.click(); return file.textContent.trim(); } await new Promise((r) => setTimeout(r, 250)); } throw new Error(`new BIT file ${id} not found on homepage`); })()
+wait ctx-delete
+js (() => { const button = document.querySelector('[data-testid="ctx-delete"]'); if (!button) throw new Error('delete button not found'); button.click(); })()
+js (async () => { const id = window.__bgsdDeleteTestId; await new Promise((r) => setTimeout(r, 3000)); if (document.querySelector('[data-testid="external-change-modal"]')) throw new Error('external change dialog appeared after BGSD delete'); const stillListed = [...document.querySelectorAll('.welcome-library-game.user-file')].some((b) => b.textContent.includes(id)); if (stillListed) throw new Error(`deleted BIT file ${id} is still listed`); return document.querySelector('[data-testid="status-bar"]')?.textContent?.trim() || ''; })()
+shot delete_current_no_external_dialog

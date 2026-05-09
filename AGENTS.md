@@ -81,6 +81,12 @@ Elements use `data-testid` attributes for harness targeting. See [HARNESS.md](do
 
 While iterating, only `npm run build` runs after each change. Do **not** invoke `./build-release.sh linux/mac/all` or `electron-builder --linux/--mac` to keep the `release/` set fresh — those rebuilds are slow and stack up stale binaries. The maintainer occasionally runs `./build-release.sh win` to spot-check Windows; commit the version bump it produces but don't chain linux/mac builds in response. Full cross-platform builds happen **only** at release time, when the maintainer says "release" / "ship".
 
+### Windows test branch
+
+After every testable change, commit the verified work and push it to `origin/windows-test` so the maintainer can pull and test on Windows. Do **not** push feature/fix work directly to `master` during iteration. Keep using `windows-test` for follow-up fixes until the maintainer confirms the Windows build behaves correctly.
+
+Only after all reported issues are fixed and the maintainer asks to release/ship should the work move to `master`, then run the release flow from [RELEASE.md](docs/guidance/RELEASE.md). In short: `windows-test` is for cross-platform validation, `master` is for accepted release-ready work.
+
 ## Verification Gate
 
 **CRITICAL: All gates must pass before committing any code change.**
@@ -104,6 +110,15 @@ BGSD_HARNESS_SCRIPT=harness/scripts/test-new-ctd.txt xvfb-run -a node harness/ru
 After running, **read the screenshots** in `harness/out/` to visually verify correctness.
 
 If your change touches UI behavior, **create a test script** in `harness/scripts/` named descriptively (e.g., `test-bracket-colors.txt`). Run it, inspect output, and report which screenshots confirm correctness. Never skip visual verification.
+
+When the gate passes for a testable checkpoint:
+
+```bash
+git commit -m "<type(scope): message>"
+git push origin HEAD:windows-test
+```
+
+If `windows-test` already has maintainer-only commits, fetch first and rebase/merge intentionally before pushing. Never force-push `windows-test` unless the maintainer explicitly requests it.
 
 ## Key Design Decisions
 

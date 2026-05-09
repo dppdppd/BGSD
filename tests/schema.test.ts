@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import bitSchema from "../schema/bit.schema.json";
 
 describe("BIT schema", () => {
-  it("tracks BIT 4.3.0 lid, divider, and validation options", () => {
-    expect(bitSchema.version).toBe("4.3.0");
+  it("tracks BIT 4.3.1 lid, divider, and validation options", () => {
+    expect(bitSchema.version).toBe("4.3.1");
 
     const lidKeys = bitSchema.contexts.lid.keys;
     const featureKeys = bitSchema.contexts.feature.keys;
@@ -47,6 +47,7 @@ describe("BIT schema", () => {
       type: "xyz_or_false",
       default: false,
     });
+    expect(featureDividerKeys.DIV_RAIL_SIZE_XYZ.help).toContain("MAX");
     expect(featureDividerKeys.DIV_NO_RAILS_B).toMatchObject({
       type: "bool",
       default: false,
@@ -58,6 +59,11 @@ describe("BIT schema", () => {
     expect(featureDividerKeys.DIV_NUM_DIVIDERS).toBeUndefined();
     expect(featureDividerKeys.DIV_SLOT_DEPTH).toBeUndefined();
     expect(featureDividerKeys.DIV_RAILS_B).toBeUndefined();
+    expect(featureDividerKeys.DIV_FRAME_SIZE_XY).toBeUndefined();
+    expect(dividerKeys.DIV_FRAME_SIZE_XY).toMatchObject({
+      type: "xy",
+      default: [80, 80],
+    });
     expect(dividerKeys.DIV_OUTPUT_ONLY_B).toMatchObject({
       type: "bool",
       default: false,

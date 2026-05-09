@@ -952,7 +952,7 @@ ipcMain.handle("new-project-to-path", async (_event, profile) => {
     }
   }
   const templates = {
-    bit: `// BGSD\ninclude <${includeFile}>;\ndata = [\n    [ OBJECT_BOX, [\n        [ NAME, "box 1" ],\n        [ BOX_SIZE_XYZ, [50, 50, 20] ],\n    ]],\n];\nMake(data);`,
+    bit: `// BGSD\ninclude <${includeFile}>;\ndata = [\n    [ OBJECT_BOX,\n        [ NAME, "box 1" ],\n        [ BOX_SIZE_XYZ, [50, 50, 20] ],\n    ],\n];\nMake(data);`,
     ctd: `// BGSD\ninclude <${includeFile}>;\nscene_1 = [\n    [ TRAY,\n        [ COUNTER_SET,\n            [ COUNTER_SIZE_XYZ, [13.3, 13.3, 3] ],\n        ],\n    ],\n    [ LID,\n    ],\n];\nMake(scene_1);`,
   };
   const scad = templates[profile] || templates.bit;

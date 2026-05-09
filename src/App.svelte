@@ -26,7 +26,7 @@
     constantLabels,
     type Line,
   } from "./lib/stores/project";
-  import { generateScadWithSourceMap } from "./lib/scad";
+  import { generateScad, generateScadWithSourceMap } from "./lib/scad";
   import { startAutosave, onSaveStatus, setFilePath, getFilePath, setNeedsBackup, setReadOnly, getReadOnly, onReadOnlyEdit, onExternalFileChange, saveNowDetailed, suppressNextAutosave, setFileState, getFileState, isSaveInFlight, markExternalFileChange, clearExternalFileChange } from "./lib/autosave";
   import { startHistory, clearHistory, undo, redo, restoreProjectFromHistory, canUndo, canRedo } from "./lib/stores/history";
   import { getSchema } from "./lib/schema";
@@ -234,6 +234,13 @@
   function rememberReadOnly(val: boolean) {
     setReadOnly(val);
     currentReadOnly = val;
+  }
+
+  function sameLocalPath(a: string | null | undefined, b: string | null | undefined): boolean {
+    const left = String(a || "").replace(/\\/g, "/");
+    const right = String(b || "").replace(/\\/g, "/");
+    if (!left || !right) return false;
+    return (window as any).bgsd?.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
   }
 
   onSaveStatus((msg: string) => { statusMsg = msg; });
@@ -902,10 +909,10 @@
         { raw: "// BGSD", kind: "marker", depth: 0 },
         { raw: `include <${includeFile}>;`, kind: "include", depth: 0 },
         { raw: "data = [", kind: "open", depth: 0, role: "data", label: "data", varName: "data" },
-        { raw: "    [ OBJECT_BOX, [", kind: "open", depth: 1, role: "object", label: "OBJECT_BOX", mergedOpen: true },
+        { raw: "    [ OBJECT_BOX,", kind: "open", depth: 1, role: "object", label: "OBJECT_BOX" },
         { raw: '        [ NAME, "box 1" ],', kind: "kv", depth: 2, kvKey: "NAME", kvValue: "box 1" },
         { raw: "        [ BOX_SIZE_XYZ, [50, 50, 20] ],", kind: "kv", depth: 2, kvKey: "BOX_SIZE_XYZ", kvValue: [50, 50, 20] },
-        { raw: "    ]],", kind: "close", depth: 1, role: "object", label: "OBJECT_BOX", mergedClose: true },
+        { raw: "    ],", kind: "close", depth: 1, role: "object", label: "OBJECT_BOX" },
         { raw: "];", kind: "close", depth: 0, role: "data", label: "data", varName: "data" },
         { raw: "Make(data);", kind: "makeall", depth: 0, varName: "data" },
       ], hasMarker: true, libraryProfile: "bit", libraryInclude: includeFile.replace(/.*[/\\]/, "") };
@@ -1005,6 +1012,18 @@
       }
     } finally {
       versionSaveInFlight = false;
+    }
+  }
+
+  async function newProjectFromWelcome(profile: string = "bit") {
+    const bgsd = (window as any).bgsd;
+    if (!bgsd?.newProjectToPath) {
+      await newProject(profile);
+      return;
+    }
+    const res = await bgsd.newProjectToPath(profile);
+    if (!res?.ok) {
+      statusMsg = `New project failed: ${res?.error || "unknown"}`;
     }
   }
 
@@ -1249,6 +1268,16 @@
     const result = await bgsd?.deleteFile?.(filePath);
     if (!result) { statusMsg = "Delete unavailable"; return; }
     if (result.ok) {
+      if (sameLocalPath(filePath, currentFilePath) || sameLocalPath(filePath, getFilePath())) {
+        externalFileChange = null;
+        clearExternalFileChange();
+        rememberFilePath(null);
+        rememberReadOnly(false);
+        setFileState(null);
+        setNeedsBackup(false);
+        updateTitle("");
+        fileLoaded = false;
+      }
       statusMsg = "Deleted";
       setTimeout(() => { statusMsg = ""; }, 2000);
       loadLibraryTree();
@@ -2221,10 +2250,10 @@
     const name = `box ${count + 1}`;
     const label = "OBJECT_BOX";
     const lines: Line[] = [
-      { raw: `${ind(d)}[ OBJECT_BOX, [`, kind: "open", depth: d, role: "object", label, mergedOpen: true },
+      { raw: `${ind(d)}[ OBJECT_BOX,`, kind: "open", depth: d, role: "object", label },
       { raw: `${ind(d+1)}[ NAME, "${name}" ],`, kind: "kv", depth: d + 1, kvKey: "NAME", kvValue: name },
       { raw: `${ind(d+1)}[ BOX_SIZE_XYZ, [50, 50, 20] ],`, kind: "kv", depth: d + 1, kvKey: "BOX_SIZE_XYZ", kvValue: [50, 50, 20] },
-      { raw: `${ind(d)}]],`, kind: "close", depth: d, role: "object", label, mergedClose: true },
+      { raw: `${ind(d)}],`, kind: "close", depth: d, role: "object", label },
     ];
     // Insert all lines before the close bracket
     project.update((p) => {
@@ -2580,7 +2609,7 @@
         onchooseworkingdir={chooseAndInitWorkingDir}
         onopenpreferences={openPreferencesModal}
         onupdatelibs={updateLibs}
-        onnewproject={newProject}
+        onnewproject={newProjectFromWelcome}
         onopenlibraryfile={openLibraryFile}
         oneditfile={editFile}
         ondeletefile={deleteLibraryFile}

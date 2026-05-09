@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { generateScad, generateScadWithSourceMap } from "../src/lib/scad";
+import { importScad } from "../importer.js";
 import type { Project } from "../src/lib/stores/project";
 
 function makeProject(lines: any[]): Project {
@@ -121,5 +122,26 @@ describe("generateScad", () => {
     const generated = generateScadWithSourceMap(project);
     expect(generated.text.split("\n")[2]).toBe("    [ G_TOLERANCE, 0.2 ],");
     expect(generated.sourceMap).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("does not emit merged BIT object param wrappers", () => {
+    const project = importScad(`// BGSD
+include <../lib/boardgame_insert_toolkit_lib.4.scad>;
+data = [
+    [ G_LID_THICKNESS, 2 ],
+    [ OBJECT_BOX, [
+        [ NAME, "box 2" ],
+        [ BOX_SIZE_XYZ, [50, 50, 20] ],
+        [ BOX_FEATURE,
+            [ FTR_COMPARTMENT_SIZE_XYZ, [40, 40, 15] ],
+        ],
+    ]],
+];
+Make(data);`);
+
+    const output = generateScad(project);
+    expect(output).toContain("    [ OBJECT_BOX,\n");
+    expect(output).not.toContain("[ OBJECT_BOX, [");
+    expect(output).not.toContain("]],");
   });
 });

@@ -1,0 +1,8 @@
+wait app-root
+open /home/coder/projects/3d_Printing/BGSD/tests/fixtures/bit-merged-object-wrapper.scad
+intent "Opening legacy BIT object syntax should emit flat OBJECT_BOX syntax"
+ipc menu-toggle-show-scad true
+js (async () => { await new Promise(r => setTimeout(r, 300)); return true; })()
+shot merged_object_flat_scad
+js (() => { const scad = document.querySelector('[data-testid="scad-output"]')?.textContent || ""; if (!scad.includes("[ OBJECT_BOX,")) throw new Error("OBJECT_BOX opener not found"); if (scad.includes("[ OBJECT_BOX, [")) throw new Error("merged OBJECT_BOX opener emitted"); if (scad.includes("]],")) throw new Error("merged OBJECT_BOX close emitted"); return "flat object syntax emitted"; })()
+scad

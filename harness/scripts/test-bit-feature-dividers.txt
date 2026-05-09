@@ -1,6 +1,6 @@
 wait app-root
 new bit
-intent "New BIT project should use latest library and expose BIT 4.3 divider layout controls"
+intent "New BIT project should use latest library and expose BIT 4.3.1 divider layout controls"
 js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
 shot bit43_initial_bottom
 js (async () => { const btn = [...document.querySelectorAll('button.add-btn')].find((b) => b.title === 'Add BOX_FEATURE block'); if (!btn) throw new Error('Add BOX_FEATURE button not found'); btn.click(); await new Promise((r) => setTimeout(r, 200)); })()
@@ -9,5 +9,5 @@ shot bit43_feature_added
 js (async () => { const btn = [...document.querySelectorAll('button.add-btn')].find((b) => b.title === 'Add FTR_DIVIDERS block'); if (!btn) throw new Error('Add FTR_DIVIDERS button not found'); btn.click(); await new Promise((r) => setTimeout(r, 200)); })()
 js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
 shot bit43_dividers_added
-js (() => { const scad = document.querySelector('[data-testid="scad-output"]')?.textContent || ""; if (!scad.includes("DIV_LAYOUT_BAYS")) throw new Error("missing DIV_LAYOUT_BAYS"); return "BIT 4.3 divider layout key emitted"; })()
+js (() => { const scad = document.querySelector('[data-testid="scad-output"]')?.textContent || ""; if (!scad.includes("boardgame_insert_toolkit_lib.4.3.1.scad")) throw new Error("new BIT project did not use 4.3.1"); if (!scad.includes("DIV_LAYOUT_BAYS")) throw new Error("missing DIV_LAYOUT_BAYS"); if (scad.includes("DIV_FRAME_SIZE_XY")) throw new Error("feature divider should not emit DIV_FRAME_SIZE_XY in BIT 4.3.1"); return "BIT 4.3.1 divider layout key emitted"; })()
 scad

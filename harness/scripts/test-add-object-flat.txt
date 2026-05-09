@@ -1,0 +1,9 @@
+wait app-root
+new bit
+intent "Adding a BIT object should emit flat BIT 4.x object syntax, not nested params"
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+js (async () => { const btn = [...document.querySelectorAll('button.add-btn')].find((b) => b.title === 'Add object'); if (!btn) throw new Error('Add object button not found'); btn.click(); await new Promise((r) => setTimeout(r, 200)); })()
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot add_object_flat
+js (() => { const scad = document.querySelector('[data-testid="scad-output"]')?.textContent || ""; const count = (scad.match(/\[ OBJECT_BOX,/g) || []).length; if (count !== 2) throw new Error(`expected 2 OBJECT_BOX blocks, got ${count}`); if (scad.includes("[ OBJECT_BOX, [")) throw new Error("nested OBJECT_BOX params emitted"); if (scad.includes("]],")) throw new Error("merged OBJECT_BOX close emitted"); return "flat object syntax emitted"; })()
+scad

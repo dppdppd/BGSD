@@ -1,0 +1,7 @@
+wait welcome-screen
+intent "Welcome page + New should create and open a BIT design"
+click new-bit
+wait line-2
+shot welcome_new_bit_opened
+js (() => { const scad = document.querySelector('[data-testid="scad-output"]')?.textContent || ""; if (!scad.includes("[ OBJECT_BOX,")) throw new Error("new BIT project did not open"); if (scad.includes("[ OBJECT_BOX, [")) throw new Error("new BIT project used nested object syntax"); return "welcome new opened flat BIT project"; })()
+scad

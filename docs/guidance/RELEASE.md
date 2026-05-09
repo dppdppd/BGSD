@@ -1,5 +1,30 @@
 # BGSD Release & Deploy
 
+## Branch Flow
+
+During development, push each verified, testable checkpoint to:
+
+```bash
+git push origin HEAD:windows-test
+```
+
+The maintainer pulls `windows-test` on Windows and reports any issues from that branch. Keep fixes on `windows-test` until the maintainer confirms the Windows test pass is clean.
+
+Do not push iterative work directly to `master`. Move to `master` only when the maintainer asks to release/ship after all Windows issues are resolved. Release artifacts and GitHub Releases should be created from the accepted `master` state.
+
+Recommended final promotion:
+
+```bash
+git checkout master
+git pull origin master
+git merge --ff-only windows-test
+git push origin master
+```
+
+If fast-forward is not possible, stop and inspect the branch history before merging.
+
+## Release Build
+
 ```bash
 ./build-release.sh [win|linux|mac|all] [patch|minor|major]
 ```

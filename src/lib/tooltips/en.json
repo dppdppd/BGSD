@@ -77,7 +77,7 @@
   "DIV_AXIS":                    { "label": "Divider Axis",       "tooltip": "Axis used to place generated divider slots: X or Y" },
   "DIV_LAYOUT_BAYS":             { "label": "Layout Bays",        "tooltip": "Number of bays along the divider axis; generated divider count is bays minus one" },
   "DIV_LAYOUT_BAY_SIZE":         { "label": "Bay Size",           "tooltip": "Bay span along the divider axis in mm; 0 evenly spaces generated dividers" },
-  "DIV_RAIL_SIZE_XYZ":           { "label": "Rail Size",          "tooltip": "Rail groove size [thickness, width, height]; false uses BIT's wall and compartment defaults" },
+  "DIV_RAIL_SIZE_XYZ":           { "label": "Rail Size",          "tooltip": "Rail groove size [thickness, width, height]; height may be MAX; false uses BIT's wall and compartment defaults" },
   "DIV_NO_RAILS_B":              { "label": "No Rails",           "tooltip": "Omit matching box-side divider rail grooves" },
   "DIV_OUTPUT_ONLY_B":           { "label": "Output Only",        "tooltip": "Output only this divider or generated divider subgroup and suppress its parent box when applicable" },
   "DIV_TAB_SIZE_XY":             { "label": "Tab Size",            "tooltip": "Tab dimensions [width, height] in mm" },
