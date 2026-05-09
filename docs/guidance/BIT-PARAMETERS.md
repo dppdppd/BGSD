@@ -16,7 +16,7 @@ Source: `examples.4.scad` (17 boxes, 35 features, 2 divider sets) + `starter.sca
 | `LID_SOLID_B` | 8 | lid |
 | `FTR_SHAPE_VERTICAL_B` | 8 | feature |
 | `LID_PATTERN_RADIUS` | 7 | lid |
-| `FTR_SHAPE_ROTATED_B` | 7 | feature |
+| `FTR_SHAPE_AXIS` | 7 | feature |
 | `ROTATION` | 6 | feature, label |
 | `LID_PATTERN_THICKNESS` | 5 | lid |
 | `FTR_PADDING_XY` | 4 | feature |

@@ -41,7 +41,7 @@
         "FTR_COMPARTMENT_SIZE_XYZ":  { "type": "xyz", "default": [10, 10, 10], "help": "Compartment inner size [x, y, z]" },
         "FTR_NUM_COMPARTMENTS_XY":   { "type": "xy", "default": [1, 1], "help": "Grid of compartments [columns, rows]" },
         "FTR_SHAPE":                 { "type": "enum", "values": ["SQUARE", "HEX", "HEX2", "OCT", "OCT2", "ROUND", "FILLET"], "default": "SQUARE", "help": "Compartment shape" },
-        "FTR_SHAPE_ROTATED_B":       { "type": "bool", "default": false, "help": "Rotate shape 90 degrees" },
+        "FTR_SHAPE_AXIS":            { "type": "enum", "values": ["X", "Y"], "default": "X", "help": "Axis used to orient asymmetric compartment shapes" },
         "FTR_SHAPE_VERTICAL_B":      { "type": "bool", "default": false, "help": "Extrude shape vertically instead of up" },
         "FTR_PADDING_XY":            { "type": "xy", "default": [1.0, 1.0], "help": "Padding between compartments [x, y]" },
         "FTR_PADDING_HEIGHT_ADJUST_XY": { "type": "xy", "default": [0.0, 0.0], "help": "Height adjustment for padding walls [x, y]" },

@@ -1,6 +1,7 @@
 <script lang="ts">
   let {
     workingDirSet,
+    workingDir,
     setupBusy,
     setupStatus,
     setupLog,
@@ -19,6 +20,7 @@
     onexportstl,
   }: {
     workingDirSet: boolean;
+    workingDir: string;
     setupBusy: boolean;
     setupStatus: string;
     setupLog: string[];
@@ -119,6 +121,9 @@
 <div class="welcome" data-testid="welcome-screen">
   <h1 class="welcome-title">BGSD</h1>
   <p class="welcome-subtitle">Board Game Solutions Designer</p>
+  {#if workingDirSet && workingDir}
+    <div class="welcome-workdir" data-testid="welcome-workdir" title={workingDir}>{workingDir}</div>
+  {/if}
 
   {#if !workingDirSet}
     <div class="welcome-actions">

@@ -154,7 +154,7 @@ function starPoints(cx, cy, outer, inner, count = 5) {
   return points;
 }
 
-function drawIcon(canvas) {
+function drawBackground(canvas) {
   const s = canvas.width;
   const u = (x) => x * s;
   const p = (x, y) => point(u(x), u(y));
@@ -167,6 +167,14 @@ function drawIcon(canvas) {
   }
   fillRoundedRect(canvas, u(0.07), u(0.07), u(0.86), u(0.86), u(0.185), rgba("#24384a", 232));
   fillPolygon(canvas, [p(0.18, 0.30), p(0.55, 0.12), p(0.91, 0.42), p(0.69, 0.27), p(0.51, 0.21), p(0.24, 0.44)], rgba("#4a7e8d", 55));
+}
+
+function drawLargeIcon(canvas) {
+  const s = canvas.width;
+  const u = (x) => x * s;
+  const p = (x, y) => point(u(x), u(y));
+
+  drawBackground(canvas);
 
   const p00 = p(0.25, 0.36);
   const p10 = p(0.58, 0.24);
@@ -209,6 +217,44 @@ function drawIcon(canvas) {
   const star = starPoints(u(0.73), u(0.27), u(0.083), u(0.038));
   strokePolygon(canvas, star, u(0.018), rgba("#15364b"));
   fillPolygon(canvas, star, rgba("#ffc857"));
+}
+
+function drawSmallIcon(canvas) {
+  const s = canvas.width;
+  const u = (x) => x * s;
+  const p = (x, y) => point(u(x), u(y));
+
+  drawBackground(canvas);
+
+  const p00 = p(0.17, 0.35);
+  const p10 = p(0.58, 0.19);
+  const p11 = p(0.86, 0.42);
+  const p01 = p(0.40, 0.66);
+  const down = [0, u(0.17)];
+  const q00 = [p00[0], p00[1] + down[1]];
+  const q11 = [p11[0], p11[1] + down[1]];
+  const q01 = [p01[0], p01[1] + down[1]];
+
+  fillPolygon(canvas, [p(0.22, 0.55), p(0.88, 0.43), p(0.82, 0.74), p(0.41, 0.88)], rgba("#071423", 92));
+  fillPolygon(canvas, [p00, p01, q01, q00], rgba("#43a1a8"));
+  fillPolygon(canvas, [p01, p11, q11, q01], rgba("#2e788d"));
+  fillPolygon(canvas, [q00, q01, q11], rgba("#1f5d75"));
+
+  fillPolygon(canvas, [p00, p10, p11, p01], rgba("#f4fff9"));
+  strokePolygon(canvas, [p00, p10, p11, p01], u(0.065), rgba("#102f43"));
+  strokePolygon(canvas, [p00, p10, p11, p01], u(0.026), rgba("#e8fff7"));
+
+  const grid = rgba("#2a6f7c");
+  strokeLine(canvas, bilinear(p00, p10, p11, p01, 0.50, 0.06), bilinear(p00, p10, p11, p01, 0.50, 0.96), u(0.052), grid);
+  strokeLine(canvas, bilinear(p00, p10, p11, p01, 0.06, 0.52), bilinear(p00, p10, p11, p01, 0.96, 0.52), u(0.052), grid);
+
+  const token = bilinear(p00, p10, p11, p01, 0.32, 0.38);
+  fillCircle(canvas, token[0], token[1], u(0.105), rgba("#102f43"));
+  fillCircle(canvas, token[0], token[1], u(0.070), rgba("#ffc857"));
+
+  const marker = bilinear(p00, p10, p11, p01, 0.72, 0.35);
+  fillRoundedRect(canvas, marker[0] - u(0.060), marker[1] - u(0.060), u(0.12), u(0.12), u(0.018), rgba("#102f43"));
+  fillRoundedRect(canvas, marker[0] - u(0.039), marker[1] - u(0.039), u(0.078), u(0.078), u(0.014), rgba("#f08a4b"));
 }
 
 function downsample(canvas, targetSize, sample) {
@@ -276,7 +322,8 @@ function encodePng(canvas) {
 function renderPng(size) {
   const sample = size >= 512 ? 2 : 4;
   const canvas = makeCanvas(size * sample, size * sample);
-  drawIcon(canvas);
+  if (size <= 48) drawSmallIcon(canvas);
+  else drawLargeIcon(canvas);
   return encodePng(downsample(canvas, size, sample));
 }
 
@@ -341,6 +388,7 @@ function main() {
     pngBySize.set(size, png);
     fs.writeFileSync(path.join(OUT_DIR, `icon-${size}.png`), png);
   }
+  fs.writeFileSync(path.join(OUT_DIR, "icon-small.png"), pngBySize.get(32));
   fs.writeFileSync(path.join(OUT_DIR, "icon.png"), pngBySize.get(1024));
   fs.writeFileSync(path.join(OUT_DIR, "icon.ico"), writeIco(pngBySize));
   fs.writeFileSync(path.join(OUT_DIR, "icon.icns"), writeIcns(pngBySize));

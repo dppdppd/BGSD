@@ -26,6 +26,17 @@ let openScadProc = null;
 let openScadFile = null;
 let pendingReadOnlyPrompt = false;
 
+function appIconPath() {
+  const candidates = process.platform === "win32"
+    ? ["build/icon.ico", "build/icon-256.png", "build/icon.png"]
+    : ["build/icon.png", "build/icon-256.png"];
+  for (const rel of candidates) {
+    const file = path.join(__dirname, rel);
+    if (fs.existsSync(file)) return file;
+  }
+  return undefined;
+}
+
 function loadPrefs() {
   try {
     if (fs.existsSync(PREFS_FILE)) {
@@ -252,6 +263,7 @@ function createWindow() {
     width,
     height,
     autoHideMenuBar: true,
+    icon: appIconPath(),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

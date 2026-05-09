@@ -120,7 +120,7 @@
   }
   let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
   let favoriteKeys = $state<Set<string>>(new Set());
-  const FAVORITE_KEYS_VERSION = 4;
+  const FAVORITE_KEYS_VERSION = 5;
   const FAVORITE_KEYS_ADDED_IN_V2 = ["LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH"];
   const FAVORITE_KEYS_ADDED_IN_V3 = [
     "FTR_DIVIDERS", "DIV_AXIS", "DIV_OUTPUT_ONLY_B",
@@ -129,13 +129,14 @@
   const FAVORITE_KEYS_ADDED_IN_V4 = [
     "DIV_LAYOUT_BAYS", "DIV_LAYOUT_BAY_SIZE", "DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B",
   ];
-  const REMOVED_FAVORITE_KEYS = ["DIV_NUM_DIVIDERS", "DIV_SLOT_DEPTH", "DIV_RAILS_B"];
+  const FAVORITE_KEYS_ADDED_IN_V5 = ["FTR_SHAPE_AXIS"];
+  const REMOVED_FAVORITE_KEYS = ["DIV_NUM_DIVIDERS", "DIV_SLOT_DEPTH", "DIV_RAILS_B", "FTR_SHAPE_ROTATED_B"];
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
   // and docs/guidance/CTD-PARAMETERS.md (3+ designs). Seeded on first run.
   const DEFAULT_FAVORITE_KEYS = [
     "NAME", "BOX_SIZE_XYZ", "ENABLED_B",
     "FTR_COMPARTMENT_SIZE_XYZ", "FTR_NUM_COMPARTMENTS_XY", "FTR_SHAPE",
-    "FTR_SHAPE_VERTICAL_B", "FTR_SHAPE_ROTATED_B",
+    "FTR_SHAPE_VERTICAL_B", "FTR_SHAPE_AXIS",
     "FTR_PADDING_XY", "FTR_PADDING_HEIGHT_ADJUST_XY",
     "FTR_CUTOUT_SIDES_4B", "POSITION_XY", "ROTATION",
     "FTR_DIVIDERS", "DIV_LAYOUT_BAYS", "DIV_LAYOUT_BAY_SIZE", "DIV_AXIS",
@@ -823,6 +824,9 @@
       }
       if (favoriteVersion < 4) {
         for (const key of FAVORITE_KEYS_ADDED_IN_V4) migrated.add(key);
+      }
+      if (favoriteVersion < 5) {
+        for (const key of FAVORITE_KEYS_ADDED_IN_V5) migrated.add(key);
       }
       for (const key of REMOVED_FAVORITE_KEYS) {
         if (migrated.delete(key)) changedFavorites = true;
@@ -2322,11 +2326,10 @@
     });
   }
 
-  /** Check if a block (by close index) has a BOX_LID child. */
-  function hasLidChild(closeIndex: number): boolean {
+  /** Check if a block (by close index) has a direct child block with the given role. */
+  function hasChildBlock(closeIndex: number, role: string): boolean {
     const closeLine = $project.lines[closeIndex];
     if (!closeLine || closeLine.kind !== "close") return false;
-    // Walk backwards to find the matching open
     let bd = 0;
     let openIdx = -1;
     for (let i = closeIndex; i >= 0; i--) {
@@ -2338,9 +2341,19 @@
     }
     if (openIdx < 0) return false;
     for (let j = openIdx + 1; j < closeIndex; j++) {
-      if ($project.lines[j].kind === "open" && $project.lines[j].role === "lid") return true;
+      if ($project.lines[j].kind === "open" && $project.lines[j].role === role) return true;
     }
     return false;
+  }
+
+  /** Check if a block (by close index) has a BOX_LID child. */
+  function hasLidChild(closeIndex: number): boolean {
+    return hasChildBlock(closeIndex, "lid");
+  }
+
+  /** Check if a feature block (by close index) already has an FTR_DIVIDERS child. */
+  function hasFeatureDividersChild(closeIndex: number): boolean {
+    return hasChildBlock(closeIndex, "feature_dividers");
   }
 
   /** Check if this close bracket's parent object supports lids (OBJECT_BOX only). */
@@ -2600,6 +2613,7 @@
     {#if showWelcome}
       <WelcomeScreen
         {workingDirSet}
+        {workingDir}
         {setupBusy}
         {setupStatus}
         {setupLog}
@@ -2941,7 +2955,9 @@
             {:else if line.role === "feature_list"}
               {@const featureChildDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add LABEL block inside feature" onclick={() => addLabel(i, featureChildDepth)}>+ Label</button>
-              <button class="add-btn" title="Add FTR_DIVIDERS block" onclick={() => addFeatureDividers(i, featureChildDepth)}>+ Dividers</button>
+              {#if !hasFeatureDividersChild(i)}
+                <button class="add-btn" title="Add FTR_DIVIDERS block" onclick={() => addFeatureDividers(i, featureChildDepth)}>+ Dividers</button>
+              {/if}
             {:else if line.role === "lid" || line.role === "lid_params"}
               {@const lidChildDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add LABEL block inside lid" onclick={() => addLabel(i, lidChildDepth)}>+ Label</button>
@@ -3495,13 +3511,21 @@
     margin: 0; font-size: 36px; font-weight: 700; color: #2d5a7b;
   }
   :global(.welcome-subtitle) {
-    margin: 0 0 24px; font-size: 16px; color: #888;
+    margin: 0; font-size: 16px; color: #888;
   }
   :global(.welcome-actions) {
     display: flex; flex-direction: column; gap: 12px; width: 360px;
   }
   :global(.welcome-sort-bar) {
     display: flex; gap: 4px; justify-content: center; margin-bottom: 12px;
+  }
+  :global(.welcome-workdir) {
+    width: min(760px, calc(100vw - 48px));
+    margin: -2px 0 16px;
+    color: #6b7d8e; font-size: 12px;
+    font-family: "Courier New", monospace;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    direction: rtl; text-align: center;
   }
   :global(.welcome-sort-btn) {
     padding: 4px 12px; font-size: 12px; font-weight: 500;

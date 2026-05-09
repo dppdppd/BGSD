@@ -30,6 +30,12 @@ describe("BIT schema", () => {
       type: "table",
       child_context: "feature_divider",
     });
+    expect(featureKeys.FTR_SHAPE_AXIS).toMatchObject({
+      type: "enum",
+      values: ["X", "Y"],
+      default: "X",
+    });
+    expect(featureKeys.FTR_SHAPE_ROTATED_B).toBeUndefined();
     expect(featureDividerKeys.DIV_LAYOUT_BAYS).toMatchObject({
       type: "number",
       default: 0,

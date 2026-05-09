@@ -9,6 +9,10 @@ function loadFixture(name) {
   return fs.readFileSync(path.join(FIXTURES, name), "utf-8");
 }
 
+function normalizeNewlines(text) {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
 describe("importScad", () => {
   it("parses a minimal BIT file", () => {
     const scad = `// BGSD
@@ -218,7 +222,7 @@ Make(data);`;
     const scad = loadFixture("design.scad");
     const project = importScad(scad);
     const output = project.lines.map((l) => l.raw).join("\n");
-    expect(output.trim()).toBe(scad.trim());
+    expect(normalizeNewlines(output.trim())).toBe(normalizeNewlines(scad.trim()));
   });
 
   it("handles empty scene gracefully", () => {
