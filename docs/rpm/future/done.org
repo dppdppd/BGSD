@@ -2,3 +2,7 @@
 #+TODO: TODO IN-PROGRESS BLOCKED | DONE CANCELLED
 
 Closed entries swept from tasks.org by session-end. Newest first.
+
+* Cancelled
+** CANCELLED Dark/light theme toggle :CLOSED: [2026-05-10 Sun]
+   Dropped by maintainer request.
