@@ -1,0 +1,8 @@
+wait app-root
+new bit
+js (() => { const c = document.querySelector('[data-testid="content-area"]'); if (c) c.scrollTop = 0; })()
+shot top
+js (() => { const c = document.querySelector('[data-testid="content-area"]'); if (c) c.scrollTop = 240; })()
+shot middle
+js (() => { const c = document.querySelector('[data-testid="content-area"]'); if (c) c.scrollTop = c.scrollHeight; })()
+shot bottom

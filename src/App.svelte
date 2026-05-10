@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
+  import { slide } from "svelte/transition";
   import {
     project,
     updateLineRaw,
@@ -756,6 +757,9 @@
 
   onMount(async () => {
     showIntent = !!(window as any).bgsd?.harness;
+    // Defer one tick so the initial render doesn't trigger slide transitions
+    // on every row at mount time.
+    queueMicrotask(() => { mounted = true; });
     startAutosave();
     startHistory();
     onExternalFileChange(showExternalFileChange);
@@ -1733,12 +1737,13 @@
   function pad(line: Line) { return `padding-left: ${8 + (line.depth ?? 0) * DEPTH_PX}px`; }
   function padDepth(d: number) { return `padding-left: ${8 + d * DEPTH_PX}px`; }
 
-  const BRACKET_COLORS = ["#546e7a","#546e7a","#546e7a","#546e7a","#546e7a","#546e7a"];
-  const BRACKET_BGS = ["#edf2f7","#f0eef5","#edf5f2","#e8f1f8","#f2f0ed","#ecf4f0"];
+  // Hierarchy is rendered in CSS via a single cold-monochrome ramp keyed off
+  // --depth (each level brighter than the one above). Inline style only carries
+  // the depth and indent; CSS computes the slate ramp colors.
   function bracketStyle(depth: number): string {
-    const i = (depth ?? 0) % BRACKET_COLORS.length;
-    const indent = Math.max(0, (depth ?? 0) * DEPTH_PX);
-    return `--bracket-color: ${BRACKET_COLORS[i]}; --bracket-bg: ${BRACKET_BGS[i]}; --indent: ${indent}px`;
+    const d = depth ?? 0;
+    const indent = Math.max(0, d * DEPTH_PX);
+    return `--depth: ${d}; --indent: ${indent}px`;
   }
 
   // --- Collapse/expand ---
@@ -1746,7 +1751,17 @@
   let collapsedVirtual = $state(new Set<string>());
   let editorPadBottom = $state(0);
 
+  // Slide animation is gated by two flags. `mounted` keeps the initial
+  // render from sliding every row in. `collapseAnimating` confines the
+  // slide to a ~220ms window opened by toggleCollapse(Virtual) so that
+  // virtualise / materialise side-effects elsewhere stay snappy.
+  let mounted = $state(false);
+  let collapseAnimating = $state(false);
+  const slideDur = $derived(mounted && collapseAnimating ? 200 : 0);
+
   async function toggleCollapse(i: number) {
+    collapseAnimating = true;
+    setTimeout(() => { collapseAnimating = false; }, 220);
     const container = document.querySelector('[data-testid="content-area"]') as HTMLElement | null;
     const scrollBefore = container?.scrollTop ?? 0;
     const heightBefore = container?.scrollHeight ?? 0;
@@ -1774,6 +1789,8 @@
   }
 
   async function toggleCollapseVirtual(key: string) {
+    collapseAnimating = true;
+    setTimeout(() => { collapseAnimating = false; }, 220);
     const container = document.querySelector('[data-testid="content-area"]') as HTMLElement | null;
     const scrollBefore = container?.scrollTop ?? 0;
     const heightBefore = container?.scrollHeight ?? 0;
@@ -2669,7 +2686,7 @@
       {:else if line.kind === "open"}
         {@const collapsible = !["params", "label_params", "lid_params", "feature", "feature_divider_params", "counter_set_params"].includes(line.role || "")}
         {@const deletable = line.role === "data" ? sceneNames.length > 1 : !["data_list", "params", "label_params", "lid_params", "feature", "feature_divider_params", "counter_set_params"].includes(line.role || "")}
-        <div class="line-row struct open" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+        <div class="line-row struct open" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           {#if collapsible}
             <button class="collapse-btn" title={collapsed.has(i) ? "Expand" : "Collapse"}
               aria-expanded={!collapsed.has(i)} aria-label="{structLabel(line, i).text} section"
@@ -2710,6 +2727,7 @@
           {/if}
         </div>
         {#if !collapsed.has(i)}
+        <div class="block-body" transition:slide|global={{ duration: slideDur }}>
         <!-- Virtual globals block inside data = [ (BIT only; CTD uses per-scene KVs) -->
         {#if line.role === "data" && $project.libraryProfile !== "ctd"}
           {#each getGlobalRows() as row (row.key)}
@@ -2894,12 +2912,14 @@
           </div>
           {/if}
         {/each}
+        </div>
         {/if}
 
       {:else if line.kind === "close"}
         <!-- Virtual BOX_LID block for OBJECT_BOX without a lid (BIT only) -->
         {@const _lidScalarsAll = [...getScalarKeysForContext("lid")].sort((a, b) => a.key.localeCompare(b.key))}
         {@const _showVirtualLid = defaultsMode !== "none" && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (defaultsMode === "all" || _lidScalarsAll.some(s => isFavorite(s.key)))}
+        <div class="block-tail" transition:slide|global={{ duration: slideDur }}>
         {#if _showVirtualLid}
           {@const lidDepth = (line.depth ?? 0) + 1}
           {@const lidChildDepth = lidDepth + 1}
@@ -3015,12 +3035,13 @@
             <button class="add-btn" title="Add another scene" onclick={() => handleAddScene(i)}>+ Scene</button>
           </div>
         {/if}
+        </div>
 
       {:else if line.kind === "kv" && line.kvKey}
         {@const kt = getKeyType(line.kvKey)}
         {@const ks = getKeySchema(line.kvKey)}
         {@const sd = getSchemaDefault(line.kvKey)}
-        <div class="line-row kv" class:is-default={isDefault(line.kvKey, line.kvValue)} class:has-diagnostic={lineDiagnosticSeverity(i) != null} class:diagnostic-error={lineDiagnosticSeverity(i) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(i) === "warning"} style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+        <div class="line-row kv" class:is-default={isDefault(line.kvKey, line.kvValue)} class:has-diagnostic={lineDiagnosticSeverity(i) != null} class:diagnostic-error={lineDiagnosticSeverity(i) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(i) === "warning"} style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           <span class="kv-key" title={tip(line.kvKey || "")}>{label(line.kvKey || "")}</span>
           {@render diagnosticSlot(i)}
           <span class="kv-control">
@@ -3121,7 +3142,7 @@
         </div>
 
       {:else if line.kind === "makeall"}
-        <div class="line-row make-row" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+        <div class="line-row make-row" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           <span class="make-text">Make(</span>
           <select class="make-select" value={line.varName || "data"}
             onchange={(e) => handleMakeVarChange(i, e.currentTarget.value)}>
@@ -3133,16 +3154,16 @@
         </div>
 
       {:else if line.kind === "blank"}
-        <div class="line-row blank" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">&nbsp;</div>
+        <div class="line-row blank" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>&nbsp;</div>
 
       {:else if line.kind === "include" || line.kind === "marker"}
-        <div class="line-row muted" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+        <div class="line-row muted" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           <span class="line-text">{line.raw}</span>
           <span class="line-badge">{line.kind}</span>
         </div>
 
       {:else if line.kind === "variable"}
-        <div class="line-row variable" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+        <div class="line-row variable" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           <span class="var-name">{line.varName}</span>
           <span class="var-eq">=</span>
           <input class="var-value" type="text" spellcheck="false" value={line.varValue ?? ""}
@@ -3155,7 +3176,7 @@
         </div>
 
       {:else if line.kind === "comment"}
-        <div class="line-row comment-line" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+        <div class="line-row comment-line" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           <span class="comment-slash">//</span>
           <input class="comment-standalone" type="text" spellcheck="false" value={line.comment ?? ""}
             onblur={(e) => handleStandaloneCommentEdit(i, e.currentTarget.value)}
@@ -3165,7 +3186,7 @@
         </div>
 
       {:else if line.kind === "raw" && isRawGroupStart(i)}
-        <div class="raw-block" style={bracketStyle(line.depth)} data-testid="line-{i}">
+        <div class="raw-block" style={bracketStyle(line.depth)} data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           <textarea class="raw-textarea" spellcheck="false"
             rows={rawGroupLineCount(i)}
             value={rawGroupText(i)}
@@ -3183,7 +3204,7 @@
 
       {:else}
         <!-- Fallback for any other unhandled kind -->
-        <div class="line-row raw" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}">
+        <div class="line-row raw" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           <input class="raw-input" type="text" spellcheck="false" value={line.raw}
             onchange={(e) => handleLineEdit(i, e.currentTarget.value)} />
           {#if canParse(line.raw)}
@@ -3292,22 +3313,59 @@
 </main>
 
 <style>
+  /* ── Cold-monochrome design tokens ────────────────────────────────
+     Read priority (rendered three different ways, in order):
+       1) Keys + values  — the only true black-cool ink in the editor.
+       2) Hierarchy      — a single slate hue ramped by --depth so the
+                          deepest level is brightest, the shallowest darkest.
+       3) Default vs.    — italic + medium weight + ink-mute tint, plus a
+          virtualized      slightly paler row bg. Stronger than a thin italic. */
+  :root {
+    --paper:        #FDFCF8;  /* canvas — almost white, faintest warm hint */
+    --paper-soft:   #F2ECDB;
+    --paper-deep:   #E8DFC4;
+
+    --rule:         #D9CFB4;
+    --rule-soft:    #EAE1C8;
+
+    --ink:          #1F1A14;  /* keys + values: darkest text on the page */
+    --ink-soft:     #3F362A;
+    --ink-mute:     #6E614A;
+    --ink-faint:    #A99772;
+
+    /* Hierarchy ramp endpoints — warm neutrals, not saturated sepia.
+       Think dust-on-parchment, not antique brass. Just enough hue to
+       distinguish from grey while keeping content the loudest read. */
+    --sepia-deep:   #3F362A;  /* depth 0 endpoint — near-black warm */
+    --sepia-warm:   #695E4D;  /* mid */
+    --sepia-soft:   #BAB1A0;  /* deepest-level endpoint — warm pale grey */
+    --sepia-tint:   #EAE3D2;  /* card header/footer wash */
+    --sepia-glow:   #F4EFE3;  /* faintest — virtual row wash */
+
+    --accent:       #695E4D;  /* warm neutral accent */
+    --accent-soft:  #EAE3D2;
+    --accent-deep:  #3F362A;
+
+    --warn:         #B5821F;
+    --error:        #C0392B;
+    --comment:      #3B7563;
+  }
   :global(body) {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 14px; color: #1a1a1a; background: #f5f5f5;
+    font-size: 14px; color: var(--ink); background: var(--paper-soft);
   }
   main { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   .toolbar {
     display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
-    padding: 3px 8px; background: #e0e7ee; border-bottom: 1px solid #c4ced8;
+    padding: 3px 8px; background: #F2ECDB; border-bottom: 1px solid #D9CFB4;
     flex-shrink: 0; font-size: 12px; overflow: visible; row-gap: 4px;
   }
   .toolbar-home {
     background: none; border: none; cursor: pointer; font-size: 18px; line-height: 1;
-    padding: 1px 4px; color: #2c3e50; border-radius: 3px;
+    padding: 1px 4px; color: #3F362A; border-radius: 3px;
   }
-  .toolbar-home:hover { background: #c4ced8; color: #2c3e50; }
+  .toolbar-home:hover { background: #D9CFB4; color: #3F362A; }
   .toolbar-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
   .file-menu-wrap,
   .view-menu-wrap { position: relative; flex-shrink: 0; }
@@ -3316,32 +3374,32 @@
   .file-menu,
   .view-menu {
     position: absolute; top: calc(100% + 4px); left: 0; z-index: 80;
-    min-width: 220px; padding: 5px; border: 1px solid #b4c0cb; border-radius: 4px;
+    min-width: 220px; padding: 5px; border: 1px solid #D9CFB4; border-radius: 4px;
     background: #ffffff; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.18);
   }
   .view-menu { min-width: 250px; }
   .file-menu-item,
   .recent-item {
     width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 14px;
-    border: none; border-radius: 3px; background: transparent; color: #263846;
+    border: none; border-radius: 3px; background: transparent; color: #3F362A;
     cursor: pointer; font-size: 12px; text-align: left; padding: 6px 8px;
   }
   .file-menu-item:hover,
   .file-menu-item:focus,
   .recent-item:hover,
   .recent-item:focus {
-    background: #edf4fa;
+    background: #F4EFE3;
     outline: none;
   }
   .file-menu-item:disabled {
     opacity: 0.45; cursor: default; background: transparent;
   }
   .file-menu-item kbd {
-    font-family: inherit; font-size: 11px; color: #667085; background: transparent;
+    font-family: inherit; font-size: 11px; color: #6E614A; background: transparent;
   }
-  .file-menu-sep { height: 1px; background: #e5ebf0; margin: 5px 2px; }
+  .file-menu-sep { height: 1px; background: #EAE1C8; margin: 5px 2px; }
   .view-menu-group-label {
-    padding: 6px 8px 4px; color: #526374; font-size: 11px; font-weight: 700;
+    padding: 6px 8px 4px; color: #3F362A; font-size: 11px; font-weight: 700;
     text-transform: uppercase;
   }
   .radio-menu-item span,
@@ -3349,21 +3407,21 @@
     display: inline-flex; align-items: center; gap: 7px;
   }
   .radio-dot {
-    width: 10px; height: 10px; border: 1px solid #8093a5; border-radius: 50%;
+    width: 10px; height: 10px; border: 1px solid #BAB1A0; border-radius: 50%;
     box-sizing: border-box; background: #ffffff;
   }
   .radio-dot.checked {
-    border: 3px solid #2d5a7b;
+    border: 3px solid #695E4D;
   }
   .check-mark {
-    width: 12px; display: inline-block; color: #2d5a7b; font-weight: 700;
+    width: 12px; display: inline-block; color: #695E4D; font-weight: 700;
   }
   .file-menu-recent { position: relative; }
-  .file-menu-arrow { color: #667085; font-size: 16px; line-height: 1; }
+  .file-menu-arrow { color: #6E614A; font-size: 16px; line-height: 1; }
   .recent-flyout {
     display: none; position: absolute; top: -5px; left: 100%;
     min-width: 310px; max-width: min(520px, calc(100vw - 280px)); max-height: 360px; overflow: auto;
-    padding: 5px; border: 1px solid #b4c0cb; border-radius: 4px;
+    padding: 5px; border: 1px solid #D9CFB4; border-radius: 4px;
     background: #ffffff; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.18);
   }
   .file-menu-recent:hover .recent-flyout,
@@ -3378,30 +3436,30 @@
   }
   .recent-path {
     display: block; margin-top: 2px; max-width: 470px;
-    font-family: "Courier New", monospace; font-size: 11px; color: #667085;
+    font-family: "Courier New", monospace; font-size: 11px; color: #6E614A;
     overflow: hidden; text-overflow: ellipsis;
   }
-  .recent-empty { padding: 8px; color: #667085; font-size: 12px; white-space: nowrap; }
+  .recent-empty { padding: 8px; color: #6E614A; font-size: 12px; white-space: nowrap; }
   .toolbar-btn {
-    padding: 3px 8px; border: 1px solid #b4c0cb; border-radius: 3px;
-    background: #f0f4f7; cursor: pointer; font-size: 12px; color: #2c3e50;
+    padding: 3px 8px; border: 1px solid #D9CFB4; border-radius: 3px;
+    background: #F2ECDB; cursor: pointer; font-size: 12px; color: #3F362A;
   }
   .toolbar-icon-btn {
     width: 28px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
-    border: 1px solid #b4c0cb; border-radius: 3px; background: #f0f4f7;
-    cursor: pointer; font-size: 17px; line-height: 1; color: #2c3e50;
+    border: 1px solid #D9CFB4; border-radius: 3px; background: #F2ECDB;
+    cursor: pointer; font-size: 17px; line-height: 1; color: #3F362A;
   }
-  .toolbar-btn:hover { background: #fff; border-color: #8a9aab; }
-  .toolbar-btn:active { background: #c4ced8; }
-  .toolbar-icon-btn:hover { background: #fff; border-color: #8a9aab; }
-  .toolbar-icon-btn:active { background: #c4ced8; }
+  .toolbar-btn:hover { background: #fff; border-color: #BAB1A0; }
+  .toolbar-btn:active { background: #D9CFB4; }
+  .toolbar-icon-btn:hover { background: #fff; border-color: #BAB1A0; }
+  .toolbar-icon-btn:active { background: #D9CFB4; }
   .toolbar-btn:disabled,
   .toolbar-icon-btn:disabled {
-    opacity: 0.48; cursor: default; background: #e7edf2; color: #7b8794;
+    opacity: 0.48; cursor: default; background: #EAE1C8; color: #6E614A;
   }
   .toolbar-btn:disabled:hover,
   .toolbar-icon-btn:disabled:hover {
-    border-color: #b4c0cb; background: #e7edf2;
+    border-color: #D9CFB4; background: #EAE1C8;
   }
   .diagnostics-wrap {
     position: relative;
@@ -3411,52 +3469,52 @@
   .diagnostics-chip {
     display: inline-flex; align-items: center; gap: 6px;
     min-width: 82px; height: 24px; box-sizing: border-box;
-    padding: 3px 8px; border: 1px solid #b4c0cb; border-radius: 12px;
-    background: #f0f4f7; color: #2c3e50; cursor: pointer;
+    padding: 3px 8px; border: 1px solid #D9CFB4; border-radius: 12px;
+    background: #F2ECDB; color: #3F362A; cursor: pointer;
     font-size: 12px; font-weight: 700;
   }
-  .diagnostics-chip:hover { background: #fff; border-color: #8a9aab; }
+  .diagnostics-chip:hover { background: #fff; border-color: #BAB1A0; }
   .diagnostics-chip.valid { background: #e7f5eb; border-color: #7db58a; color: #2f6b3f; }
   .diagnostics-chip.issues { background: #fff1d7; border-color: #d69a45; color: #7a4b08; }
   .diagnostics-chip.unavailable { background: #fdecea; border-color: #d99b92; color: #9b2f25; }
   .diagnostics-chip.stale { background: #f7f1df; border-color: #d1bd7a; color: #715c16; }
-  .diagnostics-chip.checking { background: #e6f0f7; border-color: #8daec6; color: #2d5a7b; }
+  .diagnostics-chip.checking { background: #F4EFE3; border-color: #BAB1A0; color: #695E4D; }
   .diagnostics-dot {
     width: 8px; height: 8px; border-radius: 50%;
-    background: #8a9aab; flex-shrink: 0;
+    background: #BAB1A0; flex-shrink: 0;
   }
   .diagnostics-chip.valid .diagnostics-dot { background: #3d914e; }
   .diagnostics-chip.issues .diagnostics-dot { background: #d4800e; }
   .diagnostics-chip.unavailable .diagnostics-dot { background: #c0392b; }
   .diagnostics-chip.stale .diagnostics-dot { background: #b58d18; }
-  .diagnostics-chip.checking .diagnostics-dot { background: #2d7db3; animation: pulse 1s ease-in-out infinite; }
+  .diagnostics-chip.checking .diagnostics-dot { background: #695E4D; animation: pulse 1s ease-in-out infinite; }
   @keyframes pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
   .diagnostics-panel {
     position: absolute; top: calc(100% + 4px); left: 0; z-index: 90;
     width: min(520px, calc(100vw - 24px)); max-height: 360px; overflow: hidden;
     display: flex; flex-direction: column;
-    border: 1px solid #b4c0cb; border-radius: 5px;
+    border: 1px solid #D9CFB4; border-radius: 5px;
     background: #ffffff; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.18);
   }
   .diagnostics-panel-head {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    padding: 8px 10px; border-bottom: 1px solid #e5ebf0; background: #f5f8fb;
+    padding: 8px 10px; border-bottom: 1px solid #EAE1C8; background: #F4EFE3;
   }
-  .diagnostics-title { font-size: 13px; font-weight: 700; color: #2c3e50; }
+  .diagnostics-title { font-size: 13px; font-weight: 700; color: #3F362A; }
   .diagnostics-refresh {
     width: 24px; height: 22px; display: inline-flex; align-items: center; justify-content: center;
-    border: 1px solid #b4c0cb; border-radius: 3px; background: #ffffff;
-    color: #2c3e50; cursor: pointer; font-size: 14px; line-height: 1;
+    border: 1px solid #D9CFB4; border-radius: 3px; background: #ffffff;
+    color: #3F362A; cursor: pointer; font-size: 14px; line-height: 1;
   }
-  .diagnostics-refresh:hover:not(:disabled) { background: #edf4fa; border-color: #8a9aab; }
+  .diagnostics-refresh:hover:not(:disabled) { background: #F4EFE3; border-color: #BAB1A0; }
   .diagnostics-refresh:disabled { opacity: 0.5; cursor: default; }
   .diagnostics-summary {
-    padding: 7px 10px; border-bottom: 1px solid #edf1f5;
-    color: #526374; font-size: 12px; line-height: 1.35;
+    padding: 7px 10px; border-bottom: 1px solid #EAE1C8;
+    color: #3F362A; font-size: 12px; line-height: 1.35;
   }
   .diagnostics-summary.problem { color: #7a4b08; font-weight: 700; }
   .diagnostics-empty {
-    padding: 12px 10px; color: #667085; font-size: 12px;
+    padding: 12px 10px; color: #6E614A; font-size: 12px;
   }
   .diagnostics-list {
     overflow: auto;
@@ -3464,14 +3522,14 @@
   }
   .diagnostics-issue {
     display: grid; grid-template-columns: auto 1fr auto; gap: 7px;
-    align-items: start; padding: 8px 10px; border-bottom: 1px solid #edf1f5;
-    font-size: 12px; color: #263846;
+    align-items: start; padding: 8px 10px; border-bottom: 1px solid #EAE1C8;
+    font-size: 12px; color: #3F362A;
   }
   .diagnostics-issue:last-child { border-bottom: none; }
   .issue-severity {
     padding: 1px 5px; border-radius: 3px; text-transform: uppercase;
     font-size: 10px; font-weight: 700; line-height: 1.4;
-    background: #e5ebf0; color: #526374;
+    background: #EAE1C8; color: #3F362A;
   }
   .diagnostics-issue.error .issue-severity { background: #fdecea; color: #c0392b; }
   .diagnostics-issue.warning .issue-severity { background: #fff1d7; color: #8a5a0a; }
@@ -3479,15 +3537,15 @@
   .issue-location,
   .issue-file,
   .issue-meta {
-    grid-column: 2 / 4; color: #667085; font-family: "Courier New", monospace;
+    grid-column: 2 / 4; color: #6E614A; font-family: "Courier New", monospace;
     font-size: 11px;
   }
-  .toolbar-sep { width: 1px; height: 18px; background: #b4c0cb; margin: 0 6px; }
+  .toolbar-sep { width: 1px; height: 18px; background: #D9CFB4; margin: 0 6px; }
   .content { flex: 1; overflow-y: auto; padding: 4px 0; display: flex; flex-direction: column; min-height: 0; }
   .toast {
     position: fixed; top: 48px; right: 14px; z-index: 100;
     max-width: min(360px, calc(100vw - 28px));
-    background: #1f3f57; color: #ffffff; border: 1px solid #2d5a7b;
+    background: #3F362A; color: #ffffff; border: 1px solid #695E4D;
     border-radius: 5px; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.22);
     padding: 9px 12px; font-size: 13px; font-weight: 600;
   }
@@ -3502,10 +3560,10 @@
   }
   :global(.split-handle) {
     width: 6px; flex-shrink: 0;
-    background: #c4ced8;
+    background: #D9CFB4;
     cursor: col-resize;
   }
-  :global(.split-handle:hover) { background: #b4c0cb; }
+  :global(.split-handle:hover) { background: #D9CFB4; }
   :global(.scad-line) {
     font-family: "Courier New", monospace; font-size: 13px;
     min-height: 24px;
@@ -3533,7 +3591,7 @@
     flex: 1; min-height: 0; gap: 8px; padding-top: 60px; overflow: hidden;
   }
   :global(:global(.welcome-title)) {
-    margin: 0; font-size: 36px; font-weight: 700; color: #2d5a7b;
+    margin: 0; font-size: 36px; font-weight: 700; color: #695E4D;
   }
   :global(.welcome-subtitle) {
     margin: 0; font-size: 16px; color: #888;
@@ -3557,8 +3615,8 @@
     border: 1px solid #ddd; border-radius: 4px;
     background: #fff; color: #888; cursor: pointer;
   }
-  :global(.welcome-sort-btn.active) { background: #2d5a7b; color: #fff; border-color: #2d5a7b; }
-  :global(.welcome-sort-btn:hover:not(.active)) { background: #e8f0f6; color: #2d5a7b; border-color: #2d5a7b; }
+  :global(.welcome-sort-btn.active) { background: #695E4D; color: #fff; border-color: #695E4D; }
+  :global(.welcome-sort-btn:hover:not(.active)) { background: #F4EFE3; color: #695E4D; border-color: #695E4D; }
   :global(.welcome-icon-bar) {
     position: absolute; top: 12px; right: 16px;
     display: flex; gap: 6px;
@@ -3569,7 +3627,7 @@
     background: #fff; color: #666; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
   }
-  :global(.welcome-icon-btn:hover:not(:disabled)) { background: #e8f0f6; color: #2d5a7b; border-color: #2d5a7b; }
+  :global(.welcome-icon-btn:hover:not(:disabled)) { background: #F4EFE3; color: #695E4D; border-color: #695E4D; }
   :global(.welcome-icon-btn:disabled) { opacity: 0.4; cursor: default; }
   :global(.spinning) { display: inline-block; animation: spin 0.8s linear infinite; }
   :global(.update-btn-wrap) { position: relative; }
@@ -3594,17 +3652,17 @@
   :global(.welcome-btn) {
     padding: 12px 24px; font-size: 16px; font-weight: 600;
     border: 1px solid #bbb; border-radius: 6px;
-    background: white; color: #2c3e50; cursor: pointer;
+    background: white; color: #3F362A; cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
   }
   :global(.welcome-btn:hover:not(:disabled)) {
-    background: #e8f0f6; border-color: #2d5a7b;
+    background: #F4EFE3; border-color: #695E4D;
   }
   :global(.welcome-btn:disabled) {
     opacity: 0.5; cursor: default;
   }
   :global(.welcome-btn-primary) {
-    background: #2d5a7b; color: white; border-color: #2d5a7b;
+    background: #695E4D; color: white; border-color: #695E4D;
   }
   :global(.welcome-btn-primary:hover:not(:disabled)) {
     background: #3a6d91; border-color: #3a6d91;
@@ -3616,7 +3674,7 @@
     text-align: center; color: #888; font-size: 14px; margin: 0; line-height: 1.5;
   }
   :global(.welcome-status) {
-    text-align: center; color: #2d5a7b; font-size: 13px; margin: 0;
+    text-align: center; color: #695E4D; font-size: 13px; margin: 0;
     max-width: 260px; word-break: break-word; align-self: center;
   }
   :global(.welcome-progress) {
@@ -3624,11 +3682,11 @@
     margin: 8px 0 4px; align-self: center;
   }
   :global(.welcome-progress-msg) {
-    color: #2d5a7b; font-size: 12px; font-weight: 500;
+    color: #695E4D; font-size: 12px; font-weight: 500;
   }
   :global(.welcome-spinner) {
     display: inline-block; width: 14px; height: 14px;
-    border: 2px solid #c8d9e6; border-top-color: #2d5a7b;
+    border: 2px solid #c8d9e6; border-top-color: #695E4D;
     border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -3642,33 +3700,33 @@
   :global(.welcome-col-right-align .welcome-new-file) { text-align: right; }
   :global(.welcome-col-right-align .welcome-library-game) { text-align: right; }
   :global(.welcome-col-right-align .welcome-library-empty-folder) { text-align: right; }
-  :global(.welcome-library-title) { font-size: 18px; font-weight: 600; color: #2c3e50; margin: 0 0 4px; }
+  :global(.welcome-library-title) { font-size: 18px; font-weight: 600; color: #3F362A; margin: 0 0 4px; }
   :global(.welcome-library-desc) { font-size: 12px; color: #999; margin: 0 0 12px; line-height: 1.4; }
   :global(.welcome-library-scroll) { overflow-y: auto; flex: 1; padding-right: 8px; }
   :global(.welcome-library-publisher) { margin-bottom: 14px; }
   :global(.welcome-new-file) {
     display: block; width: 100%; text-align: left;
     padding: 5px 10px; font-size: 14px; font-weight: 600;
-    border: 1px dashed #b4c0cb; border-radius: 4px;
-    background: transparent; color: #2d5a7b; cursor: pointer;
+    border: 1px dashed #D9CFB4; border-radius: 4px;
+    background: transparent; color: #695E4D; cursor: pointer;
   }
-  :global(.welcome-new-file:hover) { background: #e8f0f6; }
+  :global(.welcome-new-file:hover) { background: #F4EFE3; }
   :global(.welcome-library-empty-folder) { color: #bbb; font-size: 13px; font-style: italic; margin: 0; padding: 2px 10px; }
-  :global(.welcome-library-publisher-name) { font-size: 12px; font-weight: 600; color: #2d5a7b; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 4px; }
+  :global(.welcome-library-publisher-name) { font-size: 12px; font-weight: 600; color: #695E4D; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 4px; }
   :global(.welcome-library-game) {
     display: block; width: 100%; text-align: left;
     padding: 5px 10px; border: none; border-radius: 4px;
-    background: transparent; color: #2c3e50; font-size: 14px; cursor: pointer;
+    background: transparent; color: #3F362A; font-size: 14px; cursor: pointer;
   }
-  :global(.welcome-library-game:hover) { background: #e8f0f6; color: #2d5a7b; }
+  :global(.welcome-library-game:hover) { background: #F4EFE3; color: #695E4D; }
   :global(.welcome-library-game.user-file) { font-weight: 600; }
   :global(.welcome-library-game.user-file::before) { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #d4800e; margin-right: 6px; flex-shrink: 0; vertical-align: middle; }
-  :global(.welcome-library-game:not(.user-file)::before) { content: ""; display: inline-block; width: 7px; height: 9px; border: 1.5px solid #b4c0cb; border-left: 2.5px solid #b4c0cb; border-radius: 0 1px 1px 0; margin-right: 5px; flex-shrink: 0; vertical-align: middle; }
+  :global(.welcome-library-game:not(.user-file)::before) { content: ""; display: inline-block; width: 7px; height: 9px; border: 1.5px solid #D9CFB4; border-left: 2.5px solid #D9CFB4; border-radius: 0 1px 1px 0; margin-right: 5px; flex-shrink: 0; vertical-align: middle; }
   :global(.welcome-library-rename) {
     display: block; width: 100%; box-sizing: border-box;
     padding: 5px 10px; font-size: 14px; font-weight: 600;
-    color: #2c3e50; background: #fff;
-    border: 1px solid #2d5a7b; border-radius: 4px; outline: none;
+    color: #3F362A; background: #fff;
+    border: 1px solid #695E4D; border-radius: 4px; outline: none;
     font-family: inherit;
   }
   :global(.lib-context-backdrop) {
@@ -3683,39 +3741,170 @@
   :global(.lib-context-item) {
     display: block; width: 100%; text-align: left;
     padding: 8px 16px; border: none; background: transparent;
-    font-size: 14px; color: #2c3e50; cursor: pointer;
+    font-size: 14px; color: #3F362A; cursor: pointer;
   }
-  :global(.lib-context-item:hover) { background: #e8f0f6; color: #2d5a7b; }
+  :global(.lib-context-item:hover) { background: #F4EFE3; color: #695E4D; }
+  /* ── Editor rows ──────────────────────────────────────────────────
+     Hierarchy ramp keyed off --depth: warm sepia from sepia-deep (depth 0)
+     to sepia-soft (deepest). 20% per step gives a glance-readable level
+     delta across the 0–5 range that covers virtually every BGSD document.
+     The cold ink keys/values still win first read on a paper bg; sepia
+     carries the second read on the card frames + labels. */
+  .line-row, .raw-block {
+    --bracket-color: color-mix(in oklch, var(--sepia-deep), var(--sepia-soft) calc(var(--depth, 0) * 20%));
+    /* Editable rows sit on near-paper so keys + values read first; only
+     a whisper of sepia (2% per shallow depth) keeps any depth tint.
+     The card chrome (struct.open/close) keeps the strong sepia bar. */
+    --row-tint:      color-mix(in srgb, var(--paper), var(--sepia-tint) calc(max(0, 5 - var(--depth, 0)) * 2%));
+    --bracket-bg:    var(--row-tint);
+  }
+  /* Slide wrappers: a single container around the open's collapsible
+     body and around the close branch. The wrapper carries
+     transition:slide so the whole block slides as a unit (the visible
+     portion clips from the bottom as height shrinks). Inner rows have
+     no transition of their own — they just sit there and get clipped. */
+  .block-body, .block-tail { display: block; }
+
   .line-row {
     position: relative;
     display: flex; align-items: center; gap: 6px;
-    padding: 1px 8px; min-height: 24px;
+    /* Fixed row height keeps checkbox clicks (and italic↔upright
+       restyles on materialise) from shifting layout. Slide reads
+       computed height at start of transition, so 24px → 0 still
+       works for collapse animations. */
+    height: 24px; box-sizing: border-box;
+    padding: 3px 8px;
+    line-height: 18px;
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 400;
-    border-bottom: 1px solid #e8edf2;
-    background: linear-gradient(to right, transparent var(--indent, 0px), var(--bracket-bg, #edf2f7) var(--indent, 0px));
+    /* No row-bottom border — the row is no longer the visual unit;
+       the block (the card framed by struct.open + content +
+       struct.close) is. Rows merge cleanly into the card body. */
+    background: linear-gradient(to right, transparent var(--indent, 0px), var(--bracket-bg) var(--indent, 0px));
   }
+
+  /* Dot leader — drawn INSIDE kv-key's fixed-width column, after the
+     label text. The label takes natural width; the ::after pseudo
+     flex-grows within kv-key to fill the rest. kv-control's position
+     never shifts because kv-key's outer width stays pinned to 180px. */
+  /* Indent column: one vertical rail per ancestor depth, drawn as a
+     repeating gradient in the indent area. Sepia rails keep the
+     palette unified — no warring cold/warm layers. */
   .line-row::before {
-    content: ""; position: absolute; left: 8px; top: 0; bottom: 0;
+    content: ""; position: absolute;
+    left: 0; top: 0; bottom: 0;
     width: var(--indent, 0px);
-    background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='8'><line x1='0.5' y1='0' x2='0.5' y2='4' stroke='%23b4c0cb' stroke-width='1'/></svg>");
-    background-repeat: repeat; background-size: 24px 8px;
+    background-image: repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent 23px,
+      var(--sepia-deep) 23px,
+      var(--sepia-deep) 24px
+    );
+    opacity: 0.22;
     pointer-events: none; z-index: 1;
   }
+
+  /* Card top + bottom edges. struct.open carries the card's top edge;
+     struct.close carries the bottom. Both span only x=indent → right
+     edge, so the edge starts where the card actually starts (not in
+     the indent area). Color is the card's own --bracket-color, so each
+     level's frame is visibly its own depth on the slate ramp. */
+  .line-row.struct.open::after,
+  .line-row.struct.close::after {
+    content: "";
+    position: absolute;
+    left: var(--indent, 0px);
+    right: 0;
+    height: 1px;
+    background: var(--bracket-color);
+    pointer-events: none; z-index: 2;
+  }
+  .line-row.struct.open::after  { top: 0; }
+  .line-row.struct.close::after { bottom: 0; }
+  /* Depth-0 cards are the page's section anchors — give them a 2px
+     frame so they read as primary structure, not just a deeper nest. */
+  .line-row.struct.open[style*="--depth: 0;"]::after,
+  .line-row.struct.close[style*="--depth: 0;"]::after {
+    height: 2px;
+  }
+
+  /* Two row backgrounds in the editor — only two:
+       - Paper (kv body): pure --row-tint, nearly white.
+       - Sepia (chrome bars + add-row shelves): paper + 65% sepia-tint.
+     Header bars, footer bars, and the + button rows all share the
+     sepia shade so the eye sees a single "frame layer" rather than a
+     palette of three or four tints. */
+  .line-row.struct.open,
+  .line-row.struct.close,
+  .line-row.add-row,
+  .line-row.add-scene-row {
+    --bracket-bg: color-mix(in srgb, var(--paper), var(--sepia-tint) 65%);
+  }
+  /* Content rows: pure paper. Hierarchy is conveyed by the surrounding
+     card, not by tinting every row. Keys win first read. */
+  .line-row.kv {
+    --bracket-bg: var(--paper);
+  }
+  /* close rows are just `]` — keep them slim so they read as a footer
+     line, not another data row. No min-height (would clamp the slide). */
+  .line-row.struct.close { padding-top: 1px; padding-bottom: 1px; line-height: 16px; }
+
+  /* Block gaps: separate every card from its surroundings. */
+  .line-row.struct.open  { margin-top: 18px; }
+  .line-row.struct.close { margin-bottom: 18px; }
+
   .line-row.muted { opacity: 0.35; font-style: italic; }
-  /* Virtual tier: defaults at schema value — subdued gray, not italic */
-  .line-row.kv.virtual .kv-key { font-weight: 400; font-style: italic; }
-  .line-row.struct.virtual .struct-label { font-style: italic; }
-  .line-row.struct.virtual .struct-bracket { font-style: italic; }
+
+  /* Read 3 — default vs virtualized.
+     Bold italic at weight 700 (Courier New only ships 400/700, so anything
+     between renders as wispy 400). Italic carries the "ghost" feel; the
+     color step to --ink-mute keeps the key recessive vs. real-non-default
+     keys at --ink. The row bg is pulled toward white so an entire ghost
+     row reads as "preview, not committed". */
+  /* Virtual KV rows share the same row bg as their real-default
+     siblings — the ghost cue is carried by italic + ink-mute on the
+     key, not by a separate background wash. (The user explicitly asked
+     for defaults and virtualized to read on the same surface.) */
+  .line-row.kv.virtual .kv-key {
+    font-style: italic;
+    font-weight: 700;
+    color: var(--ink-mute);
+  }
+  .line-row.kv.virtual .kv-num,
+  .line-row.kv.virtual .kv-str,
+  .line-row.kv.virtual .kv-control select {
+    color: var(--ink-mute);
+  }
+  .line-row.struct.virtual .struct-label,
+  .line-row.struct.virtual .struct-bracket {
+    font-style: italic;
+  }
+
+  /* Real-but-default keys: stays upright weight 700 so the column does
+     not reflow as a ghost materialises, but faded deeper than before so
+     "default" reads as recessive at a glance. */
+  .line-row.kv.is-default .kv-key { color: var(--ink-mute); }
+
   .virtual-key { }
 
   .collapse-btn {
     background: none; border: none; cursor: pointer;
-    padding: 0 2px; font-size: 12px; color: #888; flex-shrink: 0;
+    padding: 0; font-size: 12px; color: var(--ink-mute); flex-shrink: 0;
+    /* Fixed width + centered glyph so the label after the arrow
+       doesn't reflow when ▼ flips to ▶. */
+    width: 14px; text-align: center;
+    font-family: "Courier New", monospace;
+    line-height: 1;
   }
-  .collapse-btn:hover { color: #555; }
-  .struct-label { font-weight: 700; color: #2c3e50; }
+  .collapse-btn:hover { color: var(--ink); }
+
+  /* Read 2 — hierarchy.
+     Struct labels and bracket characters share the slate ramp. At depth 0
+     this is the darkest slate (a true section anchor); each deeper level
+     fades toward slate-soft. */
+  .struct-label { font-weight: 700; color: var(--bracket-color); }
   .struct-label.inferred { font-weight: 400; opacity: 0.6; }
-  .struct-bracket { color: #546e7a; font-weight: 700; }
+  .struct-bracket { color: var(--bracket-color); font-weight: 700; }
   .debug-toggle {
     background: none; border: none; cursor: pointer;
     margin-left: 4px; padding: 0 2px;
@@ -3729,12 +3918,49 @@
   .line-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .line-badge { font-size: 11px; color: #999; background: #eee; padding: 1px 5px; border-radius: 2px; font-weight: 500; }
 
-  .kv-key { font-weight: 700; color: #2c3e50; min-width: 180px; flex-shrink: 0; }
-  .line-row.has-diagnostic { box-shadow: inset 3px 0 0 #d4800e; }
-  .line-row.diagnostic-error { box-shadow: inset 3px 0 0 #c0392b; }
-  .line-diagnostic-slot {
-    width: 18px; min-width: 18px; display: inline-flex; align-items: center; justify-content: center;
+  /* Read 1 — keys + values.
+     The kv-key is the only weight-700 ink-darkest text in the editor; it
+     wins the eye on every row regardless of depth. */
+  .kv-key {
+    font-weight: 700; color: var(--ink);
+    min-width: 180px; flex-shrink: 0;
+    /* Flex container so the dot-leader pseudo can flex-grow inside the
+       180px column, between the label text and the right edge — without
+       affecting the kv-control's position outside. */
+    display: inline-flex; align-items: center;
   }
+  /* Dot leader from end-of-label to end-of-key-column. The diagnostic
+     slot beside the key collapses to 0 width when empty (see
+     .line-diagnostic-slot:empty below) so the dots run right up to
+     the kv-control. When a diagnostic IS present, the marker
+     interrupts the leader — drawing attention to the problem. */
+  .kv-key::after {
+    content: "";
+    flex: 1;
+    align-self: end;
+    margin: 0 0 5px 6px;
+    border-bottom: 2px dotted var(--ink-faint);
+    opacity: 0.35;
+  }
+  .line-row.has-diagnostic { box-shadow: inset 3px 0 0 var(--warn); }
+  .line-row.diagnostic-error { box-shadow: inset 3px 0 0 var(--error); }
+  /* Diagnostic slot is absolute-positioned so it never consumes inline
+     space; the kv-key dot leader can reach kv-control regardless of
+     whether a diagnostic is present. The marker sits in the row's
+     gutter aligned with where the line's content begins — for a depth-N
+     row that's just to the LEFT of the indent boundary, not pinned to
+     the row's outer edge. max(4px, …) keeps depth-0 rows from pushing
+     the marker off-screen. */
+  .line-diagnostic-slot {
+    position: absolute;
+    left: max(4px, calc(var(--indent, 0px) - 8px));
+    top: 0; bottom: 0;
+    width: 16px;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+    z-index: 3;
+  }
+  .line-diagnostic-slot:not(:empty) { pointer-events: auto; }
   .line-diagnostic-marker {
     width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
     border: none; border-radius: 0; clip-path: polygon(50% 4%, 98% 96%, 2% 96%);
@@ -3746,35 +3972,39 @@
     background: #c0392b; color: #ffffff;
   }
   .line-diagnostic-marker.info {
-    background: #2d7db3; color: #ffffff;
+    background: #695E4D; color: #ffffff;
   }
   .line-diagnostic-marker:hover { filter: brightness(0.97); }
   .kv-control { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-  .kv-num { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #c8d1da; border-radius: 2px; width: 56px; background: white; }
+  .kv-num { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px; width: 56px; background: var(--paper); color: var(--ink); }
   .kv-num.xs { width: 44px; }
-  .kv-str { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #c8d1da; border-radius: 2px; width: 160px; background: white; }
+  .kv-str { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px; width: 160px; background: var(--paper); color: var(--ink); }
   .kv-str.sm { width: 56px; }
-  .kv-control select { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid #c8d1da; border-radius: 2px; background: white; }
-  .kv-control input[type="checkbox"] { width: 18px; height: 18px; accent-color: #2d5a7b; }
-  .kv-fallback { color: #999; font-size: 13px; }
-  .unit-suffix { align-self: center; min-width: 20px; color: #607080; font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; }
+  .kv-control select { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px; background: var(--paper); color: var(--ink); }
+  /* Smaller checkboxes — they were dominating the row visually. */
+  .kv-control input[type="checkbox"] { width: 13px; height: 13px; accent-color: var(--accent); }
+  .kv-fallback { color: var(--ink-faint); font-size: 13px; }
+  .unit-suffix { align-self: center; min-width: 20px; color: var(--ink-mute); font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; }
   .side-label { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; }
-  .side-tag { color: #999; font-size: 11px; font-weight: 600; width: 12px; text-align: center; }
+  .side-tag { color: var(--ink-faint); font-size: 11px; font-weight: 600; width: 12px; text-align: center; }
 
   /* Raw tier: unparsed text blocks */
   .raw-block {
     position: relative;
     width: 100%;
-    border-bottom: 1px solid #e8edf2;
-    background: linear-gradient(to right, transparent var(--indent, 0px), var(--bracket-bg, #edf2f7) var(--indent, 0px));
+    border-bottom: 1px solid var(--rule-soft);
+    background: linear-gradient(to right, transparent var(--indent, 0px), var(--bracket-bg) var(--indent, 0px));
   }
   .raw-block::before {
-    content: ""; position: absolute; left: 8px; top: 0; bottom: 0;
-    width: var(--indent, 0px);
-    background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='8'><line x1='0.5' y1='0' x2='0.5' y2='4' stroke='%23b4c0cb' stroke-width='1'/></svg>");
-    background-repeat: repeat; background-size: 24px 8px;
+    content: ""; position: absolute;
+    left: calc(8px + var(--indent, 0px) - 1px);
+    top: 0; bottom: 0;
+    width: 1px;
+    background: var(--bracket-color);
+    opacity: 0.45;
     pointer-events: none; z-index: 1;
   }
+  .raw-block[style*="--depth: 0;"]::before { content: none; }
   .raw-textarea {
     display: block;
     width: 100%; box-sizing: border-box;
@@ -3793,28 +4023,28 @@
     padding: 1px 4px; border: 1px solid #c8d1da; border-radius: 2px; background: white;
   }
   .toggle-btn {
-    background: none; border: 1px solid #b4c0cb; color: #8a9aab;
+    background: none; border: 1px solid #D9CFB4; color: #BAB1A0;
     cursor: pointer; font-size: 11px; font-weight: 700;
     padding: 1px 5px; border-radius: 3px; flex-shrink: 0;
     font-family: "Courier New", monospace;
     opacity: 0; transition: opacity 0.1s;
   }
   .line-row:hover .toggle-btn { opacity: 1; }
-  .toggle-btn:hover:not(:disabled) { border-color: #2d5a7b; color: #2d5a7b; }
+  .toggle-btn:hover:not(:disabled) { border-color: #695E4D; color: #695E4D; }
   .toggle-btn:disabled { opacity: 0.3; cursor: default; }
-  .toggle-btn.active { opacity: 1; background: #2d5a7b; color: white; border-color: #2d5a7b; }
+  .toggle-btn.active { opacity: 1; background: #695E4D; color: white; border-color: #695E4D; }
   .kv-raw-value {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 400;
-    padding: 1px 4px; border: 1px solid #2d5a7b; border-radius: 2px;
+    padding: 1px 4px; border: 1px solid #695E4D; border-radius: 2px;
     width: 280px; background: #f0f4f8;
   }
   .add-btn {
-    background: none; border: 1px dashed #b4c0cb; color: #546e7a;
+    background: none; border: 1px dashed #D9CFB4; color: #546e7a;
     padding: 0 8px; border-radius: 3px; cursor: pointer;
     font-size: 14px; font-weight: 700; line-height: 1.4;
   }
-  .add-btn:hover { border-color: #2d5a7b; color: #2d5a7b; }
-  .add-scene-row { min-height: 24px; border-bottom: none; }
+  .add-btn:hover { border-color: #695E4D; color: #695E4D; }
+  .add-scene-row { border-bottom: none; }
   .comment-btn {
     background: none; border: none; color: #ccc; cursor: pointer;
     font-family: "Courier New", monospace; font-size: 13px; font-weight: 700;
@@ -3848,22 +4078,22 @@
   @keyframes fadeOut { from { opacity: 1; max-height: 30px; } to { opacity: 0; max-height: 0; overflow: hidden; } }
   .scene-name-input {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 700;
-    color: #2c3e50; background: transparent; border: none;
+    color: #3F362A; background: transparent; border: none;
     border-bottom: 1px dashed #b0bec5; padding: 0 4px; outline: none;
     width: auto; min-width: 60px;
   }
   .scene-name-input:focus { border-bottom: 1px solid #546e7a; background: #f0f4f8; }
   .make-text {
-    font-family: "Courier New", monospace; font-size: 15px; font-weight: 700; color: #2c3e50;
+    font-family: "Courier New", monospace; font-size: 15px; font-weight: 700; color: #3F362A;
   }
   .make-select {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 700;
-    color: #2c3e50; background: white; border: 1px solid #b4c0cb;
+    color: #3F362A; background: white; border: 1px solid #D9CFB4;
     border-radius: 2px; padding: 1px 4px;
   }
 
   /* Variable lines */
-  .var-name { font-weight: 700; color: #2c3e50; }
+  .var-name { font-weight: 700; color: #3F362A; }
   .var-eq { color: #999; font-weight: 700; margin: 0 4px; }
   .var-value {
     font-family: "Courier New", monospace; font-size: 15px;
@@ -3882,17 +4112,17 @@
   .comment-standalone:focus { border-bottom: 1px solid #4a9960; }
 
   /* Add row */
-  .line-row.add-row { min-height: 20px; }
+  /* No min-height on add-row — would clamp the slide animation. */
 
   /* Preset button + dropdown */
   .preset-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
   .preset-btn {
-    background: none; border: 1px solid #b4c0cb; color: #8a9aab;
+    background: none; border: 1px solid #D9CFB4; color: #BAB1A0;
     cursor: pointer; font-size: 10px; padding: 1px 4px; border-radius: 3px;
     opacity: 0; transition: opacity 0.1s; flex-shrink: 0;
   }
   .line-row:hover .preset-btn { opacity: 1; }
-  .preset-btn:hover { border-color: #2d5a7b; color: #2d5a7b; }
+  .preset-btn:hover { border-color: #695E4D; color: #695E4D; }
   .preset-menu {
     position: absolute; top: 100%; left: 0; z-index: 50;
     background: white; border: 1px solid #c8d1da; border-radius: 4px;
@@ -3902,14 +4132,14 @@
   .preset-item {
     display: block; width: 100%; text-align: left;
     padding: 4px 10px; border: none; background: none;
-    cursor: pointer; font-size: 13px; color: #2c3e50;
+    cursor: pointer; font-size: 13px; color: #3F362A;
     white-space: nowrap;
   }
   .preset-item:hover { background: #e8f0fe; }
   .preset-pill {
     display: inline-flex; align-items: center;
     padding: 1px 8px; border-radius: 10px;
-    background: #e0ecf5; color: #2d5a7b;
+    background: #e0ecf5; color: #695E4D;
     font-family: "Courier New", monospace; font-size: 13px; font-weight: 600;
     white-space: nowrap;
   }
@@ -3930,12 +4160,12 @@
   .raw-block { position: relative; }
   .raw-block:hover .raw-parse-btn { opacity: 1; }
 
-  .status-bar { display: flex; justify-content: space-between; align-items: center; padding: 3px 12px; background: #e4eaf0; border-top: 1px solid #c4ced8; font-size: 13px; color: #546e7a; }
+  .status-bar { display: flex; justify-content: space-between; align-items: center; padding: 3px 12px; background: #e4eaf0; border-top: 1px solid #D9CFB4; font-size: 13px; color: #546e7a; }
   .status-bar.status-error { background: #fdecea; color: #c0392b; font-weight: 700; }
   .status-versions { display: inline-flex; align-items: center; gap: 6px; font-family: "Courier New", monospace; font-size: 12px; color: #6b7d8e; }
   .status-bar.status-error .status-versions { color: #c0392b; }
-  .status-version-sep { color: #b4c0cb; }
-  .status-version-active { color: #2d5a7b; font-weight: 600; }
+  .status-version-sep { color: #D9CFB4; }
+  .status-version-active { color: #695E4D; font-weight: 600; }
   .status-update-chip {
     font-family: inherit; font-size: 11px; line-height: 1; cursor: pointer;
     padding: 2px 6px; border-radius: 9px;
@@ -3954,7 +4184,7 @@
     background: white; border-radius: 8px; padding: 24px 28px;
     min-width: 520px; max-width: 680px; width: 680px; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
   }
-  :global(.prefs-title) { margin: 0 0 16px; font-size: 18px; color: #2c3e50; }
+  :global(.prefs-title) { margin: 0 0 16px; font-size: 18px; color: #3F362A; }
   :global(.prefs-row) { margin-bottom: 14px; }
   :global(.prefs-label) { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 4px; }
   :global(.prefs-input-row) { display: flex; gap: 6px; }
@@ -3978,7 +4208,7 @@
     background: white; cursor: pointer; font-size: 14px;
   }
   :global(.prefs-btn:hover) { background: #f5f5f5; }
-  :global(.prefs-btn.primary) { background: #2d5a7b; color: white; border-color: #2d5a7b; }
+  :global(.prefs-btn.primary) { background: #695E4D; color: white; border-color: #695E4D; }
   :global(.prefs-btn.primary:hover) { background: #1e3f5a; }
   .external-change-modal {
     background: white; border-radius: 8px; padding: 22px 26px;
@@ -3988,11 +4218,11 @@
     margin: 0 0 10px; font-size: 18px; color: #8a3d10;
   }
   .external-change-text {
-    margin: 0 0 12px; color: #2c3e50; line-height: 1.45;
+    margin: 0 0 12px; color: #3F362A; line-height: 1.45;
   }
   .external-change-path {
     margin: 0; padding: 8px 10px; border: 1px solid #d7dee6; border-radius: 4px;
-    background: #f5f8fb; color: #526374; font-family: "Courier New", monospace;
+    background: #F4EFE3; color: #3F362A; font-family: "Courier New", monospace;
     font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .external-change-actions {
@@ -4001,13 +4231,13 @@
   :global(.prefs-divider) { border-top: 1px solid #e0e0e0; margin: 16px 0 12px; }
   :global(.prefs-about) { text-align: center; }
   :global(.prefs-links) { display: flex; justify-content: center; gap: 6px; font-size: 13px; flex-wrap: wrap; }
-  :global(.prefs-links a) { color: #2d5a7b; text-decoration: none; }
+  :global(.prefs-links a) { color: #695E4D; text-decoration: none; }
   :global(.prefs-links a:hover) { text-decoration: underline; }
   :global(.prefs-link-sep) { color: #bbb; }
-  :global(.prefs-submit-designs) { text-align: left; margin: 12px 0 8px; padding: 10px 12px; background: #f5f8fb; border-radius: 6px; border: 1px solid #e0e8ef; }
-  :global(.prefs-submit-title) { font-size: 13px; font-weight: 600; color: #2d5a7b; margin: 0 0 4px; }
+  :global(.prefs-submit-designs) { text-align: left; margin: 12px 0 8px; padding: 10px 12px; background: #F4EFE3; border-radius: 6px; border: 1px solid #e0e8ef; }
+  :global(.prefs-submit-title) { font-size: 13px; font-weight: 600; color: #695E4D; margin: 0 0 4px; }
   :global(.prefs-submit-help) { font-size: 12px; color: #555; margin: 4px 0; line-height: 1.6; }
-  :global(.prefs-submit-help a) { color: #2d5a7b; text-decoration: none; }
+  :global(.prefs-submit-help a) { color: #695E4D; text-decoration: none; }
   :global(.prefs-submit-help a:hover) { text-decoration: underline; }
   :global(.prefs-copyright) { font-size: 11px; color: #999; margin: 8px 0 0; }
   .toolbar-gear { font-size: 18px; line-height: 1; }

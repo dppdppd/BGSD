@@ -1,0 +1,8 @@
+wait app-root
+new bit
+js document.querySelector('[data-testid="content-area"]').scrollTop = 0
+shot before
+js (() => { const labels = [...document.querySelectorAll('.line-row.struct.open .struct-label')].filter(l => /lid/i.test(l.textContent || '')); if (!labels.length) throw new Error('no LID label'); labels[0].closest('.line-row').querySelector('.collapse-btn').click(); })()
+shot lid-collapsed
+js (() => { const labels = [...document.querySelectorAll('.line-row.struct.open .struct-label')].filter(l => /lid/i.test(l.textContent || '')); labels[0].closest('.line-row').querySelector('.collapse-btn').click(); })()
+shot lid-expanded
