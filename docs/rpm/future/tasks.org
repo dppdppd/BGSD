@@ -9,6 +9,10 @@
    The script silently aborted Windows + macOS builds when wine wasn't installed (set -e short-circuit). A leading dependency probe with a clear error would save a 5-minute false start.
 ** TODO Sign Windows .exe + macOS .zip release artifacts
    Currently ships unsigned. Windows: optional code-signing cert + signtool. macOS: requires macOS host for codesign + notarization.
+** TODO Maximize new box feature dimensions from parent box [[file:2026-05-10-maximize-new-box-feature-dimensions.md]]
+   :PROPERTIES:
+   :ID: maximize-new-box-feature-dimensions
+   :END:
 ** DONE Persistent undo history sidecar files [[file:2026-05-03-persistent-undo-history.md]]
    :PROPERTIES:
    :ID: persistent-undo-history
