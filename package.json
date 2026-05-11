@@ -1,7 +1,7 @@
 {
   "name": "bgsd",
   "private": true,
-  "version": "0.5.31",
+  "version": "0.5.32",
   "description": "Board Game Solutions Designer — visual editor for parametric OpenSCAD libraries",
   "author": "BGSD Contributors",
   "main": "main.js",
