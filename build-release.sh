@@ -88,17 +88,14 @@ if [ "$TARGET" = "linux" ] || [ "$TARGET" = "all" ]; then
 fi
 
 if [ "$TARGET" = "win" ] || [ "$TARGET" = "all" ]; then
-  # Windows portable packaging runs through NSIS under Wine. The default
-  # 7zip max-compression path can take longer than the command runner timeout
-  # on this build host, so default to store compression for the Windows payload.
-  # Override by exporting ELECTRON_BUILDER_COMPRESSION_LEVEL before running.
+  # Windows portable packaging must use max compression; store-compressed
+  # payloads produce oversized release assets.
+  _old_win_compression_level="${ELECTRON_BUILDER_COMPRESSION_LEVEL-}"
   _had_win_compression_level=0
   if [ "${ELECTRON_BUILDER_COMPRESSION_LEVEL+x}" = "x" ]; then
     _had_win_compression_level=1
-    _old_win_compression_level="$ELECTRON_BUILDER_COMPRESSION_LEVEL"
-  else
-    export ELECTRON_BUILDER_COMPRESSION_LEVEL=0
   fi
+  export ELECTRON_BUILDER_COMPRESSION_LEVEL=9
   build_with_progress "--win" "Windows" "release/BGSD ${VER}.exe"
   if [ "$_had_win_compression_level" = "1" ]; then
     export ELECTRON_BUILDER_COMPRESSION_LEVEL="$_old_win_compression_level"
