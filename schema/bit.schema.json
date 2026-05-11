@@ -1,5 +1,5 @@
 {
-  "version": "4.6.1",
+  "version": "4.7.0",
   "types": {
     "bool": "Checkbox (true/false)",
     "number": "Numeric input",
@@ -24,7 +24,7 @@
         "NAME":              { "type": "string", "default": "", "help": "Display name for the element" },
         "BOX_SIZE_XYZ":      { "type": "xyz", "default": [100, 100, 30], "help": "Box outer dimensions [x, y, z]. Omit to auto-calculate.", "contexts": ["BOX", "SPACER"] },
         "BOX_FEATURE":     { "type": "table_list", "child_context": "feature", "help": "List of compartment components", "contexts": ["BOX", "SPACER"] },
-        "BOX_GROUP":       { "type": "table_list", "child_context": "group", "help": "Grouped child features with local position and rotation", "contexts": ["BOX", "SPACER"] },
+        "FEATURE_GROUP":   { "type": "table_list", "child_context": "group", "help": "Grouped child features with local position and rotation", "contexts": ["BOX", "SPACER"] },
         "BOX_LID":           { "type": "table", "child_context": "lid", "help": "Lid parameters", "contexts": ["BOX"] },
         "BOX_VISUALIZATION": { "type": "table", "child_context": "visualization", "help": "Placement overrides for assembled visualization mode", "contexts": ["BOX", "SPACER"] },
         "BOX_NO_LID_B":      { "type": "bool", "default": false, "help": "If true, no lid is generated", "contexts": ["BOX"] },
@@ -65,20 +65,20 @@
         "DEBUG_B":                   { "type": "bool", "default": false, "help": "If true, feature geometry is rendered with # debug modifier (transparent red)" },
         "FTR_DIVIDERS":              { "type": "table", "child_context": "feature_divider", "help": "Generated divider panels and matching rail grooves inside this feature" },
         "BOX_FEATURE":               { "type": "table_list", "child_context": "feature", "help": "Nested child feature inside this component" },
-        "BOX_GROUP":                 { "type": "table_list", "child_context": "group", "help": "Nested child feature group inside this component" },
+        "FEATURE_GROUP":             { "type": "table_list", "child_context": "group", "help": "Nested child feature group inside this component" },
         "LABEL":                     { "type": "table", "child_context": "label", "help": "Component-level label" },
         "ROTATION":                  { "type": "number", "default": 0, "step": 5, "help": "Rotation in degrees" },
         "POSITION_XY":               { "type": "position_xy", "default": ["CENTER", "CENTER"], "help": "Position [x, y]. Accepts numbers, CENTER, or MAX." }
       }
     },
     "group": {
-      "description": "Feature group (inside BOX_GROUP)",
+      "description": "Feature group (inside FEATURE_GROUP)",
       "keys": {
         "NAME":                      { "type": "string", "default": "", "help": "Display name for the feature group" },
         "ENABLED_B":                 { "type": "bool", "default": true, "help": "If false, group is skipped" },
         "DEBUG_B":                   { "type": "bool", "default": false, "help": "If true, group geometry is rendered with # debug modifier (transparent red)" },
         "BOX_FEATURE":               { "type": "table_list", "child_context": "feature", "help": "Child feature inside this group" },
-        "BOX_GROUP":                 { "type": "table_list", "child_context": "group", "help": "Nested child feature group" },
+        "FEATURE_GROUP":             { "type": "table_list", "child_context": "group", "help": "Nested child feature group" },
         "ROTATION":                  { "type": "number", "default": 0, "step": 5, "help": "Group rotation in degrees" },
         "POSITION_XY":               { "type": "xy", "default": [0, 0], "help": "Group position [x, y] in parent-local mm" }
       }

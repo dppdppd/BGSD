@@ -84,19 +84,19 @@ Make(data);`;
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "DIV_RAIL_SIZE_XYZ")?.kvValue).toEqual([1, 1.5, 15]);
   });
 
-  it("parses BIT 4.6.1 feature groups and nested child features", () => {
+  it("parses BIT 4.7.0 feature groups and nested child features", () => {
     const scad = `// BGSD
-include <../lib/boardgame_insert_toolkit_lib.4.6.1.scad>;
+include <../lib/boardgame_insert_toolkit_lib.4.7.0.scad>;
 data = [
     [ OBJECT_BOX, [
         [ NAME, "box 1" ],
-        [ BOX_GROUP,
+        [ FEATURE_GROUP,
             [ NAME, "left bank" ],
             [ POSITION_XY, [2, 3] ],
             [ BOX_FEATURE,
                 [ FTR_COMPARTMENT_SIZE_XYZ, [20, 20, 10] ],
             ],
-            [ BOX_GROUP,
+            [ FEATURE_GROUP,
                 [ NAME, "nested" ],
             ],
         ],
@@ -110,6 +110,24 @@ Make(data);`;
     expect(project.lines.some((l) => l.kind === "open" && l.role === "feature_list")).toBe(true);
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "POSITION_XY")?.kvValue).toEqual([2, 3]);
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "FTR_COMPARTMENT_SIZE_XYZ")?.kvValue).toEqual([20, 20, 10]);
+  });
+
+  it("still parses legacy BIT 4.6.1 BOX_GROUP files", () => {
+    const scad = `// BGSD
+include <../lib/boardgame_insert_toolkit_lib.4.6.1.scad>;
+data = [
+    [ OBJECT_BOX, [
+        [ BOX_GROUP,
+            [ NAME, "legacy group" ],
+        ],
+    ]],
+];
+Make(data);`;
+    const project = importScad(scad);
+    expect(project.libraryProfile).toBe("bit");
+    const group = project.lines.find((l) => l.kind === "open" && l.role === "box_group");
+    expect(group?.label).toBe("BOX_GROUP");
+    expect(project.lines.some((l) => l.kind === "close" && l.role === "box_group")).toBe(true);
   });
 
   it("does not keep removed BIT 4.2 divider keys structured", () => {

@@ -121,7 +121,7 @@
   }
   let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
   let favoriteKeys = $state<Set<string>>(new Set());
-  const FAVORITE_KEYS_VERSION = 7;
+  const FAVORITE_KEYS_VERSION = 8;
   const FAVORITE_KEYS_ADDED_IN_V2 = ["LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH"];
   const FAVORITE_KEYS_ADDED_IN_V3 = [
     "FTR_DIVIDERS", "DIV_AXIS", "DIV_OUTPUT_ONLY_B",
@@ -130,17 +130,17 @@
     "DIV_LAYOUT_BAYS", "DIV_LAYOUT_BAY_SIZE", "DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B",
   ];
   const FAVORITE_KEYS_ADDED_IN_V5 = ["FTR_SHAPE_AXIS"];
-  const FAVORITE_KEYS_ADDED_IN_V7 = ["BOX_GROUP"];
+  const FAVORITE_KEYS_ADDED_IN_V8 = ["FEATURE_GROUP"];
   // Pull DIVIDERS-related globals out of every user's favorites — they
   // were seeded by mistake and clutter the default-mode picker.
   const REMOVED_FAVORITE_KEYS = [
     "DIV_NUM_DIVIDERS", "DIV_SLOT_DEPTH", "DIV_RAILS_B", "FTR_SHAPE_ROTATED_B",
-    "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_VALIDATE_PHYSICAL_B",
+    "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_VALIDATE_PHYSICAL_B", "BOX_GROUP",
   ];
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
   // and docs/guidance/CTD-PARAMETERS.md (3+ designs). Seeded on first run.
   const DEFAULT_FAVORITE_KEYS = [
-    "NAME", "BOX_SIZE_XYZ", "BOX_GROUP", "ENABLED_B",
+    "NAME", "BOX_SIZE_XYZ", "FEATURE_GROUP", "ENABLED_B",
     "FTR_COMPARTMENT_SIZE_XYZ", "FTR_NUM_COMPARTMENTS_XY", "FTR_SHAPE",
     "FTR_SHAPE_VERTICAL_B", "FTR_SHAPE_AXIS",
     "FTR_PADDING_XY", "FTR_PADDING_HEIGHT_ADJUST_XY",
@@ -223,7 +223,7 @@
   let diagnosticsIssues = $state<OpenScadIssue[]>([]);
   let diagnosticsOpen = $state(false);
   // BIT structured validation switch — when off, the toolbar's validation
-  // pill grays out to signal BIT checks are disabled. BIT 4.6.1 folds
+  // pill grays out to signal BIT checks are disabled. BIT 4.6.1+ folds
   // physical warnings into G_VALIDATE_KEYS_B.
   let bitValidationOn = $derived.by(() => {
     for (const line of $project.lines) {
@@ -973,8 +973,8 @@
       if (favoriteVersion < 5) {
         for (const key of FAVORITE_KEYS_ADDED_IN_V5) migrated.add(key);
       }
-      if (favoriteVersion < 7) {
-        for (const key of FAVORITE_KEYS_ADDED_IN_V7) migrated.add(key);
+      if (favoriteVersion < 8) {
+        for (const key of FAVORITE_KEYS_ADDED_IN_V8) migrated.add(key);
       }
       for (const key of REMOVED_FAVORITE_KEYS) {
         if (migrated.delete(key)) changedFavorites = true;
@@ -2079,7 +2079,7 @@
       // Non-merged FTR_DIVIDERS close: children are direct kv pairs
       ctx = "feature_divider";
     } else if (role === "box_group" && !line.mergedClose) {
-      // Non-merged BOX_GROUP close: children are direct kv pairs / child blocks
+      // Non-merged FEATURE_GROUP close: children are direct kv pairs / child blocks
       ctx = "group";
     } else if (role === "visualization" && !line.mergedClose) {
       // Non-merged BOX_VISUALIZATION close: children are direct kv pairs
@@ -2310,7 +2310,7 @@
     if (line.role === "params") return { text: "object params", inferred: true };
     if (line.role === "feature_list") return { text: label(line.label || "BOX_FEATURE") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "feature") return { text: "feature list", inferred: true };
-    if (line.role === "box_group") return { text: label(line.label || "BOX_GROUP") + nameSuffix(lineIndex), inferred: false };
+    if (line.role === "box_group") return { text: label(line.label || "FEATURE_GROUP") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "group_params") return { text: "group params", inferred: true };
     if (line.role === "feature_dividers") return { text: label(line.label || "FTR_DIVIDERS") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "feature_divider_params") return { text: "feature divider params", inferred: true };
@@ -2493,20 +2493,20 @@
     });
   }
 
-  /** Insert a BOX_GROUP block before `closeIndex` with one starter child feature. */
+  /** Insert a FEATURE_GROUP block before `closeIndex` with one starter child feature. */
   function addGroup(closeIndex: number, depth: number) {
     const d = depth;
     const ind = (n: number) => "    ".repeat(n);
     const count = $project.lines.filter(l => l.kind === "open" && l.role === "box_group").length;
     const name = `group ${count + 1}`;
     const lines: Line[] = [
-      { raw: `${ind(d)}[ BOX_GROUP,`, kind: "open", depth: d, role: "box_group", label: "BOX_GROUP" },
+      { raw: `${ind(d)}[ FEATURE_GROUP,`, kind: "open", depth: d, role: "box_group", label: "FEATURE_GROUP" },
       { raw: `${ind(d+1)}[ NAME, "${name}" ],`, kind: "kv", depth: d + 1, kvKey: "NAME", kvValue: name },
       { raw: `${ind(d+1)}[ POSITION_XY, [0, 0] ],`, kind: "kv", depth: d + 1, kvKey: "POSITION_XY", kvValue: [0, 0] },
       { raw: `${ind(d+1)}[ BOX_FEATURE,`, kind: "open", depth: d + 1, role: "feature_list", label: "BOX_FEATURE" },
       { raw: `${ind(d+2)}[ FTR_COMPARTMENT_SIZE_XYZ, [40, 40, 15] ],`, kind: "kv", depth: d + 2, kvKey: "FTR_COMPARTMENT_SIZE_XYZ", kvValue: [40, 40, 15] },
       { raw: `${ind(d+1)}],`, kind: "close", depth: d + 1, role: "feature_list", label: "BOX_FEATURE" },
-      { raw: `${ind(d)}],`, kind: "close", depth: d, role: "box_group", label: "BOX_GROUP" },
+      { raw: `${ind(d)}],`, kind: "close", depth: d, role: "box_group", label: "FEATURE_GROUP" },
     ];
     project.update((p) => {
       p.lines.splice(closeIndex, 0, ...lines);
@@ -3199,7 +3199,7 @@
             {:else if line.role === "params"}
               <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, (line.depth ?? 0) + 1)}>+ Label</button>
               <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, (line.depth ?? 0) + 1)}>+ Feature</button>
-              <button class="add-btn" title="Add BOX_GROUP block" onclick={() => addGroup(i, (line.depth ?? 0) + 1)}>+ Group</button>
+              <button class="add-btn" title="Add FEATURE_GROUP block" onclick={() => addGroup(i, (line.depth ?? 0) + 1)}>+ Group</button>
               {#if !hasChildBlock(i, "visualization")}
                 <button class="add-btn" title="Add BOX_VISUALIZATION block" onclick={() => addVisualization(i, (line.depth ?? 0) + 1)}>+ Visualization</button>
               {/if}
@@ -3207,7 +3207,7 @@
               {@const childDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, childDepth)}>+ Label</button>
               <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, childDepth)}>+ Feature</button>
-              <button class="add-btn" title="Add BOX_GROUP block" onclick={() => addGroup(i, childDepth)}>+ Group</button>
+              <button class="add-btn" title="Add FEATURE_GROUP block" onclick={() => addGroup(i, childDepth)}>+ Group</button>
               {#if !hasChildBlock(i, "visualization")}
                 <button class="add-btn" title="Add BOX_VISUALIZATION block" onclick={() => addVisualization(i, childDepth)}>+ Visualization</button>
               {/if}
@@ -3218,11 +3218,11 @@
                 <button class="add-btn" title="Add FTR_DIVIDERS block" onclick={() => addFeatureDividers(i, featureChildDepth)}>+ Dividers</button>
               {/if}
               <button class="add-btn" title="Add nested BOX_FEATURE block" onclick={() => addFeatureList(i, featureChildDepth)}>+ Feature</button>
-              <button class="add-btn" title="Add nested BOX_GROUP block" onclick={() => addGroup(i, featureChildDepth)}>+ Group</button>
+              <button class="add-btn" title="Add nested FEATURE_GROUP block" onclick={() => addGroup(i, featureChildDepth)}>+ Group</button>
             {:else if line.role === "box_group" || line.role === "group_params"}
               {@const groupChildDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add BOX_FEATURE block inside group" onclick={() => addFeatureList(i, groupChildDepth)}>+ Feature</button>
-              <button class="add-btn" title="Add nested BOX_GROUP block" onclick={() => addGroup(i, groupChildDepth)}>+ Group</button>
+              <button class="add-btn" title="Add nested FEATURE_GROUP block" onclick={() => addGroup(i, groupChildDepth)}>+ Group</button>
             {:else if line.role === "lid" || line.role === "lid_params"}
               {@const lidChildDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add LABEL block inside lid" onclick={() => addLabel(i, lidChildDepth)}>+ Label</button>

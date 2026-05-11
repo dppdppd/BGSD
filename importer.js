@@ -207,7 +207,7 @@ function collapseMultilineValues(text) {
 // on their own lines, and commas fixed).
 
 const FORMAT_STRUCTURAL_KEYS_BY_PROFILE = {
-  bit: new Set(["BOX_FEATURE", "BOX_GROUP", "BOX_LID", "BOX_VISUALIZATION", "LABEL", "FTR_DIVIDERS"]),
+  bit: new Set(["BOX_FEATURE", "FEATURE_GROUP", "BOX_GROUP", "BOX_LID", "BOX_VISUALIZATION", "LABEL", "FTR_DIVIDERS"]),
   ctd: new Set(["COUNTER_SET"]),
 };
 // Merged set for profile-unaware contexts
@@ -215,7 +215,7 @@ const FORMAT_STRUCTURAL_KEYS = new Set([...FORMAT_STRUCTURAL_KEYS_BY_PROFILE.bit
 
 function structuralRoleForKey(key) {
   if (key === "BOX_FEATURE") return "feature_list";
-  if (key === "BOX_GROUP") return "box_group";
+  if (key === "FEATURE_GROUP" || key === "BOX_GROUP") return "box_group";
   if (key === "BOX_LID") return "lid";
   if (key === "BOX_VISUALIZATION") return "visualization";
   if (key === "LABEL") return "label";

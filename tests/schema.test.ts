@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import bitSchema from "../schema/bit.schema.json";
 
 describe("BIT schema", () => {
-  it("tracks BIT 4.6.1 groups, lid, divider, shape-axis, and validation options", () => {
-    expect(bitSchema.version).toBe("4.6.1");
+  it("tracks BIT 4.7.0 groups, lid, divider, shape-axis, and validation options", () => {
+    expect(bitSchema.version).toBe("4.7.0");
 
     const elementKeys = bitSchema.contexts.element.keys;
     const lidKeys = bitSchema.contexts.lid.keys;
@@ -14,10 +14,11 @@ describe("BIT schema", () => {
     const dividerKeys = bitSchema.contexts.divider.keys;
     const globals = bitSchema.globals;
 
-    expect(elementKeys.BOX_GROUP).toMatchObject({
+    expect(elementKeys.FEATURE_GROUP).toMatchObject({
       type: "table_list",
       child_context: "group",
     });
+    expect(elementKeys.BOX_GROUP).toBeUndefined();
     expect(elementKeys.BOX_VISUALIZATION).toMatchObject({
       type: "table",
       child_context: "visualization",
@@ -49,10 +50,11 @@ describe("BIT schema", () => {
       type: "table_list",
       child_context: "feature",
     });
-    expect(featureKeys.BOX_GROUP).toMatchObject({
+    expect(featureKeys.FEATURE_GROUP).toMatchObject({
       type: "table_list",
       child_context: "group",
     });
+    expect(featureKeys.BOX_GROUP).toBeUndefined();
     expect(featureKeys.FTR_SHAPE_AXIS).toMatchObject({
       type: "enum",
       values: ["X", "Y"],
@@ -63,10 +65,11 @@ describe("BIT schema", () => {
       type: "table_list",
       child_context: "feature",
     });
-    expect(groupKeys.BOX_GROUP).toMatchObject({
+    expect(groupKeys.FEATURE_GROUP).toMatchObject({
       type: "table_list",
       child_context: "group",
     });
+    expect(groupKeys.BOX_GROUP).toBeUndefined();
     expect(groupKeys.POSITION_XY).toMatchObject({
       type: "xy",
       default: [0, 0],
