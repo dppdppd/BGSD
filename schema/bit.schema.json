@@ -1,5 +1,5 @@
 {
-  "version": "4.7.0",
+  "version": "4.8.0",
   "types": {
     "bool": "Checkbox (true/false)",
     "number": "Numeric input",
@@ -25,6 +25,7 @@
         "BOX_SIZE_XYZ":      { "type": "xyz", "default": [100, 100, 30], "help": "Box outer dimensions [x, y, z]. Omit to auto-calculate.", "contexts": ["BOX", "SPACER"] },
         "BOX_FEATURE":     { "type": "table_list", "child_context": "feature", "help": "List of compartment components", "contexts": ["BOX", "SPACER"] },
         "FEATURE_GROUP":   { "type": "table_list", "child_context": "group", "help": "Grouped child features with local position and rotation", "contexts": ["BOX", "SPACER"] },
+        "FEATURE_COPY":    { "type": "table_list", "child_context": "copy", "help": "Repeat a named feature or feature group with local position and rotation", "contexts": ["BOX", "SPACER"] },
         "BOX_LID":           { "type": "table", "child_context": "lid", "help": "Lid parameters", "contexts": ["BOX"] },
         "BOX_VISUALIZATION": { "type": "table", "child_context": "visualization", "help": "Placement overrides for assembled visualization mode", "contexts": ["BOX", "SPACER"] },
         "BOX_NO_LID_B":      { "type": "bool", "default": false, "help": "If true, no lid is generated", "contexts": ["BOX"] },
@@ -66,6 +67,7 @@
         "FTR_DIVIDERS":              { "type": "table", "child_context": "feature_divider", "help": "Generated divider panels and matching rail grooves inside this feature" },
         "BOX_FEATURE":               { "type": "table_list", "child_context": "feature", "help": "Nested child feature inside this component" },
         "FEATURE_GROUP":             { "type": "table_list", "child_context": "group", "help": "Nested child feature group inside this component" },
+        "FEATURE_COPY":              { "type": "table_list", "child_context": "copy", "help": "Repeat a named feature or feature group inside this component" },
         "LABEL":                     { "type": "table", "child_context": "label", "help": "Component-level label" },
         "ROTATION":                  { "type": "number", "default": 0, "step": 5, "help": "Rotation in degrees" },
         "POSITION_XY":               { "type": "position_xy", "default": ["CENTER", "CENTER"], "help": "Position [x, y]. Accepts numbers, CENTER, or MAX." }
@@ -79,8 +81,20 @@
         "DEBUG_B":                   { "type": "bool", "default": false, "help": "If true, group geometry is rendered with # debug modifier (transparent red)" },
         "BOX_FEATURE":               { "type": "table_list", "child_context": "feature", "help": "Child feature inside this group" },
         "FEATURE_GROUP":             { "type": "table_list", "child_context": "group", "help": "Nested child feature group" },
+        "FEATURE_COPY":              { "type": "table_list", "child_context": "copy", "help": "Repeat a named feature or feature group inside this group" },
         "ROTATION":                  { "type": "number", "default": 0, "step": 5, "help": "Group rotation in degrees" },
         "POSITION_XY":               { "type": "xy", "default": [0, 0], "help": "Group position [x, y] in parent-local mm" }
+      }
+    },
+    "copy": {
+      "description": "Feature copy (inside FEATURE_COPY)",
+      "keys": {
+        "NAME":                      { "type": "string", "default": "", "help": "Display name for this feature copy" },
+        "ENABLED_B":                 { "type": "bool", "default": true, "help": "If false, copy is skipped" },
+        "DEBUG_B":                   { "type": "bool", "default": false, "help": "If true, copied geometry is rendered with # debug modifier (transparent red)" },
+        "FEATURE_REFERENCE":         { "type": "string", "default": "", "help": "NAME of the BOX_FEATURE or FEATURE_GROUP to repeat" },
+        "ROTATION":                  { "type": "number", "default": 0, "step": 5, "help": "Copy rotation in degrees" },
+        "POSITION_XY":               { "type": "xy", "default": [0, 0], "help": "Copy position [x, y] in parent-local mm" }
       }
     },
     "feature_divider": {

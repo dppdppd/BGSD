@@ -207,7 +207,7 @@ function collapseMultilineValues(text) {
 // on their own lines, and commas fixed).
 
 const FORMAT_STRUCTURAL_KEYS_BY_PROFILE = {
-  bit: new Set(["BOX_FEATURE", "FEATURE_GROUP", "BOX_GROUP", "BOX_LID", "BOX_VISUALIZATION", "LABEL", "FTR_DIVIDERS"]),
+  bit: new Set(["BOX_FEATURE", "FEATURE_GROUP", "FEATURE_COPY", "BOX_GROUP", "BOX_LID", "BOX_VISUALIZATION", "LABEL", "FTR_DIVIDERS"]),
   ctd: new Set(["COUNTER_SET"]),
 };
 // Merged set for profile-unaware contexts
@@ -216,6 +216,7 @@ const FORMAT_STRUCTURAL_KEYS = new Set([...FORMAT_STRUCTURAL_KEYS_BY_PROFILE.bit
 function structuralRoleForKey(key) {
   if (key === "BOX_FEATURE") return "feature_list";
   if (key === "FEATURE_GROUP" || key === "BOX_GROUP") return "box_group";
+  if (key === "FEATURE_COPY") return "feature_copy";
   if (key === "BOX_LID") return "lid";
   if (key === "BOX_VISUALIZATION") return "visualization";
   if (key === "LABEL") return "label";
@@ -227,6 +228,7 @@ function structuralRoleForKey(key) {
 function childRoleForStructuralRole(role) {
   if (role === "feature_list") return "feature";
   if (role === "box_group") return "group_params";
+  if (role === "feature_copy") return "copy_params";
   if (role === "lid") return "lid_params";
   if (role === "visualization") return "visualization_params";
   if (role === "label") return "label_params";
@@ -1284,6 +1286,7 @@ function importScad(scadText) {
       if (parent?.role === "object") { role = "params"; label = "element params"; }
       else if (parent?.role === "feature_list") { role = "feature"; label = "feature list"; }
       else if (parent?.role === "box_group") { role = "group_params"; label = "group params"; }
+      else if (parent?.role === "feature_copy") { role = "copy_params"; label = "copy params"; }
       else if (parent?.role === "lid") { role = "lid_params"; label = "lid params"; }
       else if (parent?.role === "visualization") { role = "visualization_params"; label = "visualization params"; }
       else if (parent?.role === "label") { role = "label_params"; label = "label params"; }
@@ -1586,6 +1589,7 @@ function reimportBlock(text, baseDepth) {
       if (parent?.role === "object") { role = "params"; label = "element params"; }
       else if (parent?.role === "feature_list") { role = "feature"; label = "feature list"; }
       else if (parent?.role === "box_group") { role = "group_params"; label = "group params"; }
+      else if (parent?.role === "feature_copy") { role = "copy_params"; label = "copy params"; }
       else if (parent?.role === "lid") { role = "lid_params"; label = "lid params"; }
       else if (parent?.role === "visualization") { role = "visualization_params"; label = "visualization params"; }
       else if (parent?.role === "label") { role = "label_params"; label = "label params"; }

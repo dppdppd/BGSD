@@ -4,5 +4,5 @@ intent "Latest BIT exposes the sliding lid detent lock angle control and uses th
 click view-menu-button
 click view-defaults-all
 js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
-shot bit470_lid_detent
+shot bit480_lid_detent
 js (() => { const body = document.body.textContent || ""; if (!body.includes("Detent Lock Angle")) throw new Error("missing LID_DETENT_LOCK_ANGLE control"); return "BIT lid detent control visible"; })()

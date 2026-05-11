@@ -3,6 +3,8 @@
   "BOX_SIZE_XYZ":      { "label": "Box Size",         "tooltip": "Box outer dimensions [width, depth, height] in mm. Note: inset-lid boxes are taller by 2x wall thickness." },
   "BOX_FEATURE":       { "label": "Feature",          "tooltip": "Feature — defines one set of compartments inside the box" },
   "FEATURE_GROUP":     { "label": "Group",            "tooltip": "Group — positions and rotates child features together in a local coordinate system" },
+  "FEATURE_COPY":      { "label": "Copy",             "tooltip": "Copy — repeats a named feature or group with its own position and rotation" },
+  "FEATURE_REFERENCE": { "label": "Reference",        "tooltip": "Name of the feature or group to repeat" },
   "BOX_GROUP":         { "label": "Group",            "tooltip": "Legacy group key from BIT 4.6.1; new designs use FEATURE_GROUP" },
   "BOX_VISUALIZATION": { "label": "Visualization",    "tooltip": "Placement override used when assembled visualization mode is enabled" },
   "TRAY":              { "label": "Tray",             "tooltip": "Tray — one physical tray in the counter tray set" },

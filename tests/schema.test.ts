@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import bitSchema from "../schema/bit.schema.json";
 
 describe("BIT schema", () => {
-  it("tracks BIT 4.7.0 groups, lid, divider, shape-axis, and validation options", () => {
-    expect(bitSchema.version).toBe("4.7.0");
+  it("tracks BIT 4.8.0 feature groups/copies, lid, divider, shape-axis, and validation options", () => {
+    expect(bitSchema.version).toBe("4.8.0");
 
     const elementKeys = bitSchema.contexts.element.keys;
     const lidKeys = bitSchema.contexts.lid.keys;
@@ -17,6 +17,10 @@ describe("BIT schema", () => {
     expect(elementKeys.FEATURE_GROUP).toMatchObject({
       type: "table_list",
       child_context: "group",
+    });
+    expect(elementKeys.FEATURE_COPY).toMatchObject({
+      type: "table_list",
+      child_context: "copy",
     });
     expect(elementKeys.BOX_GROUP).toBeUndefined();
     expect(elementKeys.BOX_VISUALIZATION).toMatchObject({
@@ -54,6 +58,10 @@ describe("BIT schema", () => {
       type: "table_list",
       child_context: "group",
     });
+    expect(featureKeys.FEATURE_COPY).toMatchObject({
+      type: "table_list",
+      child_context: "copy",
+    });
     expect(featureKeys.BOX_GROUP).toBeUndefined();
     expect(featureKeys.FTR_SHAPE_AXIS).toMatchObject({
       type: "enum",
@@ -69,7 +77,15 @@ describe("BIT schema", () => {
       type: "table_list",
       child_context: "group",
     });
+    expect(groupKeys.FEATURE_COPY).toMatchObject({
+      type: "table_list",
+      child_context: "copy",
+    });
     expect(groupKeys.BOX_GROUP).toBeUndefined();
+    expect(bitSchema.contexts.copy.keys.FEATURE_REFERENCE).toMatchObject({
+      type: "string",
+      default: "",
+    });
     expect(groupKeys.POSITION_XY).toMatchObject({
       type: "xy",
       default: [0, 0],

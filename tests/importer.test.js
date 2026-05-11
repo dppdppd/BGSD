@@ -84,9 +84,9 @@ Make(data);`;
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "DIV_RAIL_SIZE_XYZ")?.kvValue).toEqual([1, 1.5, 15]);
   });
 
-  it("parses BIT 4.7.0 feature groups and nested child features", () => {
+  it("parses BIT 4.8.0 feature groups, copies, and nested child features", () => {
     const scad = `// BGSD
-include <../lib/boardgame_insert_toolkit_lib.4.7.0.scad>;
+include <../lib/boardgame_insert_toolkit_lib.4.8.0.scad>;
 data = [
     [ OBJECT_BOX, [
         [ NAME, "box 1" ],
@@ -99,6 +99,11 @@ data = [
             [ FEATURE_GROUP,
                 [ NAME, "nested" ],
             ],
+            [ FEATURE_COPY,
+                [ NAME, "copy 1" ],
+                [ FEATURE_REFERENCE, "nested" ],
+                [ POSITION_XY, [5, 6] ],
+            ],
         ],
     ]],
 ];
@@ -106,9 +111,12 @@ Make(data);`;
     const project = importScad(scad);
     expect(project.libraryProfile).toBe("bit");
     expect(project.lines.filter((l) => l.kind === "open" && l.role === "box_group")).toHaveLength(2);
+    expect(project.lines.filter((l) => l.kind === "open" && l.role === "feature_copy")).toHaveLength(1);
     expect(project.lines.some((l) => l.kind === "close" && l.role === "box_group")).toBe(true);
+    expect(project.lines.some((l) => l.kind === "close" && l.role === "feature_copy")).toBe(true);
     expect(project.lines.some((l) => l.kind === "open" && l.role === "feature_list")).toBe(true);
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "POSITION_XY")?.kvValue).toEqual([2, 3]);
+    expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "FEATURE_REFERENCE")?.kvValue).toBe("nested");
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "FTR_COMPARTMENT_SIZE_XYZ")?.kvValue).toEqual([20, 20, 10]);
   });
 

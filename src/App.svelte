@@ -121,7 +121,7 @@
   }
   let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
   let favoriteKeys = $state<Set<string>>(new Set());
-  const FAVORITE_KEYS_VERSION = 8;
+  const FAVORITE_KEYS_VERSION = 9;
   const FAVORITE_KEYS_ADDED_IN_V2 = ["LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH"];
   const FAVORITE_KEYS_ADDED_IN_V3 = [
     "FTR_DIVIDERS", "DIV_AXIS", "DIV_OUTPUT_ONLY_B",
@@ -131,6 +131,7 @@
   ];
   const FAVORITE_KEYS_ADDED_IN_V5 = ["FTR_SHAPE_AXIS"];
   const FAVORITE_KEYS_ADDED_IN_V8 = ["FEATURE_GROUP"];
+  const FAVORITE_KEYS_ADDED_IN_V9 = ["FEATURE_COPY", "FEATURE_REFERENCE"];
   // Pull DIVIDERS-related globals out of every user's favorites — they
   // were seeded by mistake and clutter the default-mode picker.
   const REMOVED_FAVORITE_KEYS = [
@@ -140,7 +141,7 @@
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
   // and docs/guidance/CTD-PARAMETERS.md (3+ designs). Seeded on first run.
   const DEFAULT_FAVORITE_KEYS = [
-    "NAME", "BOX_SIZE_XYZ", "FEATURE_GROUP", "ENABLED_B",
+    "NAME", "BOX_SIZE_XYZ", "FEATURE_GROUP", "FEATURE_COPY", "FEATURE_REFERENCE", "ENABLED_B",
     "FTR_COMPARTMENT_SIZE_XYZ", "FTR_NUM_COMPARTMENTS_XY", "FTR_SHAPE",
     "FTR_SHAPE_VERTICAL_B", "FTR_SHAPE_AXIS",
     "FTR_PADDING_XY", "FTR_PADDING_HEIGHT_ADJUST_XY",
@@ -975,6 +976,9 @@
       }
       if (favoriteVersion < 8) {
         for (const key of FAVORITE_KEYS_ADDED_IN_V8) migrated.add(key);
+      }
+      if (favoriteVersion < 9) {
+        for (const key of FAVORITE_KEYS_ADDED_IN_V9) migrated.add(key);
       }
       for (const key of REMOVED_FAVORITE_KEYS) {
         if (migrated.delete(key)) changedFavorites = true;
@@ -2018,6 +2022,8 @@
     feature_list: "feature",
     box_group: "group",
     group_params: "group",
+    feature_copy: "copy",
+    copy_params: "copy",
     feature_divider_params: "feature_divider",
     visualization: "visualization",
     visualization_params: "visualization",
@@ -2031,6 +2037,7 @@
     object: "params",
     feature_list: "feature",
     box_group: "group_params",
+    feature_copy: "copy_params",
     feature_dividers: "feature_divider_params",
     visualization: "visualization_params",
     label: "label_params",
@@ -2081,6 +2088,9 @@
     } else if (role === "box_group" && !line.mergedClose) {
       // Non-merged FEATURE_GROUP close: children are direct kv pairs / child blocks
       ctx = "group";
+    } else if (role === "feature_copy" && !line.mergedClose) {
+      // Non-merged FEATURE_COPY close: children are direct kv pairs
+      ctx = "copy";
     } else if (role === "visualization" && !line.mergedClose) {
       // Non-merged BOX_VISUALIZATION close: children are direct kv pairs
       ctx = "visualization";
@@ -2312,6 +2322,8 @@
     if (line.role === "feature") return { text: "feature list", inferred: true };
     if (line.role === "box_group") return { text: label(line.label || "FEATURE_GROUP") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "group_params") return { text: "group params", inferred: true };
+    if (line.role === "feature_copy") return { text: label(line.label || "FEATURE_COPY") + nameSuffix(lineIndex), inferred: false };
+    if (line.role === "copy_params") return { text: "copy params", inferred: true };
     if (line.role === "feature_dividers") return { text: label(line.label || "FTR_DIVIDERS") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "feature_divider_params") return { text: "feature divider params", inferred: true };
     if (line.role === "visualization") return { text: label(line.label || "BOX_VISUALIZATION") + nameSuffix(lineIndex), inferred: false };
@@ -2507,6 +2519,25 @@
       { raw: `${ind(d+2)}[ FTR_COMPARTMENT_SIZE_XYZ, [40, 40, 15] ],`, kind: "kv", depth: d + 2, kvKey: "FTR_COMPARTMENT_SIZE_XYZ", kvValue: [40, 40, 15] },
       { raw: `${ind(d+1)}],`, kind: "close", depth: d + 1, role: "feature_list", label: "BOX_FEATURE" },
       { raw: `${ind(d)}],`, kind: "close", depth: d, role: "box_group", label: "FEATURE_GROUP" },
+    ];
+    project.update((p) => {
+      p.lines.splice(closeIndex, 0, ...lines);
+      return { ...p };
+    });
+  }
+
+  /** Insert a FEATURE_COPY block before `closeIndex`. */
+  function addCopy(closeIndex: number, depth: number) {
+    const d = depth;
+    const ind = (n: number) => "    ".repeat(n);
+    const count = $project.lines.filter(l => l.kind === "open" && l.role === "feature_copy").length;
+    const name = `copy ${count + 1}`;
+    const lines: Line[] = [
+      { raw: `${ind(d)}[ FEATURE_COPY,`, kind: "open", depth: d, role: "feature_copy", label: "FEATURE_COPY" },
+      { raw: `${ind(d+1)}[ NAME, "${name}" ],`, kind: "kv", depth: d + 1, kvKey: "NAME", kvValue: name },
+      { raw: `${ind(d+1)}[ FEATURE_REFERENCE, "" ],`, kind: "kv", depth: d + 1, kvKey: "FEATURE_REFERENCE", kvValue: "" },
+      { raw: `${ind(d+1)}[ POSITION_XY, [0, 0] ],`, kind: "kv", depth: d + 1, kvKey: "POSITION_XY", kvValue: [0, 0] },
+      { raw: `${ind(d)}],`, kind: "close", depth: d, role: "feature_copy", label: "FEATURE_COPY" },
     ];
     project.update((p) => {
       p.lines.splice(closeIndex, 0, ...lines);
@@ -2891,8 +2922,8 @@
         <!-- This global line is rendered in the virtual globals block above -->
 
       {:else if line.kind === "open"}
-        {@const collapsible = !["params", "label_params", "lid_params", "feature", "group_params", "feature_divider_params", "visualization_params", "counter_set_params"].includes(line.role || "")}
-        {@const deletable = line.role === "data" ? sceneNames.length > 1 : !["data_list", "params", "label_params", "lid_params", "feature", "group_params", "feature_divider_params", "visualization_params", "counter_set_params"].includes(line.role || "")}
+        {@const collapsible = !["params", "label_params", "lid_params", "feature", "group_params", "copy_params", "feature_divider_params", "visualization_params", "counter_set_params"].includes(line.role || "")}
+        {@const deletable = line.role === "data" ? sceneNames.length > 1 : !["data_list", "params", "label_params", "lid_params", "feature", "group_params", "copy_params", "feature_divider_params", "visualization_params", "counter_set_params"].includes(line.role || "")}
         <div class="line-row struct open" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           {#if collapsible}
             <button class="collapse-btn" title={collapsed.has(i) ? "Expand" : "Collapse"}
@@ -2911,7 +2942,7 @@
             <span class={structLabel(line, i).inferred ? "struct-label inferred" : "struct-label"}>{structLabel(line, i).text}</span>
           {/if}
           <span class="struct-bracket">{collapsed.has(i) ? "[ ... ]" : "["}</span>
-          {#if line.role === "object" || line.role === "feature_list" || line.role === "box_group" || line.role === "feature_dividers" || line.role === "lid" || line.role === "counter_set"}
+          {#if line.role === "object" || line.role === "feature_list" || line.role === "box_group" || line.role === "feature_copy" || line.role === "feature_dividers" || line.role === "lid" || line.role === "counter_set"}
             {@const dbg = getDebugState(i)}
             <button class="debug-toggle" class:active={dbg.active} title="Highlight in OpenSCAD (#)"
               aria-pressed={dbg.active} aria-label="Toggle debug highlight"
@@ -3200,6 +3231,7 @@
               <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, (line.depth ?? 0) + 1)}>+ Label</button>
               <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, (line.depth ?? 0) + 1)}>+ Feature</button>
               <button class="add-btn" title="Add FEATURE_GROUP block" onclick={() => addGroup(i, (line.depth ?? 0) + 1)}>+ Group</button>
+              <button class="add-btn" title="Add FEATURE_COPY block" onclick={() => addCopy(i, (line.depth ?? 0) + 1)}>+ Copy</button>
               {#if !hasChildBlock(i, "visualization")}
                 <button class="add-btn" title="Add BOX_VISUALIZATION block" onclick={() => addVisualization(i, (line.depth ?? 0) + 1)}>+ Visualization</button>
               {/if}
@@ -3208,6 +3240,7 @@
               <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, childDepth)}>+ Label</button>
               <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, childDepth)}>+ Feature</button>
               <button class="add-btn" title="Add FEATURE_GROUP block" onclick={() => addGroup(i, childDepth)}>+ Group</button>
+              <button class="add-btn" title="Add FEATURE_COPY block" onclick={() => addCopy(i, childDepth)}>+ Copy</button>
               {#if !hasChildBlock(i, "visualization")}
                 <button class="add-btn" title="Add BOX_VISUALIZATION block" onclick={() => addVisualization(i, childDepth)}>+ Visualization</button>
               {/if}
@@ -3219,10 +3252,12 @@
               {/if}
               <button class="add-btn" title="Add nested BOX_FEATURE block" onclick={() => addFeatureList(i, featureChildDepth)}>+ Feature</button>
               <button class="add-btn" title="Add nested FEATURE_GROUP block" onclick={() => addGroup(i, featureChildDepth)}>+ Group</button>
+              <button class="add-btn" title="Add FEATURE_COPY block inside feature" onclick={() => addCopy(i, featureChildDepth)}>+ Copy</button>
             {:else if line.role === "box_group" || line.role === "group_params"}
               {@const groupChildDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add BOX_FEATURE block inside group" onclick={() => addFeatureList(i, groupChildDepth)}>+ Feature</button>
               <button class="add-btn" title="Add nested FEATURE_GROUP block" onclick={() => addGroup(i, groupChildDepth)}>+ Group</button>
+              <button class="add-btn" title="Add FEATURE_COPY block inside group" onclick={() => addCopy(i, groupChildDepth)}>+ Copy</button>
             {:else if line.role === "lid" || line.role === "lid_params"}
               {@const lidChildDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add LABEL block inside lid" onclick={() => addLabel(i, lidChildDepth)}>+ Label</button>
