@@ -207,11 +207,33 @@ function collapseMultilineValues(text) {
 // on their own lines, and commas fixed).
 
 const FORMAT_STRUCTURAL_KEYS_BY_PROFILE = {
-  bit: new Set(["BOX_FEATURE", "BOX_LID", "LABEL", "FTR_DIVIDERS"]),
+  bit: new Set(["BOX_FEATURE", "BOX_GROUP", "BOX_LID", "BOX_VISUALIZATION", "LABEL", "FTR_DIVIDERS"]),
   ctd: new Set(["COUNTER_SET"]),
 };
 // Merged set for profile-unaware contexts
 const FORMAT_STRUCTURAL_KEYS = new Set([...FORMAT_STRUCTURAL_KEYS_BY_PROFILE.bit, ...FORMAT_STRUCTURAL_KEYS_BY_PROFILE.ctd]);
+
+function structuralRoleForKey(key) {
+  if (key === "BOX_FEATURE") return "feature_list";
+  if (key === "BOX_GROUP") return "box_group";
+  if (key === "BOX_LID") return "lid";
+  if (key === "BOX_VISUALIZATION") return "visualization";
+  if (key === "LABEL") return "label";
+  if (key === "FTR_DIVIDERS") return "feature_dividers";
+  if (key === "COUNTER_SET") return "counter_set";
+  return null;
+}
+
+function childRoleForStructuralRole(role) {
+  if (role === "feature_list") return "feature";
+  if (role === "box_group") return "group_params";
+  if (role === "lid") return "lid_params";
+  if (role === "visualization") return "visualization_params";
+  if (role === "label") return "label_params";
+  if (role === "feature_dividers") return "feature_divider_params";
+  if (role === "counter_set") return "counter_set_params";
+  return "list";
+}
 
 /** Detect profile by scanning raw text for include patterns. */
 function detectProfileFromText(text) {
@@ -1217,21 +1239,10 @@ function importScad(scadText) {
     const keyMergedMatch = raw.match(KEY_OPEN_MERGED_RE);
     if (keyMergedMatch) {
       const key = keyMergedMatch[1];
-      let role = null;
-      if (key === "BOX_FEATURE") role = "feature_list";
-      else if (key === "BOX_LID") role = "lid";
-      else if (key === "LABEL") role = "label";
-      else if (key === "FTR_DIVIDERS") role = "feature_dividers";
-      else if (key === "COUNTER_SET") role = "counter_set";
+      const role = structuralRoleForKey(key);
 
       if (role) {
-        // Determine child role
-        let childRole = "list";
-        if (role === "feature_list") { childRole = "feature"; }
-        else if (role === "lid") { childRole = "lid_params"; }
-        else if (role === "label") { childRole = "label_params"; }
-        else if (role === "feature_dividers") { childRole = "feature_divider_params"; }
-        else if (role === "counter_set") { childRole = "counter_set_params"; }
+        const childRole = childRoleForStructuralRole(role);
 
         lines.push({ raw, kind: "open", depth, role, label: key, mergedOpen: true });
         stack.push({ role, label: key });
@@ -1250,12 +1261,7 @@ function importScad(scadText) {
     const keyOpenMatch = raw.match(KEY_OPEN_RE);
     if (keyOpenMatch) {
       const key = keyOpenMatch[1];
-      let role = null;
-      if (key === "BOX_FEATURE") role = "feature_list";
-      else if (key === "BOX_LID") role = "lid";
-      else if (key === "LABEL") role = "label";
-      else if (key === "FTR_DIVIDERS") role = "feature_dividers";
-      else if (key === "COUNTER_SET") role = "counter_set";
+      const role = structuralRoleForKey(key);
 
       if (role) {
         lines.push({ raw, kind: "open", depth, role, label: key });
@@ -1277,7 +1283,9 @@ function importScad(scadText) {
       let label = "[";
       if (parent?.role === "object") { role = "params"; label = "element params"; }
       else if (parent?.role === "feature_list") { role = "feature"; label = "feature list"; }
+      else if (parent?.role === "box_group") { role = "group_params"; label = "group params"; }
       else if (parent?.role === "lid") { role = "lid_params"; label = "lid params"; }
+      else if (parent?.role === "visualization") { role = "visualization_params"; label = "visualization params"; }
       else if (parent?.role === "label") { role = "label_params"; label = "label params"; }
       else if (parent?.role === "feature_dividers") { role = "feature_divider_params"; label = "feature divider params"; }
       else if (parent?.role === "counter_set") { role = "counter_set_params"; label = "counter_set params"; }
@@ -1538,19 +1546,9 @@ function reimportBlock(text, baseDepth) {
     const keyMergedMatch = raw.match(KEY_OPEN_MERGED_RE);
     if (keyMergedMatch) {
       const key = keyMergedMatch[1];
-      let role = null;
-      if (key === "BOX_FEATURE") role = "feature_list";
-      else if (key === "BOX_LID") role = "lid";
-      else if (key === "LABEL") role = "label";
-      else if (key === "FTR_DIVIDERS") role = "feature_dividers";
-      else if (key === "COUNTER_SET") role = "counter_set";
+      const role = structuralRoleForKey(key);
       if (role) {
-        let childRole = "list";
-        if (role === "feature_list") { childRole = "feature"; }
-        else if (role === "lid") { childRole = "lid_params"; }
-        else if (role === "label") { childRole = "label_params"; }
-        else if (role === "feature_dividers") { childRole = "feature_divider_params"; }
-        else if (role === "counter_set") { childRole = "counter_set_params"; }
+        const childRole = childRoleForStructuralRole(role);
         lines.push({ raw, kind: "open", depth, role, label: key, mergedOpen: true });
         stack.push({ role, label: key });
         stack.push({ role: childRole, label: childRole });
@@ -1567,12 +1565,7 @@ function reimportBlock(text, baseDepth) {
     const keyOpenMatch = raw.match(KEY_OPEN_RE);
     if (keyOpenMatch) {
       const key = keyOpenMatch[1];
-      let role = null;
-      if (key === "BOX_FEATURE") role = "feature_list";
-      else if (key === "BOX_LID") role = "lid";
-      else if (key === "LABEL") role = "label";
-      else if (key === "FTR_DIVIDERS") role = "feature_dividers";
-      else if (key === "COUNTER_SET") role = "counter_set";
+      const role = structuralRoleForKey(key);
       if (role) {
         lines.push({ raw, kind: "open", depth, role, label: key });
         stack.push({ role, label: key });
@@ -1592,7 +1585,9 @@ function reimportBlock(text, baseDepth) {
       let label = "[";
       if (parent?.role === "object") { role = "params"; label = "element params"; }
       else if (parent?.role === "feature_list") { role = "feature"; label = "feature list"; }
+      else if (parent?.role === "box_group") { role = "group_params"; label = "group params"; }
       else if (parent?.role === "lid") { role = "lid_params"; label = "lid params"; }
+      else if (parent?.role === "visualization") { role = "visualization_params"; label = "visualization params"; }
       else if (parent?.role === "label") { role = "label_params"; label = "label params"; }
       else if (parent?.role === "feature_dividers") { role = "feature_divider_params"; label = "feature divider params"; }
       else if (parent?.role === "counter_set") { role = "counter_set_params"; label = "counter_set params"; }

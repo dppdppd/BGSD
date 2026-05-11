@@ -1,0 +1,11 @@
+wait app-root
+new bit
+click view-menu-button
+click view-defaults-all
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+shot before_group
+js (async () => { const btn = [...document.querySelectorAll('button.add-btn')].find((b) => b.title === 'Add BOX_GROUP block'); if (!btn) throw new Error('Add BOX_GROUP button not found'); btn.click(); await new Promise((r) => setTimeout(r, 200)); })()
+js (() => { const label = [...document.querySelectorAll('.line-row.struct.open .struct-label')].find((el) => /Group/.test(el.textContent || '')); if (!label) throw new Error('BOX_GROUP label not found after add'); label.scrollIntoView({ block: 'center' }); return label.textContent.trim(); })()
+shot group_added
+scad
+js (() => { const scad = document.querySelector('[data-testid="scad-output"]')?.textContent || ""; if (!scad.includes("boardgame_insert_toolkit_lib.4.6.1.scad")) throw new Error("new BIT project did not use 4.6.1"); if (!scad.includes("[ BOX_GROUP,")) throw new Error("missing BOX_GROUP block"); if (!scad.includes("[ BOX_FEATURE,")) throw new Error("missing starter child BOX_FEATURE"); return "BIT 4.6.1 group block emitted"; })()

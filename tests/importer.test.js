@@ -84,6 +84,34 @@ Make(data);`;
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "DIV_RAIL_SIZE_XYZ")?.kvValue).toEqual([1, 1.5, 15]);
   });
 
+  it("parses BIT 4.6.1 feature groups and nested child features", () => {
+    const scad = `// BGSD
+include <../lib/boardgame_insert_toolkit_lib.4.6.1.scad>;
+data = [
+    [ OBJECT_BOX, [
+        [ NAME, "box 1" ],
+        [ BOX_GROUP,
+            [ NAME, "left bank" ],
+            [ POSITION_XY, [2, 3] ],
+            [ BOX_FEATURE,
+                [ FTR_COMPARTMENT_SIZE_XYZ, [20, 20, 10] ],
+            ],
+            [ BOX_GROUP,
+                [ NAME, "nested" ],
+            ],
+        ],
+    ]],
+];
+Make(data);`;
+    const project = importScad(scad);
+    expect(project.libraryProfile).toBe("bit");
+    expect(project.lines.filter((l) => l.kind === "open" && l.role === "box_group")).toHaveLength(2);
+    expect(project.lines.some((l) => l.kind === "close" && l.role === "box_group")).toBe(true);
+    expect(project.lines.some((l) => l.kind === "open" && l.role === "feature_list")).toBe(true);
+    expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "POSITION_XY")?.kvValue).toEqual([2, 3]);
+    expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "FTR_COMPARTMENT_SIZE_XYZ")?.kvValue).toEqual([20, 20, 10]);
+  });
+
   it("does not keep removed BIT 4.2 divider keys structured", () => {
     const scad = `// BGSD
 include <../lib/boardgame_insert_toolkit_lib.4.2.0.scad>;

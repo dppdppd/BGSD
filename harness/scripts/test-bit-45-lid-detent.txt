@@ -1,8 +1,8 @@
 wait app-root
 new bit
-intent "BIT 4.5.0 exposes the sliding lid detent lock angle control and uses the synthesized versioned include."
+intent "BIT 4.6.1 exposes the sliding lid detent lock angle control and uses the synthesized versioned include."
 click view-menu-button
 click view-defaults-all
 js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
-shot bit45_lid_detent
-js (() => { const body = document.body.textContent || ""; if (!body.includes("Detent Lock Angle")) throw new Error("missing LID_DETENT_LOCK_ANGLE control"); return "BIT 4.5.0 lid detent control visible"; })()
+shot bit461_lid_detent
+js (() => { const body = document.body.textContent || ""; if (!body.includes("Detent Lock Angle")) throw new Error("missing LID_DETENT_LOCK_ANGLE control"); return "BIT 4.6.1 lid detent control visible"; })()

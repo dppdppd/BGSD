@@ -121,26 +121,26 @@
   }
   let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
   let favoriteKeys = $state<Set<string>>(new Set());
-  const FAVORITE_KEYS_VERSION = 6;
+  const FAVORITE_KEYS_VERSION = 7;
   const FAVORITE_KEYS_ADDED_IN_V2 = ["LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH"];
   const FAVORITE_KEYS_ADDED_IN_V3 = [
     "FTR_DIVIDERS", "DIV_AXIS", "DIV_OUTPUT_ONLY_B",
-    "G_VALIDATE_PHYSICAL_B",
   ];
   const FAVORITE_KEYS_ADDED_IN_V4 = [
     "DIV_LAYOUT_BAYS", "DIV_LAYOUT_BAY_SIZE", "DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B",
   ];
   const FAVORITE_KEYS_ADDED_IN_V5 = ["FTR_SHAPE_AXIS"];
+  const FAVORITE_KEYS_ADDED_IN_V7 = ["BOX_GROUP"];
   // Pull DIVIDERS-related globals out of every user's favorites — they
   // were seeded by mistake and clutter the default-mode picker.
   const REMOVED_FAVORITE_KEYS = [
     "DIV_NUM_DIVIDERS", "DIV_SLOT_DEPTH", "DIV_RAILS_B", "FTR_SHAPE_ROTATED_B",
-    "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B",
+    "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_VALIDATE_PHYSICAL_B",
   ];
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
   // and docs/guidance/CTD-PARAMETERS.md (3+ designs). Seeded on first run.
   const DEFAULT_FAVORITE_KEYS = [
-    "NAME", "BOX_SIZE_XYZ", "ENABLED_B",
+    "NAME", "BOX_SIZE_XYZ", "BOX_GROUP", "ENABLED_B",
     "FTR_COMPARTMENT_SIZE_XYZ", "FTR_NUM_COMPARTMENTS_XY", "FTR_SHAPE",
     "FTR_SHAPE_VERTICAL_B", "FTR_SHAPE_AXIS",
     "FTR_PADDING_XY", "FTR_PADDING_HEIGHT_ADJUST_XY",
@@ -149,7 +149,7 @@
     "DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B",
     "LID_SOLID_B", "LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH",
     "LBL_TEXT", "LBL_SIZE", "LBL_PLACEMENT",
-    "G_VALIDATE_PHYSICAL_B",
+    "G_VALIDATE_KEYS_B",
     "G_DIMENSIONS_XY", "G_FLOOR_THICKNESS_N", "G_MIN_PADDING_XY", "G_FRAME_STYLE_N",
     "COUNTER_SIZE_XYZ", "COUNTER_MARGINS_POST_LENGTH_FRACTION_N",
     "PRINT_COUNT_N", "ROWS_N", "COUNTER_SHAPE",
@@ -222,14 +222,13 @@
   let diagnosticsStatus = $state<DiagnosticsStatus>("idle");
   let diagnosticsIssues = $state<OpenScadIssue[]>([]);
   let diagnosticsOpen = $state(false);
-  // Physical validation switch — when off, the toolbar's validation
-  // pill grays out to signal "checks aren't running". Derived from the
-  // G_VALIDATE_PHYSICAL_B global in the project. Defaults to true (it
-  // ships true in fresh BIT documents).
-  let physicalValidationOn = $derived.by(() => {
+  // BIT structured validation switch — when off, the toolbar's validation
+  // pill grays out to signal BIT checks are disabled. BIT 4.6.1 folds
+  // physical warnings into G_VALIDATE_KEYS_B.
+  let bitValidationOn = $derived.by(() => {
     for (const line of $project.lines) {
-      if ((line as any).kvKey === "G_VALIDATE_PHYSICAL_B" ||
-          (line as any).globalKey === "G_VALIDATE_PHYSICAL_B") {
+      if ((line as any).kvKey === "G_VALIDATE_KEYS_B" ||
+          (line as any).globalKey === "G_VALIDATE_KEYS_B") {
         return (line as any).kvValue !== false && (line as any).globalValue !== false;
       }
     }
@@ -973,6 +972,9 @@
       }
       if (favoriteVersion < 5) {
         for (const key of FAVORITE_KEYS_ADDED_IN_V5) migrated.add(key);
+      }
+      if (favoriteVersion < 7) {
+        for (const key of FAVORITE_KEYS_ADDED_IN_V7) migrated.add(key);
       }
       for (const key of REMOVED_FAVORITE_KEYS) {
         if (migrated.delete(key)) changedFavorites = true;
@@ -2014,7 +2016,11 @@
     params: "element",
     feature: "feature",
     feature_list: "feature",
+    box_group: "group",
+    group_params: "group",
     feature_divider_params: "feature_divider",
+    visualization: "visualization",
+    visualization_params: "visualization",
     label_params: "label",
     lid_params: "lid",
     counter_set_params: "counter_set",
@@ -2024,7 +2030,9 @@
   const MERGED_INNER_ROLE: Record<string, string> = {
     object: "params",
     feature_list: "feature",
+    box_group: "group_params",
     feature_dividers: "feature_divider_params",
+    visualization: "visualization_params",
     label: "label_params",
     lid: "lid_params",
     counter_set: "counter_set_params",
@@ -2070,6 +2078,12 @@
     } else if (role === "feature_dividers" && !line.mergedClose) {
       // Non-merged FTR_DIVIDERS close: children are direct kv pairs
       ctx = "feature_divider";
+    } else if (role === "box_group" && !line.mergedClose) {
+      // Non-merged BOX_GROUP close: children are direct kv pairs / child blocks
+      ctx = "group";
+    } else if (role === "visualization" && !line.mergedClose) {
+      // Non-merged BOX_VISUALIZATION close: children are direct kv pairs
+      ctx = "visualization";
     } else if (role === "label" && !line.mergedClose) {
       // Non-merged LABEL close (flat format from addLabel): children are direct kv pairs
       ctx = "label";
@@ -2296,8 +2310,12 @@
     if (line.role === "params") return { text: "object params", inferred: true };
     if (line.role === "feature_list") return { text: label(line.label || "BOX_FEATURE") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "feature") return { text: "feature list", inferred: true };
+    if (line.role === "box_group") return { text: label(line.label || "BOX_GROUP") + nameSuffix(lineIndex), inferred: false };
+    if (line.role === "group_params") return { text: "group params", inferred: true };
     if (line.role === "feature_dividers") return { text: label(line.label || "FTR_DIVIDERS") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "feature_divider_params") return { text: "feature divider params", inferred: true };
+    if (line.role === "visualization") return { text: label(line.label || "BOX_VISUALIZATION") + nameSuffix(lineIndex), inferred: false };
+    if (line.role === "visualization_params") return { text: "visualization params", inferred: true };
     if (line.role === "label") return { text: label(line.label || "LABEL") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "label_params") return { text: "label params", inferred: true };
     if (line.role === "lid") return { text: label(line.label || "BOX_LID") + nameSuffix(lineIndex), inferred: false };
@@ -2468,6 +2486,42 @@
       { raw: `${ind(d)}[ BOX_FEATURE,`, kind: "open", depth: d, role: "feature_list", label: "BOX_FEATURE" },
       { raw: `${ind(d+1)}[ FTR_COMPARTMENT_SIZE_XYZ, [40, 40, 15] ],`, kind: "kv", depth: d + 1, kvKey: "FTR_COMPARTMENT_SIZE_XYZ", kvValue: [40, 40, 15] },
       { raw: `${ind(d)}],`, kind: "close", depth: d, role: "feature_list", label: "BOX_FEATURE" },
+    ];
+    project.update((p) => {
+      p.lines.splice(closeIndex, 0, ...lines);
+      return { ...p };
+    });
+  }
+
+  /** Insert a BOX_GROUP block before `closeIndex` with one starter child feature. */
+  function addGroup(closeIndex: number, depth: number) {
+    const d = depth;
+    const ind = (n: number) => "    ".repeat(n);
+    const count = $project.lines.filter(l => l.kind === "open" && l.role === "box_group").length;
+    const name = `group ${count + 1}`;
+    const lines: Line[] = [
+      { raw: `${ind(d)}[ BOX_GROUP,`, kind: "open", depth: d, role: "box_group", label: "BOX_GROUP" },
+      { raw: `${ind(d+1)}[ NAME, "${name}" ],`, kind: "kv", depth: d + 1, kvKey: "NAME", kvValue: name },
+      { raw: `${ind(d+1)}[ POSITION_XY, [0, 0] ],`, kind: "kv", depth: d + 1, kvKey: "POSITION_XY", kvValue: [0, 0] },
+      { raw: `${ind(d+1)}[ BOX_FEATURE,`, kind: "open", depth: d + 1, role: "feature_list", label: "BOX_FEATURE" },
+      { raw: `${ind(d+2)}[ FTR_COMPARTMENT_SIZE_XYZ, [40, 40, 15] ],`, kind: "kv", depth: d + 2, kvKey: "FTR_COMPARTMENT_SIZE_XYZ", kvValue: [40, 40, 15] },
+      { raw: `${ind(d+1)}],`, kind: "close", depth: d + 1, role: "feature_list", label: "BOX_FEATURE" },
+      { raw: `${ind(d)}],`, kind: "close", depth: d, role: "box_group", label: "BOX_GROUP" },
+    ];
+    project.update((p) => {
+      p.lines.splice(closeIndex, 0, ...lines);
+      return { ...p };
+    });
+  }
+
+  /** Insert a BOX_VISUALIZATION block before `closeIndex`. */
+  function addVisualization(closeIndex: number, depth: number) {
+    const d = depth;
+    const ind = (n: number) => "    ".repeat(n);
+    const lines: Line[] = [
+      { raw: `${ind(d)}[ BOX_VISUALIZATION,`, kind: "open", depth: d, role: "visualization", label: "BOX_VISUALIZATION" },
+      { raw: `${ind(d+1)}[ POSITION_XY, [0, 0] ],`, kind: "kv", depth: d + 1, kvKey: "POSITION_XY", kvValue: [0, 0] },
+      { raw: `${ind(d)}],`, kind: "close", depth: d, role: "visualization", label: "BOX_VISUALIZATION" },
     ];
     project.update((p) => {
       p.lines.splice(closeIndex, 0, ...lines);
@@ -2754,8 +2808,8 @@
       <div class="diagnostics-wrap">
         <button
           class="diagnostics-chip {diagnosticsStatus}"
-          class:phys-off={!physicalValidationOn}
-          title={physicalValidationOn ? diagnosticsMessage : "Physical validation is OFF (G_VALIDATE_PHYSICAL_B). Turn it on to enable BIT-PHYSICAL checks."}
+          class:phys-off={!bitValidationOn}
+          title={bitValidationOn ? diagnosticsMessage : "BIT validation is OFF (G_VALIDATE_KEYS_B). Turn it on to enable structured BIT checks."}
           aria-haspopup="dialog"
           aria-expanded={diagnosticsOpen}
           data-testid="openscad-check-chip"
@@ -2837,8 +2891,8 @@
         <!-- This global line is rendered in the virtual globals block above -->
 
       {:else if line.kind === "open"}
-        {@const collapsible = !["params", "label_params", "lid_params", "feature", "feature_divider_params", "counter_set_params"].includes(line.role || "")}
-        {@const deletable = line.role === "data" ? sceneNames.length > 1 : !["data_list", "params", "label_params", "lid_params", "feature", "feature_divider_params", "counter_set_params"].includes(line.role || "")}
+        {@const collapsible = !["params", "label_params", "lid_params", "feature", "group_params", "feature_divider_params", "visualization_params", "counter_set_params"].includes(line.role || "")}
+        {@const deletable = line.role === "data" ? sceneNames.length > 1 : !["data_list", "params", "label_params", "lid_params", "feature", "group_params", "feature_divider_params", "visualization_params", "counter_set_params"].includes(line.role || "")}
         <div class="line-row struct open" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           {#if collapsible}
             <button class="collapse-btn" title={collapsed.has(i) ? "Expand" : "Collapse"}
@@ -2857,7 +2911,7 @@
             <span class={structLabel(line, i).inferred ? "struct-label inferred" : "struct-label"}>{structLabel(line, i).text}</span>
           {/if}
           <span class="struct-bracket">{collapsed.has(i) ? "[ ... ]" : "["}</span>
-          {#if line.role === "object" || line.role === "feature_list" || line.role === "feature_dividers" || line.role === "lid" || line.role === "counter_set"}
+          {#if line.role === "object" || line.role === "feature_list" || line.role === "box_group" || line.role === "feature_dividers" || line.role === "lid" || line.role === "counter_set"}
             {@const dbg = getDebugState(i)}
             <button class="debug-toggle" class:active={dbg.active} title="Highlight in OpenSCAD (#)"
               aria-pressed={dbg.active} aria-label="Toggle debug highlight"
@@ -3132,7 +3186,7 @@
           {/if}
         {/if}
         <!-- Add buttons on their own line, indented inside the block -->
-        {#if line.role === "data" || (line.role === "params" && $project.libraryProfile !== "ctd") || (line.role === "object" && $project.libraryProfile !== "ctd") || (line.role === "feature_list" && $project.libraryProfile !== "ctd") || ((line.role === "lid" || line.role === "lid_params") && $project.libraryProfile !== "ctd")}
+        {#if line.role === "data" || (line.role === "params" && $project.libraryProfile !== "ctd") || (line.role === "object" && $project.libraryProfile !== "ctd") || (line.role === "feature_list" && $project.libraryProfile !== "ctd") || ((line.role === "box_group" || line.role === "group_params") && $project.libraryProfile !== "ctd") || ((line.role === "lid" || line.role === "lid_params") && $project.libraryProfile !== "ctd")}
           {@const addDepth = (line.depth ?? 0) + 1}
           <div class="line-row add-row virtual" style="{padDepth(addDepth)}; {bracketStyle(addDepth)}" data-testid="add-{i}">
             {#if line.role === "data"}
@@ -3145,16 +3199,30 @@
             {:else if line.role === "params"}
               <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, (line.depth ?? 0) + 1)}>+ Label</button>
               <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, (line.depth ?? 0) + 1)}>+ Feature</button>
+              <button class="add-btn" title="Add BOX_GROUP block" onclick={() => addGroup(i, (line.depth ?? 0) + 1)}>+ Group</button>
+              {#if !hasChildBlock(i, "visualization")}
+                <button class="add-btn" title="Add BOX_VISUALIZATION block" onclick={() => addVisualization(i, (line.depth ?? 0) + 1)}>+ Visualization</button>
+              {/if}
             {:else if line.role === "object"}
               {@const childDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, childDepth)}>+ Label</button>
               <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, childDepth)}>+ Feature</button>
+              <button class="add-btn" title="Add BOX_GROUP block" onclick={() => addGroup(i, childDepth)}>+ Group</button>
+              {#if !hasChildBlock(i, "visualization")}
+                <button class="add-btn" title="Add BOX_VISUALIZATION block" onclick={() => addVisualization(i, childDepth)}>+ Visualization</button>
+              {/if}
             {:else if line.role === "feature_list"}
               {@const featureChildDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add LABEL block inside feature" onclick={() => addLabel(i, featureChildDepth)}>+ Label</button>
               {#if !hasFeatureDividersChild(i)}
                 <button class="add-btn" title="Add FTR_DIVIDERS block" onclick={() => addFeatureDividers(i, featureChildDepth)}>+ Dividers</button>
               {/if}
+              <button class="add-btn" title="Add nested BOX_FEATURE block" onclick={() => addFeatureList(i, featureChildDepth)}>+ Feature</button>
+              <button class="add-btn" title="Add nested BOX_GROUP block" onclick={() => addGroup(i, featureChildDepth)}>+ Group</button>
+            {:else if line.role === "box_group" || line.role === "group_params"}
+              {@const groupChildDepth = (line.depth ?? 0) + 1}
+              <button class="add-btn" title="Add BOX_FEATURE block inside group" onclick={() => addFeatureList(i, groupChildDepth)}>+ Feature</button>
+              <button class="add-btn" title="Add nested BOX_GROUP block" onclick={() => addGroup(i, groupChildDepth)}>+ Group</button>
             {:else if line.role === "lid" || line.role === "lid_params"}
               {@const lidChildDepth = (line.depth ?? 0) + 1}
               <button class="add-btn" title="Add LABEL block inside lid" onclick={() => addLabel(i, lidChildDepth)}>+ Label</button>

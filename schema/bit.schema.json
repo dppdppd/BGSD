@@ -1,5 +1,5 @@
 {
-  "version": "4.5.0",
+  "version": "4.6.1",
   "types": {
     "bool": "Checkbox (true/false)",
     "number": "Numeric input",
@@ -24,7 +24,9 @@
         "NAME":              { "type": "string", "default": "", "help": "Display name for the element" },
         "BOX_SIZE_XYZ":      { "type": "xyz", "default": [100, 100, 30], "help": "Box outer dimensions [x, y, z]. Omit to auto-calculate.", "contexts": ["BOX", "SPACER"] },
         "BOX_FEATURE":     { "type": "table_list", "child_context": "feature", "help": "List of compartment components", "contexts": ["BOX", "SPACER"] },
+        "BOX_GROUP":       { "type": "table_list", "child_context": "group", "help": "Grouped child features with local position and rotation", "contexts": ["BOX", "SPACER"] },
         "BOX_LID":           { "type": "table", "child_context": "lid", "help": "Lid parameters", "contexts": ["BOX"] },
+        "BOX_VISUALIZATION": { "type": "table", "child_context": "visualization", "help": "Placement overrides for assembled visualization mode", "contexts": ["BOX", "SPACER"] },
         "BOX_NO_LID_B":      { "type": "bool", "default": false, "help": "If true, no lid is generated", "contexts": ["BOX"] },
         "BOX_STACKABLE_B":   { "type": "bool", "default": false, "help": "If true, box has stacking features (forces inset lid)", "contexts": ["BOX"] },
         "BOX_WALL_THICKNESS":{ "type": "number", "default": 2.0, "step": 0.1, "help": "Wall thickness in mm (overrides global)", "contexts": ["BOX", "SPACER"] },
@@ -62,9 +64,23 @@
         "ENABLED_B":                 { "type": "bool", "default": true, "help": "If false, component is skipped" },
         "DEBUG_B":                   { "type": "bool", "default": false, "help": "If true, feature geometry is rendered with # debug modifier (transparent red)" },
         "FTR_DIVIDERS":              { "type": "table", "child_context": "feature_divider", "help": "Generated divider panels and matching rail grooves inside this feature" },
+        "BOX_FEATURE":               { "type": "table_list", "child_context": "feature", "help": "Nested child feature inside this component" },
+        "BOX_GROUP":                 { "type": "table_list", "child_context": "group", "help": "Nested child feature group inside this component" },
         "LABEL":                     { "type": "table", "child_context": "label", "help": "Component-level label" },
         "ROTATION":                  { "type": "number", "default": 0, "step": 5, "help": "Rotation in degrees" },
         "POSITION_XY":               { "type": "position_xy", "default": ["CENTER", "CENTER"], "help": "Position [x, y]. Accepts numbers, CENTER, or MAX." }
+      }
+    },
+    "group": {
+      "description": "Feature group (inside BOX_GROUP)",
+      "keys": {
+        "NAME":                      { "type": "string", "default": "", "help": "Display name for the feature group" },
+        "ENABLED_B":                 { "type": "bool", "default": true, "help": "If false, group is skipped" },
+        "DEBUG_B":                   { "type": "bool", "default": false, "help": "If true, group geometry is rendered with # debug modifier (transparent red)" },
+        "BOX_FEATURE":               { "type": "table_list", "child_context": "feature", "help": "Child feature inside this group" },
+        "BOX_GROUP":                 { "type": "table_list", "child_context": "group", "help": "Nested child feature group" },
+        "ROTATION":                  { "type": "number", "default": 0, "step": 5, "help": "Group rotation in degrees" },
+        "POSITION_XY":               { "type": "xy", "default": [0, 0], "help": "Group position [x, y] in parent-local mm" }
       }
     },
     "feature_divider": {
@@ -144,6 +160,13 @@
         "POSITION_XY":         { "type": "xy", "default": [0, 0], "help": "Label position offset [x, y]" }
       }
     },
+    "visualization": {
+      "description": "Box visualization placement (inside BOX_VISUALIZATION)",
+      "keys": {
+        "ROTATION":            { "type": "number", "default": 0, "step": 5, "help": "Visualization rotation in degrees" },
+        "POSITION_XY":         { "type": "xy", "default": [0, 0], "help": "Visualization position offset [x, y] in mm" }
+      }
+    },
     "divider": {
       "description": "Divider parameters (OBJECT_DIVIDERS)",
       "keys": {
@@ -179,8 +202,7 @@
     "G_ISOLATED_PRINT_BOX":    { "type": "string", "default": "",    "help": "Print only this named box" },
     "G_VISUALIZATION_B":       { "type": "bool",   "default": false, "help": "Show boxes assembled (visualization mode)" },
     "G_PREVIEW_NO_LABELS_B":   { "type": "bool",   "default": false, "help": "Turn off labels during preview" },
-    "G_VALIDATE_KEYS_B":       { "type": "bool",   "default": true,  "help": "Warn about unknown/malformed keys" },
-    "G_VALIDATE_PHYSICAL_B":   { "type": "bool",   "default": true,  "help": "Warn about known physical fit and printability risks" },
+    "G_VALIDATE_KEYS_B":       { "type": "bool",   "default": true,  "help": "Warn about unknown/malformed keys and known physical fit or printability risks" },
     "G_WALL_THICKNESS":        { "type": "number", "default": 2.0,   "step": 0.1, "help": "Default wall thickness in mm" },
     "G_DETENT_THICKNESS":      { "type": "number", "default": 0.8,   "step": 0.05, "help": "Thickness of lid/box detent in mm" },
     "G_DETENT_SPACING":        { "type": "number", "default": 2,     "step": 0.5, "help": "Length of detent in mm" },

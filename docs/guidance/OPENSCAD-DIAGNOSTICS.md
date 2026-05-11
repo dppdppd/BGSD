@@ -56,7 +56,7 @@ Supported metadata fields:
 | `code` | `BIT-LID-001` | Stable diagnostic identifier for docs, tests, and future filtering. |
 | `key` | `LID_TYPE` | Primary parameter involved. |
 | `keys` | `BOX_SIZE_XYZ,FTR_COMPARTMENT_SIZE_XYZ` | Multiple parameters involved in one issue. BGSD marks matching editable rows. |
-| `context` | `lid` | Schema context, such as `element`, `feature`, `lid`, `label`, `divider`, `tray`, or `counter_set`. |
+| `context` | `lid` | Schema context, such as `element`, `feature`, `group`, `lid`, `label`, `divider`, `tray`, or `counter_set`. |
 
 Metadata values should not contain spaces or `]`. Put user-facing explanation in the message after the colon.
 

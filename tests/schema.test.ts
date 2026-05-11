@@ -2,15 +2,26 @@ import { describe, expect, it } from "vitest";
 import bitSchema from "../schema/bit.schema.json";
 
 describe("BIT schema", () => {
-  it("tracks BIT 4.5.0 lid, divider, shape-axis, and validation options", () => {
-    expect(bitSchema.version).toBe("4.5.0");
+  it("tracks BIT 4.6.1 groups, lid, divider, shape-axis, and validation options", () => {
+    expect(bitSchema.version).toBe("4.6.1");
 
+    const elementKeys = bitSchema.contexts.element.keys;
     const lidKeys = bitSchema.contexts.lid.keys;
     const featureKeys = bitSchema.contexts.feature.keys;
+    const groupKeys = bitSchema.contexts.group.keys;
+    const visualizationKeys = bitSchema.contexts.visualization.keys;
     const featureDividerKeys = bitSchema.contexts.feature_divider.keys;
     const dividerKeys = bitSchema.contexts.divider.keys;
     const globals = bitSchema.globals;
 
+    expect(elementKeys.BOX_GROUP).toMatchObject({
+      type: "table_list",
+      child_context: "group",
+    });
+    expect(elementKeys.BOX_VISUALIZATION).toMatchObject({
+      type: "table",
+      child_context: "visualization",
+    });
     expect(lidKeys.LID_TYPE).toMatchObject({
       type: "enum",
       values: ["LID_CAP", "LID_INSET", "LID_SLIDING"],
@@ -34,12 +45,36 @@ describe("BIT schema", () => {
       type: "table",
       child_context: "feature_divider",
     });
+    expect(featureKeys.BOX_FEATURE).toMatchObject({
+      type: "table_list",
+      child_context: "feature",
+    });
+    expect(featureKeys.BOX_GROUP).toMatchObject({
+      type: "table_list",
+      child_context: "group",
+    });
     expect(featureKeys.FTR_SHAPE_AXIS).toMatchObject({
       type: "enum",
       values: ["X", "Y"],
       default: "Y",
     });
     expect(featureKeys.FTR_SHAPE_ROTATED_B).toBeUndefined();
+    expect(groupKeys.BOX_FEATURE).toMatchObject({
+      type: "table_list",
+      child_context: "feature",
+    });
+    expect(groupKeys.BOX_GROUP).toMatchObject({
+      type: "table_list",
+      child_context: "group",
+    });
+    expect(groupKeys.POSITION_XY).toMatchObject({
+      type: "xy",
+      default: [0, 0],
+    });
+    expect(visualizationKeys.POSITION_XY).toMatchObject({
+      type: "xy",
+      default: [0, 0],
+    });
     expect(featureDividerKeys.DIV_LAYOUT_BAYS).toMatchObject({
       type: "number",
       default: 0,
@@ -87,10 +122,8 @@ describe("BIT schema", () => {
       type: "bool",
       default: false,
     });
-    expect(globals.G_VALIDATE_PHYSICAL_B).toMatchObject({
-      type: "bool",
-      default: true,
-    });
+    expect(globals.G_VALIDATE_PHYSICAL_B).toBeUndefined();
+    expect(globals.G_VALIDATE_KEYS_B.help).toContain("physical");
     expect(globals.G_WALL_THICKNESS).toMatchObject({
       type: "number",
       default: 2.0,
