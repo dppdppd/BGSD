@@ -8,6 +8,7 @@
     openScadPath = $bindable(""),
     autoOpen = $bindable(true),
     proxy = $bindable(""),
+    theme = $bindable<"light" | "dark">("light"),
     onsave,
     onbrowseworkingdir,
     onbrowseopenscad,
@@ -17,6 +18,7 @@
     openScadPath: string;
     autoOpen: boolean;
     proxy: string;
+    theme: "light" | "dark";
     onsave: () => void;
     onbrowseworkingdir: () => void;
     onbrowseopenscad: () => void;
@@ -51,6 +53,29 @@
           <input type="checkbox" bind:checked={autoOpen} data-testid="prefs-auto-open" />
           Auto-open in OpenSCAD when loading a file
         </label>
+      </div>
+      <div class="prefs-row">
+        <span class="prefs-label">Theme</span>
+        <div class="prefs-theme-toggle" role="radiogroup" aria-label="Theme">
+          <button
+            class="prefs-theme-btn"
+            class:active={theme === "light"}
+            data-testid="prefs-theme-light"
+            role="radio"
+            aria-checked={theme === "light"}
+            onclick={() => theme = "light"}
+          >Light</button>
+          <button
+            class="prefs-theme-btn"
+            class:active={theme === "dark"}
+            data-testid="prefs-theme-dark"
+            role="radio"
+            aria-checked={theme === "dark"}
+            disabled
+            title="Dark mode is not finished yet."
+            onclick={() => theme = "dark"}
+          >Dark</button>
+        </div>
       </div>
       <div class="prefs-row">
         <label class="prefs-label" for="prefs-proxy">HTTP proxy</label>

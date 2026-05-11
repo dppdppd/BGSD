@@ -1,0 +1,7 @@
+wait app-root
+new bit
+js (() => { const btns = [...document.querySelectorAll('.add-btn')].filter(b => /\+\s*Feature/i.test(b.textContent || '')); btns[0]?.click(); })()
+shot light-with-feature
+js document.documentElement.dataset.theme = 'dark'
+js new Promise(r => setTimeout(r, 100))
+shot dark-with-feature

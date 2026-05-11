@@ -20,11 +20,18 @@ const MAX_RECENT = 10;
 
 // --- Preferences ---
 const PREFS_FILE = path.join(app.getPath("userData"), "preferences.json");
-const DEFAULT_PREFS = { openScadPath: "", autoOpenInOpenScad: true, workingDir: "", proxy: "" };
+const DEFAULT_PREFS = { openScadPath: "", autoOpenInOpenScad: true, workingDir: "", proxy: "", theme: "light" };
 let openScadAlive = false;
 let openScadProc = null;
 let openScadFile = null;
 let pendingReadOnlyPrompt = false;
+
+// Local YYYYMMDD-HHMMSS stamp for default new-file names — easier to
+// read at a glance and to sort chronologically than the raw epoch.
+function fileTimestamp(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
 
 function appIconPath() {
   const candidates = process.platform === "win32"
@@ -504,7 +511,7 @@ ipcMain.handle("save-file-as", async (_event, scadText, profileId, currentPath) 
     if (prefs.workingDir && profileId && profiles[profileId]) {
       const designsDir = path.join(prefs.workingDir, profileId, profiles[profileId].designsDir || "my_designs");
       fs.mkdirSync(designsDir, { recursive: true });
-      defaultPath = path.join(designsDir, `bgsd_${profileId}_${Date.now()}.scad`);
+      defaultPath = path.join(designsDir, `${profileId.toUpperCase()}-${fileTimestamp()}.scad`);
     } else {
       defaultPath = "design.scad";
     }
@@ -974,9 +981,9 @@ ipcMain.handle("new-project-to-path", async (_event, profile) => {
   if (prefs.workingDir && profileObj) {
     const designsDir = path.join(prefs.workingDir, profile, profileObj.designsDir || "my_designs");
     fs.mkdirSync(designsDir, { recursive: true });
-    filePath = path.join(designsDir, `bgsd_${profile}_${Date.now()}.scad`);
+    filePath = path.join(designsDir, `${profile.toUpperCase()}-${fileTimestamp()}.scad`);
   } else {
-    filePath = path.join(os.tmpdir(), `bgsd_${profile}_${Date.now()}.scad`);
+    filePath = path.join(os.tmpdir(), `${profile.toUpperCase()}-${fileTimestamp()}.scad`);
   }
 
   try {
@@ -1348,7 +1355,11 @@ ipcMain.handle("get-library-tree", () => {
       let entries;
       try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (err) { console.error("Failed to read directory:", dir, err); return; }
       for (const entry of entries) {
-        if (entry.name === "lib" || entry.name === ".manifest.json") continue;
+        // Skip the lib subtree and any dotfile/dotdir. This filters
+        // .manifest.json, .bgsd-check-*.scad (temporary OpenSCAD check
+        // files), .history-*.scad (version snapshots) and any other
+        // hidden artefact users don't want in the homepage lister.
+        if (entry.name === "lib" || entry.name.startsWith(".")) continue;
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           walk(fullPath);

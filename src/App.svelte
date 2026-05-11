@@ -121,17 +121,22 @@
   }
   let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
   let favoriteKeys = $state<Set<string>>(new Set());
-  const FAVORITE_KEYS_VERSION = 5;
+  const FAVORITE_KEYS_VERSION = 6;
   const FAVORITE_KEYS_ADDED_IN_V2 = ["LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH"];
   const FAVORITE_KEYS_ADDED_IN_V3 = [
     "FTR_DIVIDERS", "DIV_AXIS", "DIV_OUTPUT_ONLY_B",
-    "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_VALIDATE_PHYSICAL_B",
+    "G_VALIDATE_PHYSICAL_B",
   ];
   const FAVORITE_KEYS_ADDED_IN_V4 = [
     "DIV_LAYOUT_BAYS", "DIV_LAYOUT_BAY_SIZE", "DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B",
   ];
   const FAVORITE_KEYS_ADDED_IN_V5 = ["FTR_SHAPE_AXIS"];
-  const REMOVED_FAVORITE_KEYS = ["DIV_NUM_DIVIDERS", "DIV_SLOT_DEPTH", "DIV_RAILS_B", "FTR_SHAPE_ROTATED_B"];
+  // Pull DIVIDERS-related globals out of every user's favorites — they
+  // were seeded by mistake and clutter the default-mode picker.
+  const REMOVED_FAVORITE_KEYS = [
+    "DIV_NUM_DIVIDERS", "DIV_SLOT_DEPTH", "DIV_RAILS_B", "FTR_SHAPE_ROTATED_B",
+    "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B",
+  ];
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
   // and docs/guidance/CTD-PARAMETERS.md (3+ designs). Seeded on first run.
   const DEFAULT_FAVORITE_KEYS = [
@@ -144,7 +149,7 @@
     "DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B",
     "LID_SOLID_B", "LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH",
     "LBL_TEXT", "LBL_SIZE", "LBL_PLACEMENT",
-    "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_VALIDATE_PHYSICAL_B",
+    "G_VALIDATE_PHYSICAL_B",
     "G_DIMENSIONS_XY", "G_FLOOR_THICKNESS_N", "G_MIN_PADDING_XY", "G_FRAME_STYLE_N",
     "COUNTER_SIZE_XYZ", "COUNTER_MARGINS_POST_LENGTH_FRACTION_N",
     "PRINT_COUNT_N", "ROWS_N", "COUNTER_SHAPE",
@@ -171,6 +176,17 @@
   let prefsOpenScadPath = $state("");
   let prefsAutoOpen = $state(true);
   let prefsProxy = $state("");
+  // Theme: "light" (gruvbox light hard) | "dark" (gruvbox dark hard).
+  // Applied to <html data-theme="..."> on mount and on change.
+  let prefsTheme = $state<"light" | "dark">("light");
+  $effect(() => {
+    // Dark mode is disabled for now — force the data-theme attribute to
+    // "light" regardless of prefsTheme value. Stored preference is
+    // preserved so users who picked dark earlier will keep it when
+    // dark is re-enabled.
+    document.documentElement.dataset.theme = "light";
+    void prefsTheme;  // touch so Svelte still tracks the dependency
+  });
   let showFileHistory = $state(false);
   let currentFilePath = $state<string | null>(null);
   let currentReadOnly = $state(false);
@@ -206,6 +222,27 @@
   let diagnosticsStatus = $state<DiagnosticsStatus>("idle");
   let diagnosticsIssues = $state<OpenScadIssue[]>([]);
   let diagnosticsOpen = $state(false);
+  // Physical validation switch — when off, the toolbar's validation
+  // pill grays out to signal "checks aren't running". Derived from the
+  // G_VALIDATE_PHYSICAL_B global in the project. Defaults to true (it
+  // ships true in fresh BIT documents).
+  let physicalValidationOn = $derived.by(() => {
+    for (const line of $project.lines) {
+      if ((line as any).kvKey === "G_VALIDATE_PHYSICAL_B" ||
+          (line as any).globalKey === "G_VALIDATE_PHYSICAL_B") {
+        return (line as any).kvValue !== false && (line as any).globalValue !== false;
+      }
+    }
+    return true;
+  });
+  // Keys highlighted on the current diagnostic-marker hover. Empty when
+  // not hovering. Rows whose kvKey appears here get a .diag-highlight
+  // outline so the user can see which fields the diagnostic is about.
+  let hoveredDiagKeys = $state(new Set<string>());
+  // Axes (x / y / z) implicated by the hovered diagnostic, parsed out
+  // of the BIT-PHYSICAL footprint coords. Combined with .diag-highlight
+  // on the row, this targets just the offending subfield input.
+  let hoveredDiagAxes = $state(new Set<string>());
   let diagnosticsMessage = $state("OpenSCAD check has not run.");
   let diagnosticsLastCheckedScad = "";
   let diagnosticsLastObservedScad = "";
@@ -490,12 +527,92 @@
     ) >= 0;
   }
 
+  /** Translate dense BIT-PHYSICAL messages into a one-line summary
+   *  that names the offending axis (X / Y / both) so the user knows
+   *  which field to edit. Falls back to the raw message otherwise. */
+  function humanizeMessage(issue: OpenScadIssue): string {
+    const msg = issue.message || "";
+    const m = msg.match(
+      /^physical validation: box "([^"]+)" > component\[(\d+)\] footprint \[(-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\] to \[(-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\] exceeds usable interior \[(-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\] to \[(-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\] in box "[^"]+"\.?$/
+    );
+    if (m) {
+      const [, box, n, fx1s, fy1s, fx2s, fy2s, ix1s, iy1s, ix2s, iy2s] = m;
+      const fx1 = +fx1s, fy1 = +fy1s, fx2 = +fx2s, fy2 = +fy2s;
+      const ix1 = +ix1s, iy1 = +iy1s, ix2 = +ix2s, iy2 = +iy2s;
+      const xOver = fx1 < ix1 || fx2 > ix2;
+      const yOver = fy1 < iy1 || fy2 > iy2;
+      const axis = xOver && yOver ? "X and Y" : xOver ? "X" : yOver ? "Y" : "footprint";
+      const fmt = (v: number) => (Math.round(v * 100) / 100).toString();
+      const fw = fmt(fx2 - fx1), fh = fmt(fy2 - fy1);
+      const iw = fmt(ix2 - ix1), ih = fmt(iy2 - iy1);
+      return `Component #${n} in "${box}": ${axis} too big — ${fw}×${fh} mm exceeds the ${iw}×${ih} mm usable interior.`;
+    }
+    return msg;
+  }
+
+  /** Parse the BIT-PHYSICAL footprint pattern to figure out which
+   *  axes (X, Y, Z — Z reserved for height variants) actually overflow,
+   *  so the hover can highlight only the implicated subfield input. */
+  function collectIssueAxes(issues: OpenScadIssue[]): Set<string> {
+    const out = new Set<string>();
+    const re = /footprint \[(-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\] to \[(-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\] exceeds usable interior \[(-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\] to \[(-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\]/;
+    for (const issue of issues) {
+      const m = (issue.message || "").match(re);
+      if (!m) continue;
+      const fx1=+m[1], fy1=+m[2], fx2=+m[3], fy2=+m[4];
+      const ix1=+m[5], iy1=+m[6], ix2=+m[7], iy2=+m[8];
+      if (fx1 < ix1 || fx2 > ix2) out.add("x");
+      if (fy1 < iy1 || fy2 > iy2) out.add("y");
+    }
+    return out;
+  }
+
+  /** Collect the kv-keys to highlight on diagnostic hover. Prefer the
+   *  curated `inferredDiagnosticKeys` set when available — that's the
+   *  narrow list of fields the user can act on. Fall back to the raw
+   *  `issue.keys` list only when we have no curated answer, so we
+   *  never overwhelm the highlight with every key the validator
+   *  inspected. `issue.key` (specific) is always included. */
+  function collectIssueKeys(issues: OpenScadIssue[]): Set<string> {
+    const out = new Set<string>();
+    for (const issue of issues) {
+      if (issue.key) out.add(issue.key);
+      const inferred = inferredDiagnosticKeys(issue);
+      if (inferred.length) {
+        for (const k of inferred) out.add(k);
+      } else if (issue.keys) {
+        for (const k of issue.keys.split(/\s*,\s*/)) {
+          const trimmed = k.trim();
+          if (trimmed) out.add(trimmed);
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Truncate a long comma-separated key list for the meta line.  */
+  function shortKeysLabel(keys: string | null | undefined): string | null {
+    if (!keys) return null;
+    const list = keys.split(/\s*,\s*/).filter(Boolean);
+    if (list.length <= 3) return `keys ${list.join(", ")}`;
+    return `keys ${list.slice(0, 3).join(", ")} (+${list.length - 3} more)`;
+  }
+
   function inferredDiagnosticKeys(issue: OpenScadIssue): string[] {
     if (issue.targetKeys.length) return issue.targetKeys;
     const code = issue.code?.toUpperCase();
     const message = issue.message.toLowerCase();
-    if (code === "BIT-PHYSICAL" && /exceeds usable interior|too tall|footprint/.test(message)) {
-      return ["BOX_SIZE_XYZ", "FTR_COMPARTMENT_SIZE_XYZ"];
+    // BIT-PHYSICAL "exceeds usable interior": the direct causes the user
+    // can edit. The diagnostic's `keys` field also lists secondary
+    // inputs (rotation, shear, wall thickness…) that affect the
+    // computation but aren't the obvious dials to turn — those would
+    // overwhelm the highlight, so we ignore them in favour of this
+    // narrower set.
+    if (code === "BIT-PHYSICAL" && /exceeds usable interior|footprint/.test(message)) {
+      return ["FTR_COMPARTMENT_SIZE_XYZ", "FTR_NUM_COMPARTMENTS_XY", "POSITION_XY", "BOX_SIZE_XYZ"];
+    }
+    if (code === "BIT-PHYSICAL" && /too tall/.test(message)) {
+      return ["FTR_COMPARTMENT_SIZE_XYZ", "BOX_SIZE_XYZ"];
     }
     return [];
   }
@@ -510,7 +627,23 @@
       }
 
       const boxName = diagnosticBoxName(issue);
-      for (const key of inferredDiagnosticKeys(issue)) {
+      // Match by inferred (curated) keys when available; otherwise fall
+      // back to issue.key (specific) plus issue.keys (broad). Schema /
+      // key validations land here too — they have issue.key set but no
+      // inferred narrowing — so they get triangles + highlights on the
+      // exact field they flagged.
+      const inferred = inferredDiagnosticKeys(issue);
+      const matchKeys = new Set<string>();
+      if (inferred.length) {
+        for (const k of inferred) matchKeys.add(k);
+      } else {
+        if (issue.key) matchKeys.add(issue.key);
+        if (issue.keys) for (const k of issue.keys.split(/\s*,\s*/)) {
+          const trimmed = k.trim();
+          if (trimmed) matchKeys.add(trimmed);
+        }
+      }
+      for (const key of matchKeys) {
         for (let i = 0; i < $project.lines.length; i++) {
           if (!lineMatchesDiagnosticKey($project.lines[i], key)) continue;
           if (!lineBelongsToBox(i, boxName)) continue;
@@ -760,6 +893,15 @@
     // Defer one tick so the initial render doesn't trigger slide transitions
     // on every row at mount time.
     queueMicrotask(() => { mounted = true; });
+    // Apply saved theme before any visible paint (the $effect already
+    // mirrors prefsTheme to <html data-theme>; this just hydrates it).
+    try {
+      const prefs = await (window as any).bgsd?.getPreferences?.();
+      // Dark mode is disabled for now — even if the user previously
+      // saved "dark", don't apply it until the toolbar palette and the
+      // rest of the UI are dark-aware. The stored pref is preserved.
+      // if (prefs?.theme === "dark") prefsTheme = "dark";
+    } catch { /* fall through to default light */ }
     startAutosave();
     startHistory();
     onExternalFileChange(showExternalFileChange);
@@ -1148,12 +1290,13 @@
     prefsOpenScadPath = prefs.openScadPath || "";
     prefsAutoOpen = prefs.autoOpenInOpenScad !== false;
     prefsProxy = prefs.proxy || "";
+    prefsTheme = prefs.theme === "dark" ? "dark" : "light";
     showPrefs = true;
   }
 
   async function savePreferences() {
     const bgsd = (window as any).bgsd;
-    await bgsd?.setPreferences?.({ openScadPath: prefsOpenScadPath, autoOpenInOpenScad: prefsAutoOpen, proxy: prefsProxy });
+    await bgsd?.setPreferences?.({ openScadPath: prefsOpenScadPath, autoOpenInOpenScad: prefsAutoOpen, proxy: prefsProxy, theme: prefsTheme });
     // Handle working directory change
     if (prefsWorkingDir && prefsWorkingDir !== workingDir && bgsd?.initWorkingDir) {
       const res = await bgsd.initWorkingDir(prefsWorkingDir);
@@ -1734,8 +1877,12 @@
   }
 
   const DEPTH_PX = 24;
-  function pad(line: Line) { return `padding-left: ${8 + (line.depth ?? 0) * DEPTH_PX}px`; }
-  function padDepth(d: number) { return `padding-left: ${8 + d * DEPTH_PX}px`; }
+  // GUTTER_PX reserves space at every row's left edge for the diagnostic
+  // marker. With this gutter, the warning triangle lives in its own strip
+  // fully to the left of the line content at every depth.
+  const GUTTER_PX = 22;
+  function pad(line: Line) { return `padding-left: ${GUTTER_PX + (line.depth ?? 0) * DEPTH_PX}px`; }
+  function padDepth(d: number) { return `padding-left: ${GUTTER_PX + d * DEPTH_PX}px`; }
 
   // Hierarchy is rendered in CSS via a single cold-monochrome ramp keyed off
   // --depth (each level brighter than the one above). Inline style only carries
@@ -2484,11 +2631,16 @@
   {@const severity = lineDiagnosticSeverity(lineIndex)}
   <span class="line-diagnostic-slot">
     {#if severity}
+      {@const issues = diagnosticsForLine(lineIndex)}
       <button
         class="line-diagnostic-marker {severity}"
         data-testid="diagnostic-line-{lineIndex}"
         title={lineDiagnosticTitle(lineIndex)}
         aria-label="OpenSCAD {severity} on this line"
+        onmouseenter={() => { hoveredDiagKeys = collectIssueKeys(issues); hoveredDiagAxes = collectIssueAxes(issues); }}
+        onmouseleave={() => { hoveredDiagKeys = new Set(); hoveredDiagAxes = new Set(); }}
+        onfocus={() => { hoveredDiagKeys = collectIssueKeys(issues); hoveredDiagAxes = collectIssueAxes(issues); }}
+        onblur={() => { hoveredDiagKeys = new Set(); hoveredDiagAxes = new Set(); }}
         onclick={openDiagnosticsFromLine}
       >!</button>
     {/if}
@@ -2602,7 +2754,8 @@
       <div class="diagnostics-wrap">
         <button
           class="diagnostics-chip {diagnosticsStatus}"
-          title={diagnosticsMessage}
+          class:phys-off={!physicalValidationOn}
+          title={physicalValidationOn ? diagnosticsMessage : "Physical validation is OFF (G_VALIDATE_PHYSICAL_B). Turn it on to enable BIT-PHYSICAL checks."}
           aria-haspopup="dialog"
           aria-expanded={diagnosticsOpen}
           data-testid="openscad-check-chip"
@@ -2625,15 +2778,15 @@
                 {#each diagnosticsIssues as issue, idx}
                   <div class="diagnostics-issue {issue.severity}" data-testid="openscad-issue-{idx}">
                     <span class="issue-severity">{issue.severity}</span>
-                    <span class="issue-message">{issue.message}</span>
+                    <span class="issue-message">{humanizeMessage(issue)}</span>
                     {#if issue.line}
                       <span class="issue-location">line {issue.line}</span>
                     {/if}
                     {#if issue.file}
                       <span class="issue-file">{basename(issue.file)}</span>
                     {/if}
-                    {#if issue.code || issue.key || issue.keys || issue.context}
-                      <span class="issue-meta">{[issue.code, issue.key ? `key ${issue.key}` : null, issue.keys ? `keys ${issue.keys}` : null, issue.context ? `context ${issue.context}` : null].filter(Boolean).join(" · ")}</span>
+                    {#if issue.code || issue.key || issue.context}
+                      <span class="issue-meta">{[issue.code, issue.key ? `key ${issue.key}` : null, issue.context ? `context ${issue.context}` : null].filter(Boolean).join(" · ")}</span>
                     {/if}
                   </div>
                 {/each}
@@ -2737,7 +2890,7 @@
             {@const gOnChange = row.isReal
               ? (v: any) => updateGlobalWithDefault(row.lineIndex!, v, gDef.default)
               : (v: any) => onVirtualGlobalChange(row.key, gDef, v)}
-            <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} class:has-diagnostic={lineDiagnosticSeverity(row.lineIndex) != null} class:diagnostic-error={lineDiagnosticSeverity(row.lineIndex) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(row.lineIndex) === "warning"} style="{padDepth(1)}; {bracketStyle(1)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
+            <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} class:has-diagnostic={lineDiagnosticSeverity(row.lineIndex) != null} class:diagnostic-error={lineDiagnosticSeverity(row.lineIndex) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(row.lineIndex) === "warning"} class:diag-highlight={hoveredDiagKeys.has(row.key)} class:diag-x={hoveredDiagAxes.has("x")} class:diag-y={hoveredDiagAxes.has("y")} class:diag-z={hoveredDiagAxes.has("z")} style="{padDepth(1)}; {bracketStyle(1)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
               <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
               {@render diagnosticSlot(row.lineIndex)}
               <span class="kv-control">
@@ -2810,7 +2963,7 @@
             ? (v) => updateKv(row.lineIndex, v, row.def.default)
             : (v) => onVirtualChange(closeIdx, row.key, row.def, v)}
           {@const val = row.value}
-          <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} class:has-diagnostic={lineDiagnosticSeverity(row.lineIndex) != null} class:diagnostic-error={lineDiagnosticSeverity(row.lineIndex) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(row.lineIndex) === "warning"} style="{padDepth(row.depth)}; {bracketStyle(row.depth)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
+          <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} class:has-diagnostic={lineDiagnosticSeverity(row.lineIndex) != null} class:diagnostic-error={lineDiagnosticSeverity(row.lineIndex) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(row.lineIndex) === "warning"} class:diag-highlight={hoveredDiagKeys.has(row.key)} class:diag-x={hoveredDiagAxes.has("x")} class:diag-y={hoveredDiagAxes.has("y")} class:diag-z={hoveredDiagAxes.has("z")} style="{padDepth(row.depth)}; {bracketStyle(row.depth)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
             <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
             {@render diagnosticSlot(row.lineIndex)}
             <span class="kv-control">
@@ -2845,7 +2998,7 @@
                       <span class="preset-pill sm" title={val[j] + " → " + resolvePresetValue(val[j])}>{$constantLabels[val[j]] || val[j]}</span>
                       <button class="preset-clear" title="Clear" onclick={() => { const c = [...val]; c[j] = row.def.default?.[j] ?? 0; onChange(c); }}>✕</button>
                     {:else}
-                      <input class="kv-str sm" type="text" value={val[j] ?? 0}
+                      <input class="kv-str sm" type="text" value={val[j] ?? 0} data-axis={["x","y","z"][j]}
                         onchange={(e) => { const c = [...val]; c[j] = smartParseNum(e.currentTarget.value); onChange(c); }} />
                     {/if}
                     {@const cpf = componentPresetField(row.key, j)}
@@ -2864,7 +3017,7 @@
                       <span class="preset-pill sm" title={val[j] + " → " + resolvePresetValue(val[j])}>{$constantLabels[val[j]] || val[j]}</span>
                       <button class="preset-clear" title="Clear" onclick={() => { const c = [...val]; c[j] = row.def.default?.[j] ?? 0; onChange(c); }}>✕</button>
                     {:else}
-                      <input class="kv-str sm" type="text" value={val[j] ?? 0}
+                      <input class="kv-str sm" type="text" value={val[j] ?? 0} data-axis={["x","y","z"][j]}
                         onchange={(e) => { const c = [...val]; c[j] = smartParseNum(e.currentTarget.value); onChange(c); }} />
                     {/if}
                     {@const cpf = componentPresetField(row.key, j)}
@@ -2875,7 +3028,7 @@
                 {/if}
               {:else if rkt === "position_xy" && Array.isArray(val)}
                 {#each [0,1] as j}
-                  <input class="kv-str sm" type="text" value={val[j] ?? ""}
+                  <input class="kv-str sm" type="text" value={val[j] ?? ""} data-axis={["x","y","z"][j]}
                     onchange={(e) => { const c = [...val]; const r = e.currentTarget.value.trim(); c[j] = (r==="CENTER"||r==="MAX") ? r : smartParseNum(r); onChange(c); }} />
                 {/each}
               {:else if rkt === "4bool" && Array.isArray(val)}
@@ -3041,7 +3194,7 @@
         {@const kt = getKeyType(line.kvKey)}
         {@const ks = getKeySchema(line.kvKey)}
         {@const sd = getSchemaDefault(line.kvKey)}
-        <div class="line-row kv" class:is-default={isDefault(line.kvKey, line.kvValue)} class:has-diagnostic={lineDiagnosticSeverity(i) != null} class:diagnostic-error={lineDiagnosticSeverity(i) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(i) === "warning"} style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
+        <div class="line-row kv" class:is-default={isDefault(line.kvKey, line.kvValue)} class:has-diagnostic={lineDiagnosticSeverity(i) != null} class:diagnostic-error={lineDiagnosticSeverity(i) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(i) === "warning"} class:diag-highlight={hoveredDiagKeys.has(line.kvKey || "")} class:diag-x={hoveredDiagAxes.has("x")} class:diag-y={hoveredDiagAxes.has("y")} class:diag-z={hoveredDiagAxes.has("z")} style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           <span class="kv-key" title={tip(line.kvKey || "")}>{label(line.kvKey || "")}</span>
           {@render diagnosticSlot(i)}
           <span class="kv-control">
@@ -3292,6 +3445,7 @@
     bind:openScadPath={prefsOpenScadPath}
     bind:autoOpen={prefsAutoOpen}
     bind:proxy={prefsProxy}
+    bind:theme={prefsTheme}
     onsave={savePreferences}
     onbrowseworkingdir={browseWorkingDirPref}
     onbrowseopenscad={browseOpenScadPath}
@@ -3321,34 +3475,78 @@
        3) Default vs.    — italic + medium weight + ink-mute tint, plus a
           virtualized      slightly paler row bg. Stronger than a thin italic. */
   :root {
-    --paper:        #FDFCF8;  /* canvas — almost white, faintest warm hint */
-    --paper-soft:   #F2ECDB;
-    --paper-deep:   #E8DFC4;
+    /* ── Gruvbox Softened (eye-comfort variant) ────────────────────
+       The canonical gruvbox-light-hard yellow bg is high-impact but
+       fatigues eyes during long editor sessions. This variant shifts
+       the cream toward a warm off-white (less yellow chroma) and uses
+       the FADED accent set (#b57614, #9d0006, #79740e) instead of the
+       saturated one. Same gruvbox character; lower retina dose. */
+    --paper:        #faf5e6;  /* warm off-white, lighter than before */
+    --paper-soft:   #f0eadb;
+    --paper-deep:   #e3dcc6;
 
-    --rule:         #D9CFB4;
-    --rule-soft:    #EAE1C8;
+    --input-bg:     #ffffff;  /* editable inputs sit on pure white */
 
-    --ink:          #1F1A14;  /* keys + values: darkest text on the page */
-    --ink-soft:     #3F362A;
-    --ink-mute:     #6E614A;
-    --ink-faint:    #A99772;
+    --rule:         #c5bba5;
+    --rule-soft:    #d6ccb5;
 
-    /* Hierarchy ramp endpoints — warm neutrals, not saturated sepia.
-       Think dust-on-parchment, not antique brass. Just enough hue to
-       distinguish from grey while keeping content the loudest read. */
-    --sepia-deep:   #3F362A;  /* depth 0 endpoint — near-black warm */
-    --sepia-warm:   #695E4D;  /* mid */
-    --sepia-soft:   #BAB1A0;  /* deepest-level endpoint — warm pale grey */
-    --sepia-tint:   #EAE3D2;  /* card header/footer wash */
-    --sepia-glow:   #F4EFE3;  /* faintest — virtual row wash */
+    --ink:          #3c3836;  /* gruvbox fg1 */
+    --ink-soft:     #504945;
+    --ink-mute:     #665c54;
+    --ink-faint:    #7c6f64;
 
-    --accent:       #695E4D;  /* warm neutral accent */
-    --accent-soft:  #EAE3D2;
-    --accent-deep:  #3F362A;
+    /* Hierarchy ramp — fg1 → bg4 (gruvbox). */
+    --sepia-deep:   #3c3836;
+    --sepia-warm:   #665c54;
+    --sepia-soft:   #a89984;
+    --sepia-tint:   #e3dac4;  /* desaturated bg1 — chrome bar wash */
+    --sepia-glow:   #ece4d0;
 
-    --warn:         #B5821F;
-    --error:        #C0392B;
-    --comment:      #3B7563;
+    /* Faded accents — gruvbox's "bright" (in the ANSI 9-14 slots), but
+       in light themes these read as the deeper, more grounded variants. */
+    --accent:       #b57614;  /* faded yellow */
+    --accent-soft:  #e3dac4;
+    --accent-deep:  #79740e;  /* faded green-yellow */
+
+    --warn:         #b57614;
+    --error:        #9d0006;  /* faded red */
+    --comment:      #79740e;  /* faded green */
+  }
+
+  /* ── Gruvbox Dark Hard Contrast (terminalcolors.com) ────────────
+     bg0_h dark is #1d2021. fg1 (#e3dac4) — the warm cream — is the
+     foreground. The bright accent set replaces the regular one for
+     dark mode so colors pop against the dark canvas. */
+  :root[data-theme="dark"] {
+    --paper:        #1d2021;  /* bg0_h dark — hard near-black */
+    --paper-soft:   #282828;  /* bg0 dark */
+    --paper-deep:   #32302f;  /* bg0_s dark */
+
+    --input-bg:     #282828;  /* inputs sit on bg0 in dark mode */
+
+    --rule:         #504945;  /* bg2 */
+    --rule-soft:    #3c3836;  /* bg1 */
+
+    --ink:          #e3dac4;  /* fg1 — warm cream foreground */
+    --ink-soft:     #d6ccb5;  /* fg2 */
+    --ink-mute:     #c5bba5;  /* fg3 */
+    --ink-faint:    #a89984;  /* fg4 */
+
+    /* Hierarchy ramp inverted: fg1 (cream) at depth 0 → bg3 (mid grey)
+       at deepest. Brighter at the top, recedes into the dark canvas. */
+    --sepia-deep:   #e3dac4;  /* fg1 — depth 0 strongest */
+    --sepia-warm:   #c5bba5;  /* fg3 */
+    --sepia-soft:   #665c54;  /* bg3 */
+    --sepia-tint:   #3c3836;  /* bg1 — chrome bar wash */
+    --sepia-glow:   #32302f;  /* bg0_s */
+
+    --accent:       #fabd2f;  /* bright yellow */
+    --accent-soft:  #3c3836;  /* bg1 */
+    --accent-deep:  #b57614;
+
+    --warn:         #fabd2f;  /* bright yellow */
+    --error:        #fb4934;  /* bright red */
+    --comment:      #b8bb26;  /* bright green */
   }
   :global(body) {
     margin: 0;
@@ -3358,14 +3556,14 @@
   main { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   .toolbar {
     display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
-    padding: 3px 8px; background: #F2ECDB; border-bottom: 1px solid #D9CFB4;
+    padding: 3px 8px; background: #e3dac4; border-bottom: 1px solid #c5bba5;
     flex-shrink: 0; font-size: 12px; overflow: visible; row-gap: 4px;
   }
   .toolbar-home {
     background: none; border: none; cursor: pointer; font-size: 18px; line-height: 1;
-    padding: 1px 4px; color: #3F362A; border-radius: 3px;
+    padding: 1px 4px; color: #3c3836; border-radius: 3px;
   }
-  .toolbar-home:hover { background: #D9CFB4; color: #3F362A; }
+  .toolbar-home:hover { background: #c5bba5; color: #3c3836; }
   .toolbar-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
   .file-menu-wrap,
   .view-menu-wrap { position: relative; flex-shrink: 0; }
@@ -3374,32 +3572,32 @@
   .file-menu,
   .view-menu {
     position: absolute; top: calc(100% + 4px); left: 0; z-index: 80;
-    min-width: 220px; padding: 5px; border: 1px solid #D9CFB4; border-radius: 4px;
+    min-width: 220px; padding: 5px; border: 1px solid #c5bba5; border-radius: 4px;
     background: #ffffff; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.18);
   }
   .view-menu { min-width: 250px; }
   .file-menu-item,
   .recent-item {
     width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 14px;
-    border: none; border-radius: 3px; background: transparent; color: #3F362A;
+    border: none; border-radius: 3px; background: transparent; color: #3c3836;
     cursor: pointer; font-size: 12px; text-align: left; padding: 6px 8px;
   }
   .file-menu-item:hover,
   .file-menu-item:focus,
   .recent-item:hover,
   .recent-item:focus {
-    background: #F4EFE3;
+    background: #ebe4d2;
     outline: none;
   }
   .file-menu-item:disabled {
     opacity: 0.45; cursor: default; background: transparent;
   }
   .file-menu-item kbd {
-    font-family: inherit; font-size: 11px; color: #6E614A; background: transparent;
+    font-family: inherit; font-size: 11px; color: #665c54; background: transparent;
   }
-  .file-menu-sep { height: 1px; background: #EAE1C8; margin: 5px 2px; }
+  .file-menu-sep { height: 1px; background: #c5bba5; margin: 5px 2px; }
   .view-menu-group-label {
-    padding: 6px 8px 4px; color: #3F362A; font-size: 11px; font-weight: 700;
+    padding: 6px 8px 4px; color: #3c3836; font-size: 11px; font-weight: 700;
     text-transform: uppercase;
   }
   .radio-menu-item span,
@@ -3407,21 +3605,21 @@
     display: inline-flex; align-items: center; gap: 7px;
   }
   .radio-dot {
-    width: 10px; height: 10px; border: 1px solid #BAB1A0; border-radius: 50%;
+    width: 10px; height: 10px; border: 1px solid #a89984; border-radius: 50%;
     box-sizing: border-box; background: #ffffff;
   }
   .radio-dot.checked {
-    border: 3px solid #695E4D;
+    border: 3px solid #b57614;
   }
   .check-mark {
-    width: 12px; display: inline-block; color: #695E4D; font-weight: 700;
+    width: 12px; display: inline-block; color: #b57614; font-weight: 700;
   }
   .file-menu-recent { position: relative; }
-  .file-menu-arrow { color: #6E614A; font-size: 16px; line-height: 1; }
+  .file-menu-arrow { color: #665c54; font-size: 16px; line-height: 1; }
   .recent-flyout {
     display: none; position: absolute; top: -5px; left: 100%;
     min-width: 310px; max-width: min(520px, calc(100vw - 280px)); max-height: 360px; overflow: auto;
-    padding: 5px; border: 1px solid #D9CFB4; border-radius: 4px;
+    padding: 5px; border: 1px solid #c5bba5; border-radius: 4px;
     background: #ffffff; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.18);
   }
   .file-menu-recent:hover .recent-flyout,
@@ -3436,30 +3634,30 @@
   }
   .recent-path {
     display: block; margin-top: 2px; max-width: 470px;
-    font-family: "Courier New", monospace; font-size: 11px; color: #6E614A;
+    font-family: "Courier New", monospace; font-size: 11px; color: #665c54;
     overflow: hidden; text-overflow: ellipsis;
   }
-  .recent-empty { padding: 8px; color: #6E614A; font-size: 12px; white-space: nowrap; }
+  .recent-empty { padding: 8px; color: #665c54; font-size: 12px; white-space: nowrap; }
   .toolbar-btn {
-    padding: 3px 8px; border: 1px solid #D9CFB4; border-radius: 3px;
-    background: #F2ECDB; cursor: pointer; font-size: 12px; color: #3F362A;
+    padding: 3px 8px; border: 1px solid #c5bba5; border-radius: 3px;
+    background: #e3dac4; cursor: pointer; font-size: 12px; color: #3c3836;
   }
   .toolbar-icon-btn {
     width: 28px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
-    border: 1px solid #D9CFB4; border-radius: 3px; background: #F2ECDB;
-    cursor: pointer; font-size: 17px; line-height: 1; color: #3F362A;
+    border: 1px solid #c5bba5; border-radius: 3px; background: #e3dac4;
+    cursor: pointer; font-size: 17px; line-height: 1; color: #3c3836;
   }
-  .toolbar-btn:hover { background: #fff; border-color: #BAB1A0; }
-  .toolbar-btn:active { background: #D9CFB4; }
-  .toolbar-icon-btn:hover { background: #fff; border-color: #BAB1A0; }
-  .toolbar-icon-btn:active { background: #D9CFB4; }
+  .toolbar-btn:hover { background: #fff; border-color: #a89984; }
+  .toolbar-btn:active { background: #c5bba5; }
+  .toolbar-icon-btn:hover { background: #fff; border-color: #a89984; }
+  .toolbar-icon-btn:active { background: #c5bba5; }
   .toolbar-btn:disabled,
   .toolbar-icon-btn:disabled {
-    opacity: 0.48; cursor: default; background: #EAE1C8; color: #6E614A;
+    opacity: 0.48; cursor: default; background: #c5bba5; color: #665c54;
   }
   .toolbar-btn:disabled:hover,
   .toolbar-icon-btn:disabled:hover {
-    border-color: #D9CFB4; background: #EAE1C8;
+    border-color: #c5bba5; background: #c5bba5;
   }
   .diagnostics-wrap {
     position: relative;
@@ -3469,52 +3667,63 @@
   .diagnostics-chip {
     display: inline-flex; align-items: center; gap: 6px;
     min-width: 82px; height: 24px; box-sizing: border-box;
-    padding: 3px 8px; border: 1px solid #D9CFB4; border-radius: 12px;
-    background: #F2ECDB; color: #3F362A; cursor: pointer;
+    padding: 3px 8px; border: 1px solid #c5bba5; border-radius: 12px;
+    background: #e3dac4; color: #3c3836; cursor: pointer;
     font-size: 12px; font-weight: 700;
   }
-  .diagnostics-chip:hover { background: #fff; border-color: #BAB1A0; }
+  .diagnostics-chip:hover { background: #fff; border-color: #a89984; }
   .diagnostics-chip.valid { background: #e7f5eb; border-color: #7db58a; color: #2f6b3f; }
   .diagnostics-chip.issues { background: #fff1d7; border-color: #d69a45; color: #7a4b08; }
   .diagnostics-chip.unavailable { background: #fdecea; border-color: #d99b92; color: #9b2f25; }
   .diagnostics-chip.stale { background: #f7f1df; border-color: #d1bd7a; color: #715c16; }
-  .diagnostics-chip.checking { background: #F4EFE3; border-color: #BAB1A0; color: #695E4D; }
+  .diagnostics-chip.checking { background: #ebe4d2; border-color: #a89984; color: #b57614; }
+  /* Physical validation is turned off — gray the pill regardless of
+     status, signalling that BIT-PHYSICAL checks aren't running. */
+  .diagnostics-chip.phys-off,
+  .diagnostics-chip.phys-off.valid,
+  .diagnostics-chip.phys-off.issues,
+  .diagnostics-chip.phys-off.stale {
+    background: var(--paper-soft);
+    border-color: var(--rule);
+    color: var(--ink-mute);
+  }
+  .diagnostics-chip.phys-off .diagnostics-dot { background: var(--ink-faint); }
   .diagnostics-dot {
     width: 8px; height: 8px; border-radius: 50%;
-    background: #BAB1A0; flex-shrink: 0;
+    background: #a89984; flex-shrink: 0;
   }
   .diagnostics-chip.valid .diagnostics-dot { background: #3d914e; }
   .diagnostics-chip.issues .diagnostics-dot { background: #d4800e; }
   .diagnostics-chip.unavailable .diagnostics-dot { background: #c0392b; }
   .diagnostics-chip.stale .diagnostics-dot { background: #b58d18; }
-  .diagnostics-chip.checking .diagnostics-dot { background: #695E4D; animation: pulse 1s ease-in-out infinite; }
+  .diagnostics-chip.checking .diagnostics-dot { background: #b57614; animation: pulse 1s ease-in-out infinite; }
   @keyframes pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
   .diagnostics-panel {
     position: absolute; top: calc(100% + 4px); left: 0; z-index: 90;
     width: min(520px, calc(100vw - 24px)); max-height: 360px; overflow: hidden;
     display: flex; flex-direction: column;
-    border: 1px solid #D9CFB4; border-radius: 5px;
+    border: 1px solid #c5bba5; border-radius: 5px;
     background: #ffffff; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.18);
   }
   .diagnostics-panel-head {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    padding: 8px 10px; border-bottom: 1px solid #EAE1C8; background: #F4EFE3;
+    padding: 8px 10px; border-bottom: 1px solid #c5bba5; background: #ebe4d2;
   }
-  .diagnostics-title { font-size: 13px; font-weight: 700; color: #3F362A; }
+  .diagnostics-title { font-size: 13px; font-weight: 700; color: #3c3836; }
   .diagnostics-refresh {
     width: 24px; height: 22px; display: inline-flex; align-items: center; justify-content: center;
-    border: 1px solid #D9CFB4; border-radius: 3px; background: #ffffff;
-    color: #3F362A; cursor: pointer; font-size: 14px; line-height: 1;
+    border: 1px solid #c5bba5; border-radius: 3px; background: #ffffff;
+    color: #3c3836; cursor: pointer; font-size: 14px; line-height: 1;
   }
-  .diagnostics-refresh:hover:not(:disabled) { background: #F4EFE3; border-color: #BAB1A0; }
+  .diagnostics-refresh:hover:not(:disabled) { background: #ebe4d2; border-color: #a89984; }
   .diagnostics-refresh:disabled { opacity: 0.5; cursor: default; }
   .diagnostics-summary {
-    padding: 7px 10px; border-bottom: 1px solid #EAE1C8;
-    color: #3F362A; font-size: 12px; line-height: 1.35;
+    padding: 7px 10px; border-bottom: 1px solid #c5bba5;
+    color: #3c3836; font-size: 12px; line-height: 1.35;
   }
   .diagnostics-summary.problem { color: #7a4b08; font-weight: 700; }
   .diagnostics-empty {
-    padding: 12px 10px; color: #6E614A; font-size: 12px;
+    padding: 12px 10px; color: #665c54; font-size: 12px;
   }
   .diagnostics-list {
     overflow: auto;
@@ -3522,14 +3731,14 @@
   }
   .diagnostics-issue {
     display: grid; grid-template-columns: auto 1fr auto; gap: 7px;
-    align-items: start; padding: 8px 10px; border-bottom: 1px solid #EAE1C8;
-    font-size: 12px; color: #3F362A;
+    align-items: start; padding: 8px 10px; border-bottom: 1px solid #c5bba5;
+    font-size: 12px; color: #3c3836;
   }
   .diagnostics-issue:last-child { border-bottom: none; }
   .issue-severity {
     padding: 1px 5px; border-radius: 3px; text-transform: uppercase;
     font-size: 10px; font-weight: 700; line-height: 1.4;
-    background: #EAE1C8; color: #3F362A;
+    background: #c5bba5; color: #3c3836;
   }
   .diagnostics-issue.error .issue-severity { background: #fdecea; color: #c0392b; }
   .diagnostics-issue.warning .issue-severity { background: #fff1d7; color: #8a5a0a; }
@@ -3537,15 +3746,15 @@
   .issue-location,
   .issue-file,
   .issue-meta {
-    grid-column: 2 / 4; color: #6E614A; font-family: "Courier New", monospace;
+    grid-column: 2 / 4; color: #665c54; font-family: "Courier New", monospace;
     font-size: 11px;
   }
-  .toolbar-sep { width: 1px; height: 18px; background: #D9CFB4; margin: 0 6px; }
+  .toolbar-sep { width: 1px; height: 18px; background: #c5bba5; margin: 0 6px; }
   .content { flex: 1; overflow-y: auto; padding: 4px 0; display: flex; flex-direction: column; min-height: 0; }
   .toast {
     position: fixed; top: 48px; right: 14px; z-index: 100;
     max-width: min(360px, calc(100vw - 28px));
-    background: #3F362A; color: #ffffff; border: 1px solid #695E4D;
+    background: #3c3836; color: #ffffff; border: 1px solid #b57614;
     border-radius: 5px; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.22);
     padding: 9px 12px; font-size: 13px; font-weight: 600;
   }
@@ -3560,10 +3769,10 @@
   }
   :global(.split-handle) {
     width: 6px; flex-shrink: 0;
-    background: #D9CFB4;
+    background: #c5bba5;
     cursor: col-resize;
   }
-  :global(.split-handle:hover) { background: #D9CFB4; }
+  :global(.split-handle:hover) { background: #c5bba5; }
   :global(.scad-line) {
     font-family: "Courier New", monospace; font-size: 13px;
     min-height: 24px;
@@ -3591,7 +3800,7 @@
     flex: 1; min-height: 0; gap: 8px; padding-top: 60px; overflow: hidden;
   }
   :global(:global(.welcome-title)) {
-    margin: 0; font-size: 36px; font-weight: 700; color: #695E4D;
+    margin: 0; font-size: 36px; font-weight: 700; color: #b57614;
   }
   :global(.welcome-subtitle) {
     margin: 0; font-size: 16px; color: #888;
@@ -3615,8 +3824,8 @@
     border: 1px solid #ddd; border-radius: 4px;
     background: #fff; color: #888; cursor: pointer;
   }
-  :global(.welcome-sort-btn.active) { background: #695E4D; color: #fff; border-color: #695E4D; }
-  :global(.welcome-sort-btn:hover:not(.active)) { background: #F4EFE3; color: #695E4D; border-color: #695E4D; }
+  :global(.welcome-sort-btn.active) { background: #b57614; color: #fff; border-color: #b57614; }
+  :global(.welcome-sort-btn:hover:not(.active)) { background: #ebe4d2; color: #b57614; border-color: #b57614; }
   :global(.welcome-icon-bar) {
     position: absolute; top: 12px; right: 16px;
     display: flex; gap: 6px;
@@ -3627,7 +3836,7 @@
     background: #fff; color: #666; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
   }
-  :global(.welcome-icon-btn:hover:not(:disabled)) { background: #F4EFE3; color: #695E4D; border-color: #695E4D; }
+  :global(.welcome-icon-btn:hover:not(:disabled)) { background: #ebe4d2; color: #b57614; border-color: #b57614; }
   :global(.welcome-icon-btn:disabled) { opacity: 0.4; cursor: default; }
   :global(.spinning) { display: inline-block; animation: spin 0.8s linear infinite; }
   :global(.update-btn-wrap) { position: relative; }
@@ -3652,17 +3861,17 @@
   :global(.welcome-btn) {
     padding: 12px 24px; font-size: 16px; font-weight: 600;
     border: 1px solid #bbb; border-radius: 6px;
-    background: white; color: #3F362A; cursor: pointer;
+    background: white; color: #3c3836; cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
   }
   :global(.welcome-btn:hover:not(:disabled)) {
-    background: #F4EFE3; border-color: #695E4D;
+    background: #ebe4d2; border-color: #b57614;
   }
   :global(.welcome-btn:disabled) {
     opacity: 0.5; cursor: default;
   }
   :global(.welcome-btn-primary) {
-    background: #695E4D; color: white; border-color: #695E4D;
+    background: #b57614; color: white; border-color: #b57614;
   }
   :global(.welcome-btn-primary:hover:not(:disabled)) {
     background: #3a6d91; border-color: #3a6d91;
@@ -3674,7 +3883,7 @@
     text-align: center; color: #888; font-size: 14px; margin: 0; line-height: 1.5;
   }
   :global(.welcome-status) {
-    text-align: center; color: #695E4D; font-size: 13px; margin: 0;
+    text-align: center; color: #b57614; font-size: 13px; margin: 0;
     max-width: 260px; word-break: break-word; align-self: center;
   }
   :global(.welcome-progress) {
@@ -3682,11 +3891,11 @@
     margin: 8px 0 4px; align-self: center;
   }
   :global(.welcome-progress-msg) {
-    color: #695E4D; font-size: 12px; font-weight: 500;
+    color: #b57614; font-size: 12px; font-weight: 500;
   }
   :global(.welcome-spinner) {
     display: inline-block; width: 14px; height: 14px;
-    border: 2px solid #c8d9e6; border-top-color: #695E4D;
+    border: 2px solid #c8d9e6; border-top-color: #b57614;
     border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -3700,33 +3909,33 @@
   :global(.welcome-col-right-align .welcome-new-file) { text-align: right; }
   :global(.welcome-col-right-align .welcome-library-game) { text-align: right; }
   :global(.welcome-col-right-align .welcome-library-empty-folder) { text-align: right; }
-  :global(.welcome-library-title) { font-size: 18px; font-weight: 600; color: #3F362A; margin: 0 0 4px; }
+  :global(.welcome-library-title) { font-size: 18px; font-weight: 600; color: #3c3836; margin: 0 0 4px; }
   :global(.welcome-library-desc) { font-size: 12px; color: #999; margin: 0 0 12px; line-height: 1.4; }
   :global(.welcome-library-scroll) { overflow-y: auto; flex: 1; padding-right: 8px; }
   :global(.welcome-library-publisher) { margin-bottom: 14px; }
   :global(.welcome-new-file) {
     display: block; width: 100%; text-align: left;
     padding: 5px 10px; font-size: 14px; font-weight: 600;
-    border: 1px dashed #D9CFB4; border-radius: 4px;
-    background: transparent; color: #695E4D; cursor: pointer;
+    border: 1px dashed #c5bba5; border-radius: 4px;
+    background: transparent; color: #b57614; cursor: pointer;
   }
-  :global(.welcome-new-file:hover) { background: #F4EFE3; }
+  :global(.welcome-new-file:hover) { background: #ebe4d2; }
   :global(.welcome-library-empty-folder) { color: #bbb; font-size: 13px; font-style: italic; margin: 0; padding: 2px 10px; }
-  :global(.welcome-library-publisher-name) { font-size: 12px; font-weight: 600; color: #695E4D; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 4px; }
+  :global(.welcome-library-publisher-name) { font-size: 12px; font-weight: 600; color: #b57614; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 4px; }
   :global(.welcome-library-game) {
     display: block; width: 100%; text-align: left;
     padding: 5px 10px; border: none; border-radius: 4px;
-    background: transparent; color: #3F362A; font-size: 14px; cursor: pointer;
+    background: transparent; color: #3c3836; font-size: 14px; cursor: pointer;
   }
-  :global(.welcome-library-game:hover) { background: #F4EFE3; color: #695E4D; }
+  :global(.welcome-library-game:hover) { background: #ebe4d2; color: #b57614; }
   :global(.welcome-library-game.user-file) { font-weight: 600; }
   :global(.welcome-library-game.user-file::before) { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #d4800e; margin-right: 6px; flex-shrink: 0; vertical-align: middle; }
-  :global(.welcome-library-game:not(.user-file)::before) { content: ""; display: inline-block; width: 7px; height: 9px; border: 1.5px solid #D9CFB4; border-left: 2.5px solid #D9CFB4; border-radius: 0 1px 1px 0; margin-right: 5px; flex-shrink: 0; vertical-align: middle; }
+  :global(.welcome-library-game:not(.user-file)::before) { content: ""; display: inline-block; width: 7px; height: 9px; border: 1.5px solid #c5bba5; border-left: 2.5px solid #c5bba5; border-radius: 0 1px 1px 0; margin-right: 5px; flex-shrink: 0; vertical-align: middle; }
   :global(.welcome-library-rename) {
     display: block; width: 100%; box-sizing: border-box;
     padding: 5px 10px; font-size: 14px; font-weight: 600;
-    color: #3F362A; background: #fff;
-    border: 1px solid #695E4D; border-radius: 4px; outline: none;
+    color: #3c3836; background: #fff;
+    border: 1px solid #b57614; border-radius: 4px; outline: none;
     font-family: inherit;
   }
   :global(.lib-context-backdrop) {
@@ -3741,9 +3950,9 @@
   :global(.lib-context-item) {
     display: block; width: 100%; text-align: left;
     padding: 8px 16px; border: none; background: transparent;
-    font-size: 14px; color: #3F362A; cursor: pointer;
+    font-size: 14px; color: #3c3836; cursor: pointer;
   }
-  :global(.lib-context-item:hover) { background: #F4EFE3; color: #695E4D; }
+  :global(.lib-context-item:hover) { background: #ebe4d2; color: #b57614; }
   /* ── Editor rows ──────────────────────────────────────────────────
      Hierarchy ramp keyed off --depth: warm sepia from sepia-deep (depth 0)
      to sepia-soft (deepest). 20% per step gives a glance-readable level
@@ -3888,13 +4097,20 @@
   .virtual-key { }
 
   .collapse-btn {
-    background: none; border: none; cursor: pointer;
-    padding: 0; font-size: 12px; color: var(--ink-mute); flex-shrink: 0;
-    /* Fixed width + centered glyph so the label after the arrow
-       doesn't reflow when ▼ flips to ▶. */
-    width: 14px; text-align: center;
+    /* Absolute-positioned in the per-depth gutter, sharing the same
+       column as the diagnostic slot — between the hierarchy rail and
+       the row's label. Pulled OUT of flex flow so the struct-label
+       aligns with the kv-key column of same-depth siblings. */
+    position: absolute;
+    left: calc(4px + var(--indent, 0px));
+    top: 0; bottom: 0;
+    width: 16px;
+    background: none; border: none; cursor: pointer; padding: 0; margin: 0;
+    font-size: 12px; color: var(--ink-mute);
+    text-align: center;
     font-family: "Courier New", monospace;
-    line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 2;
   }
   .collapse-btn:hover { color: var(--ink); }
 
@@ -3944,16 +4160,34 @@
   }
   .line-row.has-diagnostic { box-shadow: inset 3px 0 0 var(--warn); }
   .line-row.diagnostic-error { box-shadow: inset 3px 0 0 var(--error); }
-  /* Diagnostic slot is absolute-positioned so it never consumes inline
-     space; the kv-key dot leader can reach kv-control regardless of
-     whether a diagnostic is present. The marker sits in the row's
-     gutter aligned with where the line's content begins — for a depth-N
-     row that's just to the LEFT of the indent boundary, not pinned to
-     the row's outer edge. max(4px, …) keeps depth-0 rows from pushing
-     the marker off-screen. */
+  /* Diagnostic-related field highlight — only the editable inputs in
+     a flagged row get a red ring, not the row itself. Uses box-shadow
+     instead of outline so the bottom edge isn't clipped by the next
+     row pressing against the 24px row height. When the diagnostic
+     parses an axis, non-matching subfields on multi-axis inputs drop
+     the ring so the user's eye lands on the value that needs to change. */
+  .line-row.diag-highlight .kv-control input,
+  .line-row.diag-highlight .kv-control select {
+    box-shadow: 0 0 0 2px var(--error);
+    border-color: var(--error);
+    position: relative;
+    z-index: 1;
+  }
+  .line-row.diag-highlight.diag-x .kv-control input[data-axis]:not([data-axis="x"]),
+  .line-row.diag-highlight.diag-y .kv-control input[data-axis]:not([data-axis="y"]),
+  .line-row.diag-highlight.diag-z .kv-control input[data-axis]:not([data-axis="z"]) {
+    box-shadow: none;
+    border-color: var(--rule);
+  }
+  /* Diagnostic slot + collapse-btn share the same per-depth gutter:
+     just to the right of the hierarchy rail (at the indent boundary)
+     and just to the left of the row's label/content. For struct.open
+     rows the collapse arrow lives here; for kv rows a diagnostic
+     marker (if any) lives here. When a struct row also has a
+     diagnostic, the marker (z-index 3) overlays the arrow (z-index 2). */
   .line-diagnostic-slot {
     position: absolute;
-    left: max(4px, calc(var(--indent, 0px) - 8px));
+    left: calc(4px + var(--indent, 0px));
     top: 0; bottom: 0;
     width: 16px;
     display: flex; align-items: center; justify-content: center;
@@ -3964,23 +4198,24 @@
   .line-diagnostic-marker {
     width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
     border: none; border-radius: 0; clip-path: polygon(50% 4%, 98% 96%, 2% 96%);
-    background: #d4800e; color: #ffffff; cursor: pointer;
+    /* Hazard triangles are red — kept distinct from the yellow accent
+       used by checkboxes/stars so the alarm reads unambiguously. */
+    background: var(--error); color: var(--paper); cursor: pointer;
     font-family: Arial, sans-serif; font-size: 11px; font-weight: 800; line-height: 1;
     padding-top: 3px;
+    /* Optically centre the triangle in the row — clip-path top vertex
+       leaves visual weight at the bottom, so nudge up 2px. */
+    transform: translateY(-2px);
   }
-  .line-diagnostic-marker.error {
-    background: #c0392b; color: #ffffff;
-  }
-  .line-diagnostic-marker.info {
-    background: #695E4D; color: #ffffff;
-  }
+  .line-diagnostic-marker.error { background: var(--error); color: var(--paper); }
+  .line-diagnostic-marker.info  { background: var(--accent); color: var(--paper); }
   .line-diagnostic-marker:hover { filter: brightness(0.97); }
   .kv-control { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-  .kv-num { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px; width: 56px; background: var(--paper); color: var(--ink); }
+  .kv-num { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px; width: 56px; background: var(--input-bg); color: var(--ink); }
   .kv-num.xs { width: 44px; }
-  .kv-str { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px; width: 160px; background: var(--paper); color: var(--ink); }
+  .kv-str { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px; width: 160px; background: var(--input-bg); color: var(--ink); }
   .kv-str.sm { width: 56px; }
-  .kv-control select { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px; background: var(--paper); color: var(--ink); }
+  .kv-control select { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px; background: var(--input-bg); color: var(--ink); }
   /* Smaller checkboxes — they were dominating the row visually. */
   .kv-control input[type="checkbox"] { width: 13px; height: 13px; accent-color: var(--accent); }
   .kv-fallback { color: var(--ink-faint); font-size: 13px; }
@@ -4020,30 +4255,31 @@
   .raw-input {
     flex: 1; min-width: 0;
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 400;
-    padding: 1px 4px; border: 1px solid #c8d1da; border-radius: 2px; background: white;
+    padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px;
+    background: var(--input-bg); color: var(--ink);
   }
   .toggle-btn {
-    background: none; border: 1px solid #D9CFB4; color: #BAB1A0;
+    background: none; border: 1px solid #c5bba5; color: #a89984;
     cursor: pointer; font-size: 11px; font-weight: 700;
     padding: 1px 5px; border-radius: 3px; flex-shrink: 0;
     font-family: "Courier New", monospace;
     opacity: 0; transition: opacity 0.1s;
   }
   .line-row:hover .toggle-btn { opacity: 1; }
-  .toggle-btn:hover:not(:disabled) { border-color: #695E4D; color: #695E4D; }
+  .toggle-btn:hover:not(:disabled) { border-color: #b57614; color: #b57614; }
   .toggle-btn:disabled { opacity: 0.3; cursor: default; }
-  .toggle-btn.active { opacity: 1; background: #695E4D; color: white; border-color: #695E4D; }
+  .toggle-btn.active { opacity: 1; background: #b57614; color: white; border-color: #b57614; }
   .kv-raw-value {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 400;
-    padding: 1px 4px; border: 1px solid #695E4D; border-radius: 2px;
-    width: 280px; background: #f0f4f8;
+    padding: 1px 4px; border: 1px solid var(--accent); border-radius: 2px;
+    width: 280px; background: var(--input-bg); color: var(--ink);
   }
   .add-btn {
-    background: none; border: 1px dashed #D9CFB4; color: #546e7a;
+    background: none; border: 1px dashed #c5bba5; color: #546e7a;
     padding: 0 8px; border-radius: 3px; cursor: pointer;
     font-size: 14px; font-weight: 700; line-height: 1.4;
   }
-  .add-btn:hover { border-color: #695E4D; color: #695E4D; }
+  .add-btn:hover { border-color: #b57614; color: #b57614; }
   .add-scene-row { border-bottom: none; }
   .comment-btn {
     background: none; border: none; color: #ccc; cursor: pointer;
@@ -4078,22 +4314,22 @@
   @keyframes fadeOut { from { opacity: 1; max-height: 30px; } to { opacity: 0; max-height: 0; overflow: hidden; } }
   .scene-name-input {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 700;
-    color: #3F362A; background: transparent; border: none;
+    color: #3c3836; background: transparent; border: none;
     border-bottom: 1px dashed #b0bec5; padding: 0 4px; outline: none;
     width: auto; min-width: 60px;
   }
   .scene-name-input:focus { border-bottom: 1px solid #546e7a; background: #f0f4f8; }
   .make-text {
-    font-family: "Courier New", monospace; font-size: 15px; font-weight: 700; color: #3F362A;
+    font-family: "Courier New", monospace; font-size: 15px; font-weight: 700; color: #3c3836;
   }
   .make-select {
     font-family: "Courier New", monospace; font-size: 15px; font-weight: 700;
-    color: #3F362A; background: white; border: 1px solid #D9CFB4;
+    color: #3c3836; background: white; border: 1px solid #c5bba5;
     border-radius: 2px; padding: 1px 4px;
   }
 
   /* Variable lines */
-  .var-name { font-weight: 700; color: #3F362A; }
+  .var-name { font-weight: 700; color: #3c3836; }
   .var-eq { color: #999; font-weight: 700; margin: 0 4px; }
   .var-value {
     font-family: "Courier New", monospace; font-size: 15px;
@@ -4117,12 +4353,12 @@
   /* Preset button + dropdown */
   .preset-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
   .preset-btn {
-    background: none; border: 1px solid #D9CFB4; color: #BAB1A0;
+    background: none; border: 1px solid #c5bba5; color: #a89984;
     cursor: pointer; font-size: 10px; padding: 1px 4px; border-radius: 3px;
     opacity: 0; transition: opacity 0.1s; flex-shrink: 0;
   }
   .line-row:hover .preset-btn { opacity: 1; }
-  .preset-btn:hover { border-color: #695E4D; color: #695E4D; }
+  .preset-btn:hover { border-color: #b57614; color: #b57614; }
   .preset-menu {
     position: absolute; top: 100%; left: 0; z-index: 50;
     background: white; border: 1px solid #c8d1da; border-radius: 4px;
@@ -4132,14 +4368,14 @@
   .preset-item {
     display: block; width: 100%; text-align: left;
     padding: 4px 10px; border: none; background: none;
-    cursor: pointer; font-size: 13px; color: #3F362A;
+    cursor: pointer; font-size: 13px; color: #3c3836;
     white-space: nowrap;
   }
   .preset-item:hover { background: #e8f0fe; }
   .preset-pill {
     display: inline-flex; align-items: center;
     padding: 1px 8px; border-radius: 10px;
-    background: #e0ecf5; color: #695E4D;
+    background: #e0ecf5; color: #b57614;
     font-family: "Courier New", monospace; font-size: 13px; font-weight: 600;
     white-space: nowrap;
   }
@@ -4160,12 +4396,12 @@
   .raw-block { position: relative; }
   .raw-block:hover .raw-parse-btn { opacity: 1; }
 
-  .status-bar { display: flex; justify-content: space-between; align-items: center; padding: 3px 12px; background: #e4eaf0; border-top: 1px solid #D9CFB4; font-size: 13px; color: #546e7a; }
+  .status-bar { display: flex; justify-content: space-between; align-items: center; padding: 3px 12px; background: #e4eaf0; border-top: 1px solid #c5bba5; font-size: 13px; color: #546e7a; }
   .status-bar.status-error { background: #fdecea; color: #c0392b; font-weight: 700; }
   .status-versions { display: inline-flex; align-items: center; gap: 6px; font-family: "Courier New", monospace; font-size: 12px; color: #6b7d8e; }
   .status-bar.status-error .status-versions { color: #c0392b; }
-  .status-version-sep { color: #D9CFB4; }
-  .status-version-active { color: #695E4D; font-weight: 600; }
+  .status-version-sep { color: #c5bba5; }
+  .status-version-active { color: #b57614; font-weight: 600; }
   .status-update-chip {
     font-family: inherit; font-size: 11px; line-height: 1; cursor: pointer;
     padding: 2px 6px; border-radius: 9px;
@@ -4184,7 +4420,7 @@
     background: white; border-radius: 8px; padding: 24px 28px;
     min-width: 520px; max-width: 680px; width: 680px; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
   }
-  :global(.prefs-title) { margin: 0 0 16px; font-size: 18px; color: #3F362A; }
+  :global(.prefs-title) { margin: 0 0 16px; font-size: 18px; color: #3c3836; }
   :global(.prefs-row) { margin-bottom: 14px; }
   :global(.prefs-label) { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 4px; }
   :global(.prefs-input-row) { display: flex; gap: 6px; }
@@ -4194,7 +4430,7 @@
   }
   :global(.prefs-browse) {
     padding: 6px 12px; border: 1px solid #bbb; border-radius: 4px;
-    background: #f5f5f5; cursor: pointer; font-size: 13px;
+    background: #ebe4d2; cursor: pointer; font-size: 13px;
   }
   :global(.prefs-browse:hover) { background: #eee; border-color: #999; }
   :global(.prefs-check-label) {
@@ -4207,9 +4443,23 @@
     padding: 8px 18px; border: 1px solid #bbb; border-radius: 4px;
     background: white; cursor: pointer; font-size: 14px;
   }
-  :global(.prefs-btn:hover) { background: #f5f5f5; }
-  :global(.prefs-btn.primary) { background: #695E4D; color: white; border-color: #695E4D; }
+  :global(.prefs-btn:hover) { background: #ebe4d2; }
+  :global(.prefs-btn.primary) { background: #b57614; color: white; border-color: #b57614; }
   :global(.prefs-btn.primary:hover) { background: #1e3f5a; }
+  :global(.prefs-theme-toggle) {
+    display: inline-flex; gap: 8px; margin-top: 6px;
+  }
+  :global(.prefs-theme-btn) {
+    padding: 6px 14px; border: 1px solid var(--rule); border-radius: 4px;
+    background: var(--paper); color: var(--ink); cursor: pointer; font-size: 13px;
+  }
+  :global(.prefs-theme-btn.active) {
+    background: var(--accent); border-color: var(--accent-deep);
+    color: var(--paper);
+  }
+  :global(.prefs-theme-btn:hover:not(.active)) {
+    background: var(--sepia-tint);
+  }
   .external-change-modal {
     background: white; border-radius: 8px; padding: 22px 26px;
     width: min(620px, calc(100vw - 40px)); box-shadow: 0 8px 32px rgba(0,0,0,0.25);
@@ -4218,11 +4468,11 @@
     margin: 0 0 10px; font-size: 18px; color: #8a3d10;
   }
   .external-change-text {
-    margin: 0 0 12px; color: #3F362A; line-height: 1.45;
+    margin: 0 0 12px; color: #3c3836; line-height: 1.45;
   }
   .external-change-path {
     margin: 0; padding: 8px 10px; border: 1px solid #d7dee6; border-radius: 4px;
-    background: #F4EFE3; color: #3F362A; font-family: "Courier New", monospace;
+    background: #ebe4d2; color: #3c3836; font-family: "Courier New", monospace;
     font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .external-change-actions {
@@ -4231,13 +4481,13 @@
   :global(.prefs-divider) { border-top: 1px solid #e0e0e0; margin: 16px 0 12px; }
   :global(.prefs-about) { text-align: center; }
   :global(.prefs-links) { display: flex; justify-content: center; gap: 6px; font-size: 13px; flex-wrap: wrap; }
-  :global(.prefs-links a) { color: #695E4D; text-decoration: none; }
+  :global(.prefs-links a) { color: #b57614; text-decoration: none; }
   :global(.prefs-links a:hover) { text-decoration: underline; }
   :global(.prefs-link-sep) { color: #bbb; }
-  :global(.prefs-submit-designs) { text-align: left; margin: 12px 0 8px; padding: 10px 12px; background: #F4EFE3; border-radius: 6px; border: 1px solid #e0e8ef; }
-  :global(.prefs-submit-title) { font-size: 13px; font-weight: 600; color: #695E4D; margin: 0 0 4px; }
+  :global(.prefs-submit-designs) { text-align: left; margin: 12px 0 8px; padding: 10px 12px; background: #ebe4d2; border-radius: 6px; border: 1px solid #e0e8ef; }
+  :global(.prefs-submit-title) { font-size: 13px; font-weight: 600; color: #b57614; margin: 0 0 4px; }
   :global(.prefs-submit-help) { font-size: 12px; color: #555; margin: 4px 0; line-height: 1.6; }
-  :global(.prefs-submit-help a) { color: #695E4D; text-decoration: none; }
+  :global(.prefs-submit-help a) { color: #b57614; text-decoration: none; }
   :global(.prefs-submit-help a:hover) { text-decoration: underline; }
   :global(.prefs-copyright) { font-size: 11px; color: #999; margin: 8px 0 0; }
   .toolbar-gear { font-size: 18px; line-height: 1; }
