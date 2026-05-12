@@ -1021,6 +1021,12 @@
       setupLog = [...setupLog, msg];
     });
 
+    bgsd?.onStartupLibrariesUpdated?.((result: { ok: boolean; messages?: string[]; error?: string }) => {
+      if (!result?.ok) return;
+      loadLibraryTree();
+      bgsd?.checkUpdates?.().then((info: any) => { if (info) updateInfo = info; }).catch(() => {});
+    });
+
     // Check for pending auto-load (CLI arg / env var)
     for (let i = 0; i < 50; i++) {
       if (fileLoaded) break; // already loaded via menu during polling

@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld("bgsd", {
   checkUpdates: () => ipcRenderer.invoke("check-updates"),
   selfUpdate: () => ipcRenderer.invoke("self-update"),
   onSelfUpdateProgress: (callback) => ipcRenderer.on("self-update-progress", (_event, data) => callback(data)),
+  onStartupLibrariesUpdated: (callback) => ipcRenderer.on("startup-libraries-updated", (_event, data) => callback(data)),
 
   // Presets
   getPresets: (publisherFile) => ipcRenderer.invoke("get-presets", publisherFile),

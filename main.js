@@ -1504,8 +1504,7 @@ ipcMain.handle("get-presets", (_event, publisherConstantsFile) => {
   return map;
 });
 
-async function refreshLatestLibrariesOnStartup() {
-  const prefs = loadPrefs();
+async function refreshLatestProfileCachesOnStartup(prefs) {
   for (const [profileId, profile] of Object.entries(profiles)) {
     if (!profile.latestFilePattern) continue;
     try {
@@ -1517,11 +1516,39 @@ async function refreshLatestLibrariesOnStartup() {
   }
 }
 
+async function refreshLibrariesOnStartup() {
+  const prefs = loadPrefs();
+  await refreshLatestProfileCachesOnStartup(prefs);
+
+  if (!prefs.workingDir) return;
+
+  const messages = [];
+  try {
+    const result = await updateLibraries(prefs.workingDir, (msg) => {
+      messages.push(msg);
+      console.log(`[library] ${msg}`);
+    });
+    const skipped = result?.skippedUserFiles || [];
+    if (skipped.length > 0) {
+      console.log(`[library] startup update skipped ${skipped.length} writable local file(s)`);
+    }
+    console.log(`[library] startup update complete (${messages.length} refreshed message(s))`);
+    if (mainWindow) {
+      mainWindow.webContents.send("startup-libraries-updated", { ok: true, messages, skippedUserFiles: skipped });
+    }
+  } catch (err) {
+    console.warn("[library] startup update failed:", err.message);
+    if (mainWindow) {
+      mainWindow.webContents.send("startup-libraries-updated", { ok: false, error: err.message });
+    }
+  }
+}
+
 app.whenReady().then(() => {
   const prefs = loadPrefs();
   if (prefs.proxy) setProxy(prefs.proxy);
   createWindow();
-  void refreshLatestLibrariesOnStartup();
+  void refreshLibrariesOnStartup();
 });
 app.on("window-all-closed", () => app.quit());
 
