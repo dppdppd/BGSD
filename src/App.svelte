@@ -1488,7 +1488,10 @@
     const bgsd = (window as any).bgsd;
     const result = await bgsd?.exportStl?.(filePath);
     if (!result) { statusMsg = "Export unavailable"; return; }
-    if (result.ok) statusMsg = `Exported: ${result.filePath}`;
+    if (result.ok) {
+      const count = Array.isArray(result.files) ? result.files.length : 1;
+      statusMsg = count > 1 ? `Exported ${count} STL files` : `Exported: ${result.filePath}`;
+    }
     else if (result.error === "not-found") statusMsg = "OpenSCAD not found — set its path in Preferences";
     else if (result.error) statusMsg = `Export failed: ${result.error}`;
     else statusMsg = "Export cancelled";

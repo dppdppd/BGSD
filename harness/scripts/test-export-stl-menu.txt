@@ -1,0 +1,4 @@
+wait app-root
+js (() => { const btn = document.querySelector('.welcome-library-game'); if (!btn) throw new Error('No library file found on welcome screen'); btn.click(); return btn.textContent.trim(); })()
+shot export_stl_menu
+js (() => { const item = document.querySelector('[data-testid="ctx-export-stl"]'); if (!item) throw new Error('Export STLs menu item not found'); if (item.textContent.trim() !== 'Export STLs') throw new Error(`Unexpected export label: ${item.textContent.trim()}`); return item.textContent.trim(); })()

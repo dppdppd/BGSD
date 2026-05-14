@@ -6,6 +6,7 @@ const { Buffer } = require("buffer");
 const { importScad } = require("./importer");
 const { ensureLatestLibrary, ensureLibraryForInclude, initWorkingDir, updateLibraries, checkLibraryUpdates, fetchLatestReleaseTag, isInsideWorkingDir, isRepoFile, loadManifest, profiles, setProxy } = require("./lib/library-manager");
 const { parseConstantsFile } = require("./lib/constants-parser");
+const { createStlExportPlan } = require("./lib/stl-export");
 const undoSidecar = require("./lib/undo-sidecar");
 
 // Prevent GPU-related crashes on Windows (packaged exe doesn't get --disable-gpu)
@@ -901,10 +902,11 @@ ipcMain.handle("export-stl", async (_event, sourcePath) => {
     return { ok: false, error: `File not found: ${sourcePath || "(no path)"}` };
   }
 
-  // Show Save dialog for .stl output
+  // Show Save dialog for the combined .stl output. If the design uses
+  // PRINT_GROUP tags, sibling files are exported for each group.
   const defaultName = path.basename(sourcePath, ".scad") + ".stl";
   const result = await dialog.showSaveDialog(mainWindow, {
-    title: "Export STL",
+    title: "Export STL Files",
     filters: [{ name: "STL Files", extensions: ["stl"] }],
     defaultPath: path.join(path.dirname(sourcePath), defaultName),
   });
@@ -918,15 +920,65 @@ ipcMain.handle("export-stl", async (_event, sourcePath) => {
   });
   if (!canRun) return { ok: false, error: "not-found" };
 
-  return new Promise((resolve) => {
-    execFile(cmd, ["-o", result.filePath, sourcePath], { timeout: 120000 }, (err, _stdout, stderr) => {
-      if (err) {
-        resolve({ ok: false, error: stderr || err.message });
-      } else {
-        resolve({ ok: true, filePath: result.filePath });
-      }
+  let plan;
+  const tempPaths = [];
+  try {
+    const scadText = await fs.promises.readFile(sourcePath, "utf-8");
+    plan = createStlExportPlan({
+      sourcePath,
+      targetFilePath: result.filePath,
+      scadText,
+      tempToken: crypto.randomBytes(6).toString("hex"),
     });
-  });
+    for (const job of plan.jobs) {
+      if (job.tempScadPath && job.scadText) {
+        await fs.promises.writeFile(job.tempScadPath, job.scadText, "utf-8");
+        tempPaths.push(job.tempScadPath);
+      }
+    }
+  } catch (err) {
+    for (const tempPath of tempPaths) {
+      fs.promises.unlink(tempPath).catch(() => {});
+    }
+    return { ok: false, error: `Could not prepare STL export: ${err.message}` };
+  }
+
+  async function runExportJob(job) {
+    const inputPath = job.tempScadPath || job.sourcePath || sourcePath;
+    return new Promise((resolve) => {
+      execFile(cmd, ["-o", job.filePath, inputPath], { timeout: 120000 }, (err, _stdout, stderr) => {
+        if (err) {
+          resolve({ ok: false, error: stderr || err.message, job });
+        } else {
+          resolve({ ok: true, job });
+        }
+      });
+    });
+  }
+
+  try {
+    const files = [];
+    for (const job of plan.jobs) {
+      const exported = await runExportJob(job);
+      if (!exported.ok) {
+        return {
+          ok: false,
+          error: exported.error,
+          failedFilePath: job.filePath,
+          failedGroup: job.kind === "group" ? job.group : null,
+          files,
+        };
+      }
+      files.push(job.filePath);
+    }
+    return { ok: true, filePath: result.filePath, files, groups: plan.groups };
+  } finally {
+    await Promise.all(tempPaths.map((tempPath) =>
+      fs.promises.unlink(tempPath).catch((err) => {
+        if (err.code !== "ENOENT") console.warn("[export-stl] cleanup failed:", err.message);
+      })
+    ));
+  }
 });
 
 // --- Preferences IPC ---
