@@ -84,12 +84,13 @@ Make(data);`;
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "DIV_RAIL_SIZE_XYZ")?.kvValue).toEqual([1, 1.5, 15]);
   });
 
-  it("parses BIT 4.8.0 feature groups, copies, and nested child features", () => {
+  it("parses BIT 4.9.0 feature groups, copies, print groups, and nested child features", () => {
     const scad = `// BGSD
-include <../lib/boardgame_insert_toolkit_lib.4.8.0.scad>;
+include <../lib/boardgame_insert_toolkit_lib.4.9.0.scad>;
 data = [
     [ OBJECT_BOX, [
         [ NAME, "box 1" ],
+        [ PRINT_GROUP, "red" ],
         [ FEATURE_GROUP,
             [ NAME, "left bank" ],
             [ POSITION_XY, [2, 3] ],
@@ -116,6 +117,7 @@ Make(data);`;
     expect(project.lines.some((l) => l.kind === "close" && l.role === "feature_copy")).toBe(true);
     expect(project.lines.some((l) => l.kind === "open" && l.role === "feature_list")).toBe(true);
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "POSITION_XY")?.kvValue).toEqual([2, 3]);
+    expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "PRINT_GROUP")?.kvValue).toBe("red");
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "FEATURE_REFERENCE")?.kvValue).toBe("nested");
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "FTR_COMPARTMENT_SIZE_XYZ")?.kvValue).toEqual([20, 20, 10]);
   });

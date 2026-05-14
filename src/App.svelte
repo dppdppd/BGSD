@@ -121,7 +121,7 @@
   }
   let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
   let favoriteKeys = $state<Set<string>>(new Set());
-  const FAVORITE_KEYS_VERSION = 9;
+  const FAVORITE_KEYS_VERSION = 10;
   const FAVORITE_KEYS_ADDED_IN_V2 = ["LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH"];
   const FAVORITE_KEYS_ADDED_IN_V3 = [
     "FTR_DIVIDERS", "DIV_AXIS", "DIV_OUTPUT_ONLY_B",
@@ -132,11 +132,13 @@
   const FAVORITE_KEYS_ADDED_IN_V5 = ["FTR_SHAPE_AXIS"];
   const FAVORITE_KEYS_ADDED_IN_V8 = ["FEATURE_GROUP"];
   const FAVORITE_KEYS_ADDED_IN_V9 = ["FEATURE_COPY", "FEATURE_REFERENCE"];
+  const FAVORITE_KEYS_ADDED_IN_V10 = ["G_PRINT_GROUP"];
   // Pull DIVIDERS-related globals out of every user's favorites — they
   // were seeded by mistake and clutter the default-mode picker.
   const REMOVED_FAVORITE_KEYS = [
     "DIV_NUM_DIVIDERS", "DIV_SLOT_DEPTH", "DIV_RAILS_B", "FTR_SHAPE_ROTATED_B",
     "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_VALIDATE_PHYSICAL_B", "BOX_GROUP",
+    "G_PRINT_MMU_LAYER",
   ];
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
   // and docs/guidance/CTD-PARAMETERS.md (3+ designs). Seeded on first run.
@@ -150,7 +152,7 @@
     "DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B",
     "LID_SOLID_B", "LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH",
     "LBL_TEXT", "LBL_SIZE", "LBL_PLACEMENT",
-    "G_VALIDATE_KEYS_B",
+    "G_PRINT_GROUP", "G_VALIDATE_KEYS_B",
     "G_DIMENSIONS_XY", "G_FLOOR_THICKNESS_N", "G_MIN_PADDING_XY", "G_FRAME_STYLE_N",
     "COUNTER_SIZE_XYZ", "COUNTER_MARGINS_POST_LENGTH_FRACTION_N",
     "PRINT_COUNT_N", "ROWS_N", "COUNTER_SHAPE",
@@ -979,6 +981,9 @@
       }
       if (favoriteVersion < 9) {
         for (const key of FAVORITE_KEYS_ADDED_IN_V9) migrated.add(key);
+      }
+      if (favoriteVersion < 10) {
+        for (const key of FAVORITE_KEYS_ADDED_IN_V10) migrated.add(key);
       }
       for (const key of REMOVED_FAVORITE_KEYS) {
         if (migrated.delete(key)) changedFavorites = true;

@@ -6,6 +6,7 @@
   "FEATURE_COPY":      { "label": "Copy",             "tooltip": "Copy — repeats a named feature or group with its own position and rotation" },
   "FEATURE_REFERENCE": { "label": "Reference",        "tooltip": "Name of the feature or group to repeat" },
   "BOX_GROUP":         { "label": "Group",            "tooltip": "Legacy group key from BIT 4.6.1; new designs use FEATURE_GROUP" },
+  "PRINT_GROUP":       { "label": "Print Group",      "tooltip": "Tag this item for grouped output. Select matching groups with G_PRINT_GROUP." },
   "BOX_VISUALIZATION": { "label": "Visualization",    "tooltip": "Placement override used when assembled visualization mode is enabled" },
   "TRAY":              { "label": "Tray",             "tooltip": "Tray — one physical tray in the counter tray set" },
   "LID":               { "label": "Lid",              "tooltip": "Lid — generates a lid for the counter tray set" },
@@ -105,6 +106,7 @@
 
   "G_PRINT_LID_B":           { "label": "Print Lid",          "tooltip": "Print lids (uncheck to render boxes only)" },
   "G_PRINT_BOX_B":           { "label": "Print Box",          "tooltip": "Print boxes (uncheck to render lids only)" },
+  "G_PRINT_GROUP":           { "label": "Print Group",        "tooltip": "Select printable groups by PRINT_GROUP tag. false or empty prints normal output." },
   "G_PRINT_DIVIDERS":        { "label": "Print Dividers",     "tooltip": "Print generated divider panels: true, false, a name, or a list of names" },
   "G_PRINT_DIVIDERS_ONLY_B": { "label": "Dividers Only",      "tooltip": "Suppress boxes and lids and output only selected generated divider panels" },
   "G_FIT_TEST_B":            { "label": "Fit Test",           "tooltip": "Output everything as placeholders for fit testing" },
@@ -121,7 +123,6 @@
   "G_COLORIZE_B":            { "label": "Colorize",           "tooltip": "Colorize parts for development" },
   "G_TOLERANCE":             { "label": "Tolerance",          "tooltip": "Tolerance gap between fitting pieces (lid clearance) in mm" },
   "G_TOLERANCE_DETENT_POS":  { "label": "Detent Tolerance",   "tooltip": "Adjusts position of lid detents" },
-  "G_PRINT_MMU_LAYER":       { "label": "MMU Layer",          "tooltip": "Multi-material printing config" },
   "G_DEFAULT_FONT":          { "label": "Default Font",       "tooltip": "Default font for labels" },
 
   "PRINT_COUNT_N":           { "label": "Print Count",         "tooltip": "Number of copies to generate in the grid layout" },

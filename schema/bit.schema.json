@@ -1,5 +1,5 @@
 {
-  "version": "4.8.0",
+  "version": "4.9.0",
   "types": {
     "bool": "Checkbox (true/false)",
     "number": "Numeric input",
@@ -22,6 +22,7 @@
       "description": "Top-level element (BOX, DIVIDERS, or SPACER)",
       "keys": {
         "NAME":              { "type": "string", "default": "", "help": "Display name for the element" },
+        "PRINT_GROUP":       { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag. A string or list of strings can be selected with G_PRINT_GROUP.", "contexts": ["BOX", "SPACER"] },
         "BOX_SIZE_XYZ":      { "type": "xyz", "default": [100, 100, 30], "help": "Box outer dimensions [x, y, z]. Omit to auto-calculate.", "contexts": ["BOX", "SPACER"] },
         "BOX_FEATURE":     { "type": "table_list", "child_context": "feature", "help": "List of compartment components", "contexts": ["BOX", "SPACER"] },
         "FEATURE_GROUP":   { "type": "table_list", "child_context": "group", "help": "Grouped child features with local position and rotation", "contexts": ["BOX", "SPACER"] },
@@ -41,6 +42,7 @@
       "description": "Feature (inside BOX_FEATURE)",
       "keys": {
         "NAME":                      { "type": "string", "default": "", "help": "Display name for the feature" },
+        "PRINT_GROUP":               { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag inherited by child features and labels unless overridden" },
         "FTR_COMPARTMENT_SIZE_XYZ":  { "type": "xyz", "default": [10, 10, 10], "help": "Compartment inner size [x, y, z]" },
         "FTR_NUM_COMPARTMENTS_XY":   { "type": "xy", "default": [1, 1], "help": "Grid of compartments [columns, rows]" },
         "FTR_SHAPE":                 { "type": "enum", "values": ["SQUARE", "HEX", "HEX2", "OCT", "OCT2", "ROUND", "FILLET"], "default": "SQUARE", "help": "Compartment shape" },
@@ -77,6 +79,7 @@
       "description": "Feature group (inside FEATURE_GROUP)",
       "keys": {
         "NAME":                      { "type": "string", "default": "", "help": "Display name for the feature group" },
+        "PRINT_GROUP":               { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag inherited by child features/copies unless overridden" },
         "ENABLED_B":                 { "type": "bool", "default": true, "help": "If false, group is skipped" },
         "DEBUG_B":                   { "type": "bool", "default": false, "help": "If true, group geometry is rendered with # debug modifier (transparent red)" },
         "BOX_FEATURE":               { "type": "table_list", "child_context": "feature", "help": "Child feature inside this group" },
@@ -90,6 +93,7 @@
       "description": "Feature copy (inside FEATURE_COPY)",
       "keys": {
         "NAME":                      { "type": "string", "default": "", "help": "Display name for this feature copy" },
+        "PRINT_GROUP":               { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag for this copied feature/group" },
         "ENABLED_B":                 { "type": "bool", "default": true, "help": "If false, copy is skipped" },
         "DEBUG_B":                   { "type": "bool", "default": false, "help": "If true, copied geometry is rendered with # debug modifier (transparent red)" },
         "FEATURE_REFERENCE":         { "type": "string", "default": "", "help": "NAME of the BOX_FEATURE or FEATURE_GROUP to repeat" },
@@ -130,6 +134,8 @@
     "lid": {
       "description": "Lid parameters (inside BOX_LID)",
       "keys": {
+        "NAME":                         { "type": "string", "default": "", "help": "Display name for the lid" },
+        "PRINT_GROUP":                  { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag; defaults to the parent box print group" },
         "LID_FIT_UNDER_B":              { "type": "bool", "default": true, "help": "Lid fits under the box (cap style)" },
         "LID_SOLID_B":                  { "type": "bool", "default": false, "help": "Solid lid (no pattern cutouts)" },
         "LID_HEIGHT":                   { "type": "number", "default": 4.0, "step": 0.5, "help": "Lid height in mm (default: 4 cap, 2 inset)" },
@@ -161,6 +167,7 @@
       "description": "Label parameters (inside LABEL)",
       "keys": {
         "NAME":                { "type": "string", "default": "", "help": "Display name for the label" },
+        "PRINT_GROUP":         { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag; defaults to the containing box, lid, feature, group, or copy" },
         "LBL_TEXT":            { "type": "string", "default": "", "help": "Label text (or list of strings for multi-line)" },
         "LBL_IMAGE":           { "type": "string", "default": "", "help": "Path to SVG/image file" },
         "LBL_SIZE":            { "type": "number", "default": "AUTO", "step": 1, "help": "Font size (number or AUTO)" },
@@ -185,6 +192,7 @@
       "description": "Divider parameters (OBJECT_DIVIDERS)",
       "keys": {
         "NAME":                      { "type": "string", "default": "", "help": "Display name for the element" },
+        "PRINT_GROUP":               { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag. A string or list of strings can be selected with G_PRINT_GROUP." },
         "ENABLED_B":                 { "type": "bool", "default": true, "help": "If false, divider is skipped" },
         "DIV_OUTPUT_ONLY_B":         { "type": "bool", "default": false, "help": "If true, output only this divider object" },
         "DIV_THICKNESS":             { "type": "number", "default": 0.5, "step": 0.1, "help": "Divider card thickness in mm" },
@@ -210,6 +218,7 @@
   "globals": {
     "G_PRINT_LID_B":           { "type": "bool",   "default": true,  "help": "Print lid" },
     "G_PRINT_BOX_B":           { "type": "bool",   "default": true,  "help": "Print box" },
+    "G_PRINT_GROUP":           { "type": "bool_string_list", "default": false, "help": "Select printable groups: false or empty prints normal output; a string or list prints matching PRINT_GROUP tags" },
     "G_PRINT_DIVIDERS":        { "type": "bool_string_list", "default": true, "help": "Print generated divider panels: true, false, a name string, or a list of name strings" },
     "G_PRINT_DIVIDERS_ONLY_B": { "type": "bool",   "default": false, "help": "Output only generated divider panels and suppress boxes and lids" },
     "G_FIT_TEST_B":            { "type": "bool",   "default": false, "help": "Output everything as placeholders for fit testing" },
@@ -226,7 +235,6 @@
     "G_COLORIZE_B":            { "type": "bool",   "default": true,  "help": "Colorize parts for development" },
     "G_TOLERANCE":             { "type": "number", "default": 0.1,   "step": 0.05, "help": "Tolerance gap between fitting pieces" },
     "G_TOLERANCE_DETENT_POS":  { "type": "number", "default": 0.1,   "step": 0.05, "help": "Adjusts position of lid detents" },
-    "G_PRINT_MMU_LAYER":       { "type": "string", "default": "default", "help": "Multi-material printing config" },
     "G_DEFAULT_FONT":          { "type": "string", "default": "Liberation Sans:style=Regular", "help": "Default font for labels" }
   }
 }

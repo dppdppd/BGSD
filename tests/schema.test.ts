@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import bitSchema from "../schema/bit.schema.json";
 
 describe("BIT schema", () => {
-  it("tracks BIT 4.8.0 feature groups/copies, lid, divider, shape-axis, and validation options", () => {
-    expect(bitSchema.version).toBe("4.8.0");
+  it("tracks BIT 4.9.0 print groups, feature groups/copies, lid, divider, shape-axis, and validation options", () => {
+    expect(bitSchema.version).toBe("4.9.0");
 
     const elementKeys = bitSchema.contexts.element.keys;
     const lidKeys = bitSchema.contexts.lid.keys;
@@ -21,6 +21,10 @@ describe("BIT schema", () => {
     expect(elementKeys.FEATURE_COPY).toMatchObject({
       type: "table_list",
       child_context: "copy",
+    });
+    expect(elementKeys.PRINT_GROUP).toMatchObject({
+      type: "bool_string_list",
+      default: "",
     });
     expect(elementKeys.BOX_GROUP).toBeUndefined();
     expect(elementKeys.BOX_VISUALIZATION).toMatchObject({
@@ -62,6 +66,10 @@ describe("BIT schema", () => {
       type: "table_list",
       child_context: "copy",
     });
+    expect(featureKeys.PRINT_GROUP).toMatchObject({
+      type: "bool_string_list",
+      default: "",
+    });
     expect(featureKeys.BOX_GROUP).toBeUndefined();
     expect(featureKeys.FTR_SHAPE_AXIS).toMatchObject({
       type: "enum",
@@ -81,9 +89,17 @@ describe("BIT schema", () => {
       type: "table_list",
       child_context: "copy",
     });
+    expect(groupKeys.PRINT_GROUP).toMatchObject({
+      type: "bool_string_list",
+      default: "",
+    });
     expect(groupKeys.BOX_GROUP).toBeUndefined();
     expect(bitSchema.contexts.copy.keys.FEATURE_REFERENCE).toMatchObject({
       type: "string",
+      default: "",
+    });
+    expect(bitSchema.contexts.copy.keys.PRINT_GROUP).toMatchObject({
+      type: "bool_string_list",
       default: "",
     });
     expect(groupKeys.POSITION_XY).toMatchObject({
@@ -132,7 +148,23 @@ describe("BIT schema", () => {
       type: "bool",
       default: false,
     });
+    expect(dividerKeys.PRINT_GROUP).toMatchObject({
+      type: "bool_string_list",
+      default: "",
+    });
+    expect(lidKeys.PRINT_GROUP).toMatchObject({
+      type: "bool_string_list",
+      default: "",
+    });
+    expect(bitSchema.contexts.label.keys.PRINT_GROUP).toMatchObject({
+      type: "bool_string_list",
+      default: "",
+    });
 
+    expect(globals.G_PRINT_GROUP).toMatchObject({
+      type: "bool_string_list",
+      default: false,
+    });
     expect(globals.G_PRINT_DIVIDERS).toMatchObject({
       type: "bool_string_list",
       default: true,
@@ -142,6 +174,7 @@ describe("BIT schema", () => {
       default: false,
     });
     expect(globals.G_VALIDATE_PHYSICAL_B).toBeUndefined();
+    expect(globals.G_PRINT_MMU_LAYER).toBeUndefined();
     expect(globals.G_VALIDATE_KEYS_B.help).toContain("physical");
     expect(globals.G_WALL_THICKNESS).toMatchObject({
       type: "number",
