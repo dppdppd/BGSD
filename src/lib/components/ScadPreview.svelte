@@ -9,11 +9,13 @@
     kvRenderedInBlock,
     globalRenderedInBlock,
     collapsed,
-    defaultsMode,
-    isFavorite,
+    displayRevision,
     scadWidth = $bindable(500),
     getGlobalRows,
     getSortedSchemaRowsForOpen,
+    getSchemaScopeForOpen,
+    groupRowsForDisplay,
+    groupScalarDefaultsForDisplay,
     supportsLid,
     hasLidChild,
     getScalarKeysForContext,
@@ -28,11 +30,13 @@
     kvRenderedInBlock: Set<number>;
     globalRenderedInBlock: Set<number>;
     collapsed: Set<number>;
-    defaultsMode: "all" | "favorites" | "none";
-    isFavorite: (key: string) => boolean;
+    displayRevision: string;
     scadWidth: number;
     getGlobalRows: () => any[];
     getSortedSchemaRowsForOpen: (i: number) => any[];
+    getSchemaScopeForOpen: (i: number) => string;
+    groupRowsForDisplay: (rows: any[], scope: string, fallbackDepth?: number) => any[];
+    groupScalarDefaultsForDisplay: (rows: { key: string; def: any }[], scope: string, depth: number) => any[];
     supportsLid: (i: number) => boolean;
     hasLidChild: (i: number) => boolean;
     getScalarKeysForContext: (ctx: string) => any[];
@@ -50,10 +54,6 @@
   let splitHandle: HTMLDivElement | null = $state(null);
 
   function scadIndent(depth: number): string { return INDENT.repeat(depth); }
-
-  function isVirtualHidden(key: string): boolean {
-    return defaultsMode === "none" || (defaultsMode === "favorites" && !isFavorite(key));
-  }
 
   function availableSplitWidth(): number {
     return splitHandle?.parentElement?.getBoundingClientRect().width || window.innerWidth;
@@ -99,7 +99,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="split-handle" bind:this={splitHandle} onmousedown={onSplitHandleDown}></div>
-<div class="editor-right" data-testid="scad-pane" style="width: {scadWidth}px">
+<div class="editor-right" data-testid="scad-pane" data-display-revision={displayRevision} style="width: {scadWidth}px">
 {#each lines as line, i (i)}
   {#if hiddenLines.has(i)}
     <!-- hidden -->
@@ -112,36 +112,40 @@
     <div class="scad-line">{line.raw}</div>
     {#if !collapsed.has(i)}
     {#if line.role === "data" && libraryProfile !== "ctd"}
-      {#each getGlobalRows() as row (row.key)}
-        {#if !row.isReal && isVirtualHidden(row.key)}{:else}
+      {#each groupRowsForDisplay(getGlobalRows(), "globals", 1) as group (group.id)}
+        <div class="scad-line scad-virtual"></div>
+        {#each group.rows as row (row.key)}
           {#if row.isReal && row.lineIndex !== null}
             <div class="scad-line">{lines[row.lineIndex].raw}</div>
           {:else}
             <div class="scad-line scad-virtual"></div>
           {/if}
-        {/if}
+        {/each}
       {/each}
     {/if}
-    {#each getSortedSchemaRowsForOpen(i) as row (row.key)}
-      {#if !row.isReal && isVirtualHidden(row.key)}{:else}
+    {#each groupRowsForDisplay(getSortedSchemaRowsForOpen(i), getSchemaScopeForOpen(i), (line.depth ?? 0) + 1) as group (group.id)}
+      <div class="scad-line scad-virtual"></div>
+      {#each group.rows as row (row.key)}
         {#if row.isReal && row.lineIndex !== null}
           <div class="scad-line">{lines[row.lineIndex].raw}</div>
         {:else}
           <div class="scad-line scad-virtual"></div>
         {/if}
-      {/if}
+      {/each}
     {/each}
     {/if}
 
   {:else if line.kind === "close"}
     {@const _lidScalars = [...getScalarKeysForContext("lid")].sort((a, b) => a.key.localeCompare(b.key))}
-    {@const _showLid = defaultsMode !== "none" && libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (defaultsMode === "all" || _lidScalars.some(s => isFavorite(s.key)))}
+    {@const _lidGroups = groupScalarDefaultsForDisplay(_lidScalars, "lid", (line.depth ?? 0) + 2)}
+    {@const _showLid = libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && _lidGroups.length > 0}
     {#if _showLid}
       <div class="scad-line scad-virtual"></div>
-      {#each _lidScalars as srow (srow.key)}
-        {#if defaultsMode === "favorites" && !isFavorite(srow.key)}{:else}
+      {#each _lidGroups as group (group.id)}
         <div class="scad-line scad-virtual"></div>
-        {/if}
+        {#each group.rows as srow (srow.key)}
+        <div class="scad-line scad-virtual"></div>
+        {/each}
       {/each}
       <div class="scad-line scad-virtual"></div>
       <div class="scad-line scad-virtual"></div>
@@ -153,7 +157,7 @@
       <div class="scad-line scad-virtual"></div>
     {/if}
     {#if line.mergedClose}
-      {@const hasVirtualLid = defaultsMode !== "none" && libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (defaultsMode === "all" || getScalarKeysForContext("lid").some(s => isFavorite(s.key)))}
+      {@const hasVirtualLid = _showLid}
       {#if !hasVirtualLid}
         <div class="scad-line">{scadIndent((line.depth ?? 0) + 1)}],</div>
       {/if}

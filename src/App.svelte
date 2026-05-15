@@ -1646,6 +1646,10 @@
     return parsed.ok ? parsed.value : text.trim();
   }
 
+  function formatTextLikeValue(value: any): string {
+    return typeof value === "string" ? value : formatKvValue(value);
+  }
+
   const KV_RE = /^\s*\[\s*([_A-Z][A-Z0-9_]*)\s*,\s*(.*?)\s*\]\s*,?\s*(?:\/\/.*)?$/;
 
   let GLOBAL_NAMES = $derived(new Set(Object.keys((activeSchema as any).globals || {})));
@@ -1850,6 +1854,12 @@
 
   /** Keys currently fading out after being unfavorited in "favorites" mode. */
   let fadingOutKeys = $state(new Set<string>());
+  let parameterDisplayRevision = $derived([
+    defaultsMode,
+    normalizedSearchQuery,
+    [...favoriteKeys].sort().join(","),
+    [...fadingOutKeys].sort().join(","),
+  ].join("|"));
 
   /** Toggle a key's favorite status and immediately persist to preferences. */
   async function toggleFavorite(key: string) {
@@ -3365,7 +3375,7 @@
                 {:else if gDef.type === "xyz_or_false"}
                   <input class="kv-str" type="text" value={formatKvValue(gVal)} onchange={(e) => gOnChange(parseXyzOrFalse(e.currentTarget.value))} />
                 {:else if gDef.type === "bool_string_list"}
-                  <input class="kv-str" type="text" value={formatKvValue(gVal)} onchange={(e) => gOnChange(parseFlexibleValue(e.currentTarget.value))} />
+                  <input class="kv-str" type="text" value={formatTextLikeValue(gVal)} onchange={(e) => gOnChange(parseFlexibleValue(e.currentTarget.value))} />
                 {:else if gDef.type === "xy"}
                   {#if typeof gVal === "string" && $knownConstantsStore.has(gVal)}
                     <span class="preset-pill" title={gVal + " → " + resolvePresetValue(gVal)}>{$constantLabels[gVal] || gVal}</span>
@@ -3444,7 +3454,7 @@
               {:else if rkt === "xyz_or_false"}
                 <input class="kv-str" type="text" value={formatKvValue(val)} onchange={(e) => onChange(parseXyzOrFalse(e.currentTarget.value))} />
               {:else if rkt === "bool_string_list"}
-                <input class="kv-str" type="text" value={formatKvValue(val)} onchange={(e) => onChange(parseFlexibleValue(e.currentTarget.value))} />
+                <input class="kv-str" type="text" value={formatTextLikeValue(val)} onchange={(e) => onChange(parseFlexibleValue(e.currentTarget.value))} />
               {:else if rkt === "string"}
                 <input class="kv-str" type="text" value={val ?? ""} onchange={(e) => onChange(e.currentTarget.value)} />
               {:else if rkt === "xyz"}
@@ -3569,6 +3579,8 @@
                   </select>
                 {:else if rkt === "number"}
                   <input class="kv-num" type="number" step={getStep(srow.key)} value={val} onchange={(e) => onChange(parseNum(e.currentTarget.value))} />
+                {:else if rkt === "bool_string_list"}
+                  <input class="kv-str" type="text" value={formatTextLikeValue(val)} onchange={(e) => onChange(parseFlexibleValue(e.currentTarget.value))} />
                 {:else if rkt === "string"}
                   <input class="kv-str" type="text" value={val ?? ""} onchange={(e) => onChange(e.currentTarget.value)} />
                 {:else if rkt === "4bool" && Array.isArray(val)}
@@ -3661,7 +3673,7 @@
               <input class="kv-str" type="text" value={formatKvValue(line.kvValue)}
                 onchange={(e) => updateKv(i, parseXyzOrFalse(e.currentTarget.value), sd)} />
             {:else if kt === "bool_string_list"}
-              <input class="kv-str" type="text" value={formatKvValue(line.kvValue)}
+              <input class="kv-str" type="text" value={formatTextLikeValue(line.kvValue)}
                 onchange={(e) => updateKv(i, parseFlexibleValue(e.currentTarget.value), sd)} />
             {:else if kt === "string"}
               <input class="kv-str" type="text" value={line.kvValue ?? ""}
@@ -3817,11 +3829,13 @@
       {kvRenderedInBlock}
       {globalRenderedInBlock}
       {collapsed}
-      {defaultsMode}
-      {isFavorite}
+      displayRevision={parameterDisplayRevision}
       bind:scadWidth
       {getGlobalRows}
       {getSortedSchemaRowsForOpen}
+      {getSchemaScopeForOpen}
+      {groupRowsForDisplay}
+      {groupScalarDefaultsForDisplay}
       {supportsLid}
       {hasLidChild}
       {getScalarKeysForContext}
