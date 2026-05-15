@@ -1,6 +1,6 @@
 wait app-root
 new bit
-ipc menu-defaults-mode "all"
+js (() => { const inputs = document.querySelectorAll('.block-defaults input[value="all"]'); if (!inputs.length) throw new Error("block default controls not found"); inputs.forEach((input) => { if (!input.checked) input.click(); }); return `${inputs.length} block default controls set to all`; })()
 js (async () => { await new Promise(r => setTimeout(r, 400)); })()
 js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
 shot 01_virtual_lid_options

@@ -2,6 +2,8 @@
   import type { Line } from "../stores/project";
   import { INDENT } from "../config";
 
+  type DefaultsMode = "all" | "favorites" | "none";
+
   let {
     lines,
     libraryProfile,
@@ -16,6 +18,10 @@
     getSchemaScopeForOpen,
     groupRowsForDisplay,
     groupScalarDefaultsForDisplay,
+    blockDefaultsKeyForOpen,
+    blockDefaultsKeyForVirtualLid,
+    blockDefaultsMode,
+    blockDefaultsModeIsExplicit,
     supportsLid,
     hasLidChild,
     getScalarKeysForContext,
@@ -35,8 +41,12 @@
     getGlobalRows: () => any[];
     getSortedSchemaRowsForOpen: (i: number) => any[];
     getSchemaScopeForOpen: (i: number) => string;
-    groupRowsForDisplay: (rows: any[], scope: string, fallbackDepth?: number) => any[];
-    groupScalarDefaultsForDisplay: (rows: { key: string; def: any }[], scope: string, depth: number) => any[];
+    groupRowsForDisplay: (rows: any[], scope: string, fallbackDepth?: number, mode?: DefaultsMode) => any[];
+    groupScalarDefaultsForDisplay: (rows: { key: string; def: any }[], scope: string, depth: number, mode?: DefaultsMode) => any[];
+    blockDefaultsKeyForOpen: (i: number) => string;
+    blockDefaultsKeyForVirtualLid: (i: number) => string;
+    blockDefaultsMode: (blockKey: string) => DefaultsMode;
+    blockDefaultsModeIsExplicit: (blockKey: string) => boolean;
     supportsLid: (i: number) => boolean;
     hasLidChild: (i: number) => boolean;
     getScalarKeysForContext: (ctx: string) => any[];
@@ -109,10 +119,11 @@
     <!-- rendered in globals block -->
 
   {:else if line.kind === "open"}
+    {@const _openDefaultsMode = blockDefaultsMode(blockDefaultsKeyForOpen(i))}
     <div class="scad-line">{line.raw}</div>
     {#if !collapsed.has(i)}
     {#if line.role === "data" && libraryProfile !== "ctd"}
-      {#each groupRowsForDisplay(getGlobalRows(), "globals", 1) as group (group.id)}
+      {#each groupRowsForDisplay(getGlobalRows(), "globals", 1, _openDefaultsMode) as group (group.id)}
         <div class="scad-line scad-virtual"></div>
         {#each group.rows as row (row.key)}
           {#if row.isReal && row.lineIndex !== null}
@@ -123,7 +134,7 @@
         {/each}
       {/each}
     {/if}
-    {#each groupRowsForDisplay(getSortedSchemaRowsForOpen(i), getSchemaScopeForOpen(i), (line.depth ?? 0) + 1) as group (group.id)}
+    {#each groupRowsForDisplay(getSortedSchemaRowsForOpen(i), getSchemaScopeForOpen(i), (line.depth ?? 0) + 1, _openDefaultsMode) as group (group.id)}
       <div class="scad-line scad-virtual"></div>
       {#each group.rows as row (row.key)}
         {#if row.isReal && row.lineIndex !== null}
@@ -137,8 +148,10 @@
 
   {:else if line.kind === "close"}
     {@const _lidScalars = [...getScalarKeysForContext("lid")].sort((a, b) => a.key.localeCompare(b.key))}
-    {@const _lidGroups = groupScalarDefaultsForDisplay(_lidScalars, "lid", (line.depth ?? 0) + 2)}
-    {@const _showLid = libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && _lidGroups.length > 0}
+    {@const _lidDefaultsKey = blockDefaultsKeyForVirtualLid(i)}
+    {@const _lidMode = blockDefaultsMode(_lidDefaultsKey)}
+    {@const _lidGroups = groupScalarDefaultsForDisplay(_lidScalars, "lid", (line.depth ?? 0) + 2, _lidMode)}
+    {@const _showLid = libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (_lidGroups.length > 0 || blockDefaultsModeIsExplicit(_lidDefaultsKey))}
     {#if _showLid}
       <div class="scad-line scad-virtual"></div>
       {#each _lidGroups as group (group.id)}

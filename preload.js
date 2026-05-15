@@ -70,6 +70,5 @@ contextBridge.exposeInMainWorld("bgsd", {
   onMenuPreferences: (callback) => ipcRenderer.on("menu-preferences", callback),
   onMenuUndo: (callback) => ipcRenderer.on("menu-undo", callback),
   onMenuRedo: (callback) => ipcRenderer.on("menu-redo", callback),
-  onMenuDefaultsMode: (callback) => ipcRenderer.on("menu-defaults-mode", (_event, mode) => callback(mode)),
   onMenuToggleShowScad: (callback) => ipcRenderer.on("menu-toggle-show-scad", (_event, checked) => callback(checked)),
 });

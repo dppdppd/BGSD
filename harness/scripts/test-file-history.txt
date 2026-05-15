@@ -7,9 +7,9 @@ click file-menu-button
 js document.querySelector('[data-testid="menu-recent-files"]').focus()
 shot file_menu_recent
 js document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', code:'Escape', bubbles:true, cancelable:true}))
-intent "Open the View menu and show the default-state parameter group"
+intent "Open the View menu and show the SCAD toggle"
 click view-menu-button
-shot view_menu_defaults
+shot view_menu_show_scad
 js document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', code:'Escape', bubbles:true, cancelable:true}))
 intent "Create two Version History entries from the File menu and Ctrl+S"
 js const nameInput = document.querySelector('[data-testid="line-4"] input.kv-str'); nameInput.value = 'history one'; nameInput.dispatchEvent(new Event('change', {bubbles:true}))

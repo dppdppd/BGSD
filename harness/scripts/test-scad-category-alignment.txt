@@ -1,8 +1,7 @@
 wait app-root
 new bit
 ipc menu-toggle-show-scad true
-click view-menu-button
-click view-defaults-all
+js (() => { const inputs = document.querySelectorAll('.block-defaults input[value="all"]'); if (!inputs.length) throw new Error("block default controls not found"); inputs.forEach((input) => { if (!input.checked) input.click(); }); return `${inputs.length} block default controls set to all`; })()
 js (async () => { await new Promise((r) => setTimeout(r, 300)); const leftRows = [...document.querySelectorAll(".editor-left .line-row, .editor-left .raw-block")].filter((el) => getComputedStyle(el).display !== "none"); const rightRows = [...document.querySelectorAll('[data-testid="scad-pane"] .scad-line, [data-testid="scad-pane"] .scad-raw-group')].filter((el) => getComputedStyle(el).display !== "none"); const categories = document.querySelectorAll(".editor-left .line-row.kv-category").length; if (categories < 1) throw new Error("category rows were not rendered"); if (leftRows.length !== rightRows.length) throw new Error(`SCAD preview row count ${rightRows.length} does not match editor row count ${leftRows.length}`); return `SCAD preview aligned with ${leftRows.length} editor rows and ${categories} category separators`; })()
 shot scad_category_alignment_top
 js document.querySelector('[data-testid="content-area"]').scrollTop = 99999

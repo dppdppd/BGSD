@@ -137,7 +137,7 @@ BGSD_OPEN=/path/to/file.scad \
 | `test-open-bit.txt` | Create BIT project, screenshot at scroll positions, print SCAD |
 | `test-open-ctd.txt` | Create CTD project, screenshot at scroll positions, print SCAD |
 | `test-scad-toggle.txt` | Toggle Show SCAD view on/off, screenshot both states |
-| `test-hide-defaults.txt` | Toggle Hide Defaults on/off, screenshot both states |
+| `test-hide-defaults.txt` | Exercise per-block default parameter visibility, screenshot each state |
 
 There are 43+ test scripts total. Run `ls harness/scripts/test-*.txt` for the full list.
 

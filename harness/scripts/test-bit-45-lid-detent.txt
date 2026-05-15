@@ -1,8 +1,7 @@
 wait app-root
 new bit
 intent "Latest BIT exposes the sliding lid detent lock angle control and uses the synthesized versioned include."
-click view-menu-button
-click view-defaults-all
+js (() => { const inputs = document.querySelectorAll('.block-defaults input[value="all"]'); if (!inputs.length) throw new Error("block default controls not found"); inputs.forEach((input) => { if (!input.checked) input.click(); }); return `${inputs.length} block default controls set to all`; })()
 js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
 shot bit480_lid_detent
 js (() => { const body = document.body.textContent || ""; if (!body.includes("Detent Lock Angle")) throw new Error("missing LID_DETENT_LOCK_ANGLE control"); return "BIT lid detent control visible"; })()

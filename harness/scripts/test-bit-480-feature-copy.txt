@@ -1,7 +1,6 @@
 wait app-root
 new bit
-click view-menu-button
-click view-defaults-all
+js (() => { const inputs = document.querySelectorAll('.block-defaults input[value="all"]'); if (!inputs.length) throw new Error("block default controls not found"); inputs.forEach((input) => { if (!input.checked) input.click(); }); return `${inputs.length} block default controls set to all`; })()
 js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
 shot before_copy
 js (async () => { const add = async (title) => { for (const trigger of [...document.querySelectorAll('button.add-menu-trigger')]) { trigger.click(); await new Promise((r) => setTimeout(r, 50)); const item = [...document.querySelectorAll('button.add-menu-item')].find((b) => b.title === title); if (item) { item.click(); await new Promise((r) => setTimeout(r, 200)); return; } trigger.click(); } throw new Error(`${title} item not found`); }; await add('Add FEATURE_COPY block'); })()

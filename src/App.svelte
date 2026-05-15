@@ -121,7 +121,16 @@
     }
     selfUpdating = false;
   }
-  let defaultsMode = $state<"all" | "favorites" | "none">("favorites");
+  type DefaultsMode = "all" | "favorites" | "none";
+  const DEFAULT_DEFAULTS_MODE: DefaultsMode = "favorites";
+  const DEFAULTS_MODE_OPTIONS: { value: DefaultsMode; label: string }[] = [
+    { value: "all", label: "All" },
+    { value: "favorites", label: "Favorites" },
+    { value: "none", label: "None" },
+  ];
+  let blockDefaultsModes = $state<Record<string, DefaultsMode>>({});
+  let blockDefaultsKeyCounter = 0;
+  let blockDefaultsKeys = new WeakMap<Line, string>();
   let favoriteKeys = $state<Set<string>>(new Set());
   const FAVORITE_KEYS_VERSION = 10;
   const FAVORITE_KEYS_ADDED_IN_V2 = ["LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH"];
@@ -814,10 +823,6 @@
     if (showViewMenu) showFileMenu = false;
   }
 
-  function setDefaultsMode(mode: "all" | "favorites" | "none") {
-    defaultsMode = mode;
-  }
-
   async function openRecentFile(filePath: string) {
     const bgsd = (window as any).bgsd;
     showFileMenu = false;
@@ -847,6 +852,7 @@
     suppressNextAutosave();
     project.set(data);
     clearHistory();
+    resetBlockDefaultsModes();
     externalFileChange = null;
     clearExternalFileChange();
     updateTitle(filePath);
@@ -971,7 +977,6 @@
     if (bgsd?.onMenuPreferences) bgsd.onMenuPreferences(openPreferencesModal);
     if (bgsd?.onMenuUndo) bgsd.onMenuUndo(() => undo());
     if (bgsd?.onMenuRedo) bgsd.onMenuRedo(() => redo());
-    if (bgsd?.onMenuDefaultsMode) bgsd.onMenuDefaultsMode((mode: string) => { defaultsMode = mode as "all" | "favorites" | "none"; });
     if (bgsd?.onMenuToggleShowScad) bgsd.onMenuToggleShowScad((checked: boolean) => { showScad = checked; });
 
     document.addEventListener("keydown", (event) => {
@@ -1125,6 +1130,7 @@
     suppressNextAutosave();
     project.set(templateProject);
     clearHistory();
+    resetBlockDefaultsModes();
     const scadText = generateScad(templateProject);
 
     if (!bgsd?.saveFileAs) return;
@@ -1132,6 +1138,7 @@
     if (!res.ok) {
       project.set({ version: 1, lines: [], hasMarker: false });
       clearHistory();
+      resetBlockDefaultsModes();
       rememberFilePath(null);
       rememberReadOnly(false);
       showWelcome = true;
@@ -1893,10 +1900,58 @@
     return favoriteKeys.has(key);
   }
 
+  function resetBlockDefaultsModes() {
+    blockDefaultsModes = {};
+    blockDefaultsKeyCounter = 0;
+    blockDefaultsKeys = new WeakMap<Line, string>();
+  }
+
+  function blockDefaultsKeyForLine(line: Line | undefined, fallback: string): string {
+    if (!line) return fallback;
+    let key = blockDefaultsKeys.get(line);
+    if (!key) {
+      blockDefaultsKeyCounter += 1;
+      key = `${fallback}:${blockDefaultsKeyCounter}`;
+      blockDefaultsKeys.set(line, key);
+    }
+    return key;
+  }
+
+  function blockDefaultsKeyForOpen(openIndex: number): string {
+    return blockDefaultsKeyForLine($project.lines[openIndex], `open:${openIndex}`);
+  }
+
+  function blockDefaultsKeyForVirtualLid(closeIndex: number): string {
+    return blockDefaultsKeyForLine($project.lines[closeIndex], `virtual-lid:${closeIndex}`);
+  }
+
+  function blockDefaultsTestId(blockKey: string): string {
+    return blockKey.replace(/[^a-zA-Z0-9_-]+/g, "-");
+  }
+
+  function blockDefaultsMode(blockKey: string): DefaultsMode {
+    return blockDefaultsModes[blockKey] || DEFAULT_DEFAULTS_MODE;
+  }
+
+  function blockDefaultsModeIsExplicit(blockKey: string): boolean {
+    return Object.prototype.hasOwnProperty.call(blockDefaultsModes, blockKey);
+  }
+
+  function setBlockDefaultsMode(blockKey: string, mode: DefaultsMode) {
+    blockDefaultsModes = { ...blockDefaultsModes, [blockKey]: mode };
+  }
+
+  function blockHasDefaultRowsForOpen(openIndex: number): boolean {
+    const line = $project.lines[openIndex];
+    if (!line || line.kind !== "open") return false;
+    if (line.role === "data" && $project.libraryProfile !== "ctd") return getGlobalRows().length > 0;
+    return getSortedSchemaRowsForOpen(openIndex).length > 0;
+  }
+
   /** Keys currently fading out after being unfavorited in "favorites" mode. */
   let fadingOutKeys = $state(new Set<string>());
   let parameterDisplayRevision = $derived([
-    defaultsMode,
+    Object.entries(blockDefaultsModes).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}:${v}`).join(","),
     normalizedSearchQuery,
     [...favoriteKeys].sort().join(","),
     [...fadingOutKeys].sort().join(","),
@@ -1908,8 +1963,8 @@
     const next = new Set(favoriteKeys);
     if (removing) next.delete(key); else next.add(key);
     favoriteKeys = next;
-    // Fade out if unfavoriting while in favorites-only mode
-    if (removing && defaultsMode === "favorites") {
+    // Fade out from any block currently showing favorites.
+    if (removing) {
       fadingOutKeys = new Set([...fadingOutKeys, key]);
       setTimeout(() => {
         fadingOutKeys = new Set([...fadingOutKeys].filter(k => k !== key));
@@ -2480,23 +2535,23 @@
     return row.isReal && JSON.stringify(row.value) !== JSON.stringify(row.def?.default);
   }
 
-  function shouldShowParameterRow(row: ParameterRow): boolean {
+  function shouldShowParameterRow(row: ParameterRow, mode: DefaultsMode): boolean {
     if (row.isReal) return true;
     if (keyMatchesSearch(row.key)) return true;
-    if (defaultsMode === "all") return true;
-    if (defaultsMode === "favorites") return isFavorite(row.key) || fadingOutKeys.has(row.key);
+    if (mode === "all") return true;
+    if (mode === "favorites") return isFavorite(row.key) || fadingOutKeys.has(row.key);
     return false;
   }
 
-  function groupRowsForDisplay(rows: ParameterRow[], scope: string, fallbackDepth: number = 0): ParameterGroup[] {
-    const visibleRows = rows.filter(shouldShowParameterRow);
+  function groupRowsForDisplay(rows: ParameterRow[], scope: string, fallbackDepth: number = 0, mode: DefaultsMode = DEFAULT_DEFAULTS_MODE): ParameterGroup[] {
+    const visibleRows = rows.filter((row) => shouldShowParameterRow(row, mode));
     if (!visibleRows.length) return [];
 
     const visibleByKey = new Map(visibleRows.map((row) => [row.key, row]));
     const used = new Set<string>();
     const groups: ParameterGroup[] = [];
 
-    if (defaultsMode === "all") {
+    if (mode === "all") {
       const favoriteRows = visibleRows.filter((row) => isFavorite(row.key));
       if (favoriteRows.length) {
         for (const row of favoriteRows) used.add(row.key);
@@ -2551,7 +2606,7 @@
     return "";
   }
 
-  function groupScalarDefaultsForDisplay(rows: { key: string; def: any }[], scope: string, depth: number): ParameterGroup[] {
+  function groupScalarDefaultsForDisplay(rows: { key: string; def: any }[], scope: string, depth: number, mode: DefaultsMode = DEFAULT_DEFAULTS_MODE): ParameterGroup[] {
     return groupRowsForDisplay(rows.map((row) => ({
       key: row.key,
       def: row.def,
@@ -2559,7 +2614,7 @@
       value: row.def.default,
       isReal: false,
       depth,
-    })), scope, depth);
+    })), scope, depth, mode);
   }
 
   /** Find the NAME kv value among immediate children of an open bracket. */
@@ -3171,6 +3226,29 @@
   </span>
 {/snippet}
 
+{#snippet blockDefaultsControl(blockKey)}
+  {@const mode = blockDefaultsMode(blockKey)}
+  {@const idKey = blockDefaultsTestId(blockKey)}
+  <span class="block-defaults" data-testid="block-defaults-{idKey}" role="radiogroup" aria-label="Default parameters">
+    <span class="block-defaults-title">Defaults</span>
+    {#each DEFAULTS_MODE_OPTIONS as option (option.value)}
+      <label class="block-defaults-option" class:active={mode === option.value}
+        title="Show {option.label.toLowerCase()} default-state parameters">
+        <input
+          type="radio"
+          name="block-defaults-{idKey}"
+          value={option.value}
+          checked={mode === option.value}
+          data-testid="block-defaults-{idKey}-{option.value}"
+          data-mode={option.value}
+          onchange={() => setBlockDefaultsMode(blockKey, option.value)}
+        />
+        <span>{option.label}</span>
+      </label>
+    {/each}
+  </span>
+{/snippet}
+
 {#snippet addMenuButton(menuKey, items)}
   <span class="add-menu-wrap">
     <button
@@ -3250,20 +3328,6 @@
         onclick={(e) => { e.stopPropagation(); toggleViewMenu(); }}>View ▾</button>
       {#if showViewMenu}
         <div class="view-menu" data-testid="view-menu" role="menu">
-          <div class="view-menu-group-label">Show Default State Parameters</div>
-          <button class="file-menu-item radio-menu-item" data-testid="view-defaults-all" role="menuitemradio" aria-checked={defaultsMode === "all"}
-            onclick={() => setDefaultsMode("all")}>
-            <span><span class="radio-dot" class:checked={defaultsMode === "all"}></span>All</span>
-          </button>
-          <button class="file-menu-item radio-menu-item" data-testid="view-defaults-favorites" role="menuitemradio" aria-checked={defaultsMode === "favorites"}
-            onclick={() => setDefaultsMode("favorites")}>
-            <span><span class="radio-dot" class:checked={defaultsMode === "favorites"}></span>Favorites</span>
-          </button>
-          <button class="file-menu-item radio-menu-item" data-testid="view-defaults-none" role="menuitemradio" aria-checked={defaultsMode === "none"}
-            onclick={() => setDefaultsMode("none")}>
-            <span><span class="radio-dot" class:checked={defaultsMode === "none"}></span>None</span>
-          </button>
-          <div class="file-menu-sep"></div>
           <button class="file-menu-item" data-testid="view-show-scad" role="menuitemcheckbox" aria-checked={showScad}
             onclick={() => { showScad = !showScad; }}>
             <span><span class="check-mark">{showScad ? "✓" : ""}</span>Show SCAD</span><kbd>Ctrl+U</kbd>
@@ -3389,6 +3453,9 @@
       {:else if line.kind === "open"}
         {@const collapsible = !["params", "label_params", "lid_params", "feature", "group_params", "copy_params", "feature_divider_params", "visualization_params", "counter_set_params"].includes(line.role || "")}
         {@const deletable = line.role === "data" ? sceneNames.length > 1 : !["data_list", "params", "label_params", "lid_params", "feature", "group_params", "copy_params", "feature_divider_params", "visualization_params", "counter_set_params"].includes(line.role || "")}
+        {@const defaultsKey = blockDefaultsKeyForOpen(i)}
+        {@const defaultsModeForBlock = blockDefaultsMode(defaultsKey)}
+        {@const showBlockDefaultsControl = blockHasDefaultRowsForOpen(i)}
         <div class="line-row struct open" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           {#if collapsible}
             <button class="collapse-btn" title={collapsed.has(i) ? "Expand" : "Collapse"}
@@ -3418,6 +3485,9 @@
               </svg>
             </button>
           {/if}
+          {#if showBlockDefaultsControl}
+            {@render blockDefaultsControl(defaultsKey)}
+          {/if}
           {@render commentBtn(line, i)}
           <span class="spacer"></span>
           {#if line.role === "data"}
@@ -3433,7 +3503,7 @@
         <div class="block-body" transition:slide|global={{ duration: slideDur }}>
         <!-- Virtual globals block inside data = [ (BIT only; CTD uses per-scene KVs) -->
         {#if line.role === "data" && $project.libraryProfile !== "ctd"}
-          {#each groupRowsForDisplay(getGlobalRows(), "globals", 1) as group (group.id)}
+          {#each groupRowsForDisplay(getGlobalRows(), "globals", 1, defaultsModeForBlock) as group (group.id)}
             <div class="line-row kv-category" style="{padDepth(group.depth)}; {bracketStyle(group.depth)}" data-testid="category-globals-{group.id}">
               <span class="category-label">{group.label}</span>
               {#if group.changedCount > 0}
@@ -3510,7 +3580,7 @@
           {/each}
         {/if}
         <!-- Sorted schema rows (real + virtual) after open bracket -->
-        {#each groupRowsForDisplay(getSortedSchemaRowsForOpen(i), getSchemaScopeForOpen(i), (line.depth ?? 0) + 1) as group (group.id)}
+        {#each groupRowsForDisplay(getSortedSchemaRowsForOpen(i), getSchemaScopeForOpen(i), (line.depth ?? 0) + 1, defaultsModeForBlock) as group (group.id)}
           <div class="line-row kv-category" style="{padDepth(group.depth)}; {bracketStyle(group.depth)}" data-testid="category-{group.id}">
             <span class="category-label">{group.label}</span>
             {#if group.changedCount > 0}
@@ -3633,8 +3703,10 @@
       {:else if line.kind === "close"}
         <!-- Virtual BOX_LID block for OBJECT_BOX without a lid (BIT only) -->
         {@const _lidScalarsAll = [...getScalarKeysForContext("lid")].sort((a, b) => a.key.localeCompare(b.key))}
+        {@const _virtualLidDefaultsKey = blockDefaultsKeyForVirtualLid(i)}
+        {@const _virtualLidMode = blockDefaultsMode(_virtualLidDefaultsKey)}
         {@const _lidSearchMatch = !!normalizedSearchQuery && _lidScalarsAll.some(s => keyMatchesSearch(s.key))}
-        {@const _showVirtualLid = $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && ((defaultsMode !== "none" && (defaultsMode === "all" || _lidScalarsAll.some(s => isFavorite(s.key)))) || _lidSearchMatch)}
+        {@const _showVirtualLid = $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (blockDefaultsModeIsExplicit(_virtualLidDefaultsKey) || (_virtualLidMode !== "none" && (_virtualLidMode === "all" || _lidScalarsAll.some(s => isFavorite(s.key)))) || _lidSearchMatch)}
         <div class="block-tail" transition:slide|global={{ duration: slideDur }}>
         {#if _showVirtualLid}
           {@const lidDepth = (line.depth ?? 0) + 1}
@@ -3648,9 +3720,10 @@
               onclick={() => toggleCollapseVirtual(vLidKey)}>{vLidCollapsed ? "▶" : "▼"}</button>
             <span class="struct-label inferred">{label("BOX_LID")}</span>
             <span class="struct-bracket">{vLidCollapsed ? "[ ... ]" : "["}</span>
+            {@render blockDefaultsControl(_virtualLidDefaultsKey)}
           </div>
           {#if !vLidCollapsed}
-          {#each groupScalarDefaultsForDisplay(lidScalars, "lid", lidChildDepth) as group (group.id)}
+          {#each groupScalarDefaultsForDisplay(lidScalars, "lid", lidChildDepth, _virtualLidMode) as group (group.id)}
             <div class="line-row kv-category" style="{padDepth(group.depth)}; {bracketStyle(group.depth)}" data-testid="category-virtual-lid-{group.id}">
               <span class="category-label">{group.label}</span>
               {#if group.changedCount > 0}
@@ -3714,7 +3787,9 @@
         <!-- Close bracket(s) — split merged ]] into separate lines -->
         {#if line.mergedClose}
           {@const closeLidScalars = getScalarKeysForContext("lid")}
-          {@const hasVirtualLid = $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && ((defaultsMode !== "none" && (defaultsMode === "all" || closeLidScalars.some(s => isFavorite(s.key)))) || (!!normalizedSearchQuery && closeLidScalars.some(s => keyMatchesSearch(s.key))))}
+          {@const closeLidDefaultsKey = blockDefaultsKeyForVirtualLid(i)}
+          {@const closeLidMode = blockDefaultsMode(closeLidDefaultsKey)}
+          {@const hasVirtualLid = $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (blockDefaultsModeIsExplicit(closeLidDefaultsKey) || (closeLidMode !== "none" && (closeLidMode === "all" || closeLidScalars.some(s => isFavorite(s.key)))) || (!!normalizedSearchQuery && closeLidScalars.some(s => keyMatchesSearch(s.key))))}
           {#if !hasVirtualLid}
             <div class="line-row struct close" style="{padDepth((line.depth ?? 0) + 1)}; {bracketStyle((line.depth ?? 0) + 1)}" data-testid="line-{i}-inner">
               <span class="struct-bracket">],</span>
@@ -3926,6 +4001,10 @@
       {getSchemaScopeForOpen}
       {groupRowsForDisplay}
       {groupScalarDefaultsForDisplay}
+      {blockDefaultsKeyForOpen}
+      {blockDefaultsKeyForVirtualLid}
+      {blockDefaultsMode}
+      {blockDefaultsModeIsExplicit}
       {supportsLid}
       {hasLidChild}
       {getScalarKeysForContext}
@@ -4120,7 +4199,7 @@
     min-width: 220px; padding: 5px; border: 1px solid #c5bba5; border-radius: 4px;
     background: #ffffff; box-shadow: 0 10px 28px rgba(20, 35, 50, 0.18);
   }
-  .view-menu { min-width: 250px; }
+  .view-menu { min-width: 150px; }
   .file-menu-item,
   .recent-item {
     width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 14px;
@@ -4141,20 +4220,8 @@
     font-family: inherit; font-size: 11px; color: #665c54; background: transparent;
   }
   .file-menu-sep { height: 1px; background: #c5bba5; margin: 5px 2px; }
-  .view-menu-group-label {
-    padding: 6px 8px 4px; color: #3c3836; font-size: 11px; font-weight: 700;
-    text-transform: uppercase;
-  }
-  .radio-menu-item span,
   .file-menu-item span {
     display: inline-flex; align-items: center; gap: 7px;
-  }
-  .radio-dot {
-    width: 10px; height: 10px; border: 1px solid #a89984; border-radius: 50%;
-    box-sizing: border-box; background: #ffffff;
-  }
-  .radio-dot.checked {
-    border: 3px solid #b57614;
   }
   .check-mark {
     width: 12px; display: inline-block; color: #b57614; font-weight: 700;
@@ -4743,6 +4810,45 @@
   .struct-label { font-weight: 700; color: var(--bracket-color); }
   .struct-label.inferred { font-weight: 400; opacity: 0.6; }
   .struct-bracket { color: var(--bracket-color); font-weight: 700; }
+  .block-defaults {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+    padding-left: 8px;
+    border-left: 1px solid color-mix(in srgb, var(--bracket-color), var(--paper) 55%);
+    color: var(--ink-mute);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 11px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .block-defaults-title {
+    color: var(--ink-faint);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .block-defaults-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .block-defaults-option input {
+    width: 10px;
+    height: 10px;
+    margin: 0;
+    accent-color: var(--accent-deep);
+  }
+  .block-defaults-option span {
+    color: var(--ink-mute);
+    font-weight: 600;
+  }
+  .block-defaults-option.active span {
+    color: var(--accent-deep);
+  }
   .debug-toggle {
     background: none; border: none; cursor: pointer;
     margin-left: 4px; padding: 0 2px;

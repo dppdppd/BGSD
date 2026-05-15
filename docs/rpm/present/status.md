@@ -9,10 +9,10 @@
 - Cross-platform release builds via electron-builder
 - Welcome screen with library tree + per-file context menu (Edit / Rename / Delete / Export STL)
 - Inline rename UI (Electron suppresses `window.prompt()`)
-- Favorites + Show-Defaults (All/Favorites/None) radio
+- Favorites + per-block Show-Defaults (All/Favorites/None) radios
 - Undo/redo, recent files, keyboard shortcuts
 - Persistent Version History via `.undo` sidecars, manual pinned checkpoints, labels, restore, and OpenSCAD launch for saved versions
-- File/View toolbar menus with Save Version, Save As, Version History, Recent Files flyout, Copy Path, Show SCAD, and Show Default State Parameters modes
+- File/View toolbar menus with Save Version, Save As, Version History, Recent Files flyout, Copy Path, and Show SCAD
 - BGSD application icon included for packaged builds
 - Duplicate button on scenes (clones data block + matching `Make(...)`, renames `<orig>_copy`)
 - Status bar always shows BGSD + BIT + CTD versions with explicit minor.patch parsed from lib frontmatter; tooltip surfaces live update-check state
