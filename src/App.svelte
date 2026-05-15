@@ -133,12 +133,23 @@
   const FAVORITE_KEYS_ADDED_IN_V8 = ["FEATURE_GROUP"];
   const FAVORITE_KEYS_ADDED_IN_V9 = ["FEATURE_COPY", "FEATURE_REFERENCE"];
   const FAVORITE_KEYS_ADDED_IN_V10 = ["G_PRINT_GROUP"];
-  // Pull DIVIDERS-related globals out of every user's favorites — they
-  // were seeded by mistake and clutter the default-mode picker.
+  function collectFavoriteSchemaKeys(): Set<string> {
+    const keys = new Set<string>();
+    for (const profile of ["bit", "ctd"]) {
+      const profileSchema = getSchema(profile);
+      for (const ctx of Object.values((profileSchema as any).contexts || {})) {
+        for (const key of Object.keys((ctx as any).keys || {})) keys.add(key);
+      }
+      for (const key of Object.keys((profileSchema as any).globals || {})) keys.add(key);
+    }
+    return keys;
+  }
+  const FAVORITE_SCHEMA_KEYS = collectFavoriteSchemaKeys();
+  // Pull stale or noisy keys out of every user's favorites. Keys that are
+  // no longer in any loaded schema are pruned below as part of migration.
   const REMOVED_FAVORITE_KEYS = [
     "DIV_NUM_DIVIDERS", "DIV_SLOT_DEPTH", "DIV_RAILS_B", "FTR_SHAPE_ROTATED_B",
     "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_VALIDATE_PHYSICAL_B", "BOX_GROUP",
-    "G_PRINT_MMU_LAYER",
   ];
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
   // and docs/guidance/CTD-PARAMETERS.md (3+ designs). Seeded on first run.
@@ -987,6 +998,12 @@
       }
       for (const key of REMOVED_FAVORITE_KEYS) {
         if (migrated.delete(key)) changedFavorites = true;
+      }
+      for (const key of [...migrated]) {
+        if (!FAVORITE_SCHEMA_KEYS.has(key)) {
+          migrated.delete(key);
+          changedFavorites = true;
+        }
       }
       if (changedFavorites) {
         await bgsd?.setPreferences?.({ favoriteKeys: [...migrated], favoriteKeysVersion: FAVORITE_KEYS_VERSION });

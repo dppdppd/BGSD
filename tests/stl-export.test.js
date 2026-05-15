@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import path from "path";
 import {
   collectPrintGroups,
   createStlExportPlan,
@@ -38,9 +39,11 @@ describe("STL export planning", () => {
   });
 
   it("plans one combined STL plus one STL per print group", () => {
+    const sourcePath = path.join("/tmp", "designs", "insert.scad");
+    const targetFilePath = path.join("/tmp", "exports", "insert.stl");
     const plan = createStlExportPlan({
-      sourcePath: "/tmp/designs/insert.scad",
-      targetFilePath: "/tmp/exports/insert.stl",
+      sourcePath,
+      targetFilePath,
       scadText: SCAD_WITH_GROUPS,
       tempToken: "abc123",
     });
@@ -48,19 +51,21 @@ describe("STL export planning", () => {
     expect(plan.groups).toEqual(["blue", "lid/group", "red"]);
     expect(plan.jobs.map((job) => job.kind)).toEqual(["combined", "group", "group", "group"]);
     expect(plan.jobs.map((job) => job.filePath)).toEqual([
-      "/tmp/exports/insert.stl",
-      "/tmp/exports/insert - blue.stl",
-      "/tmp/exports/insert - lid_group.stl",
-      "/tmp/exports/insert - red.stl",
+      targetFilePath,
+      path.join("/tmp", "exports", "insert - blue.stl"),
+      path.join("/tmp", "exports", "insert - lid_group.stl"),
+      path.join("/tmp", "exports", "insert - red.stl"),
     ]);
     expect(plan.jobs[0].scadText).toContain("Make(data, print_group = false);");
     expect(plan.jobs[1].scadText).toContain('Make(data, print_group = "blue");');
   });
 
   it("keeps legacy single-file exports when no print groups are present", () => {
+    const sourcePath = path.join("/tmp", "designs", "insert.scad");
+    const targetFilePath = path.join("/tmp", "exports", "insert.stl");
     const plan = createStlExportPlan({
-      sourcePath: "/tmp/designs/insert.scad",
-      targetFilePath: "/tmp/exports/insert.stl",
+      sourcePath,
+      targetFilePath,
       scadText: "data = [\n];\nMake(data);\n",
       tempToken: "abc123",
     });
@@ -70,8 +75,8 @@ describe("STL export planning", () => {
       {
         kind: "combined",
         label: "all combined",
-        filePath: "/tmp/exports/insert.stl",
-        sourcePath: "/tmp/designs/insert.scad",
+        filePath: targetFilePath,
+        sourcePath,
       },
     ]);
   });

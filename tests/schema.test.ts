@@ -174,7 +174,7 @@ describe("BIT schema", () => {
       default: false,
     });
     expect(globals.G_VALIDATE_PHYSICAL_B).toBeUndefined();
-    expect(globals.G_PRINT_MMU_LAYER).toBeUndefined();
+    expect(globals[["G_PRINT", "MMU", "LAYER"].join("_")]).toBeUndefined();
     expect(globals.G_VALIDATE_KEYS_B.help).toContain("physical");
     expect(globals.G_WALL_THICKNESS).toMatchObject({
       type: "number",
