@@ -1,5 +1,5 @@
 {
-  "version": "4.9.1",
+  "version": "4.11.0",
   "types": {
     "bool": "Checkbox (true/false)",
     "number": "Numeric input",
@@ -19,7 +19,7 @@
   },
   "categories": {
     "globals": [
-      { "label": "Output", "keys": ["G_PRINT_LID_B", "G_PRINT_BOX_B", "G_PRINT_GROUP", "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_ISOLATED_PRINT_BOX"] },
+      { "label": "Output", "keys": ["G_PRINT_TYPES", "G_PRINT_GROUPS", "G_PRINT_BOXES"] },
       { "label": "Preview & Validation", "keys": ["G_VISUALIZATION_B", "G_PREVIEW_NO_LABELS_B", "G_VALIDATE_KEYS_B", "G_FIT_TEST_B", "G_COLORIZE_B"] },
       { "label": "Fit & Tolerance", "keys": ["G_TOLERANCE", "G_TOLERANCE_DETENT_POS"] },
       { "label": "Defaults", "keys": ["G_WALL_THICKNESS", "G_LID_THICKNESS", "G_DEFAULT_FONT"] },
@@ -53,7 +53,7 @@
         { "label": "Placement", "keys": ["POSITION_XY", "ROTATION"] }
       ],
       "feature_divider": [
-        { "label": "Identity & Output", "keys": ["NAME", "ENABLED_B", "DEBUG_B", "DIV_OUTPUT_ONLY_B"] },
+        { "label": "Identity & Output", "keys": ["NAME", "ENABLED_B", "DEBUG_B"] },
         { "label": "Layout", "keys": ["DIV_AXIS", "DIV_LAYOUT_BAYS", "DIV_LAYOUT_BAY_SIZE"] },
         { "label": "Physical Size", "keys": ["DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B", "DIV_THICKNESS"] },
         { "label": "Tabs", "keys": ["DIV_TAB_SIZE_XY", "DIV_TAB_RADIUS", "DIV_TAB_CYCLE", "DIV_TAB_CYCLE_START"] },
@@ -61,7 +61,7 @@
         { "label": "Frame", "keys": ["DIV_FRAME_TOP", "DIV_FRAME_BOTTOM", "DIV_FRAME_COLUMN", "DIV_FRAME_RADIUS", "DIV_FRAME_NUM_COLUMNS"] }
       ],
       "lid": [
-        { "label": "Identity & Output", "keys": ["NAME", "PRINT_GROUP", "DEBUG_B"] },
+        { "label": "Identity & Output", "keys": ["NAME", "PRINT_GROUP", "ENABLED_B", "DEBUG_B"] },
         { "label": "Fit & Type", "keys": ["LID_TYPE", "LID_FIT_UNDER_B", "LID_INSET_B", "LID_HEIGHT", "LID_TABS_4B"] },
         { "label": "Sliding Lid", "keys": ["LID_SLIDE_SIDE", "LID_DETENT_LOCK_ANGLE", "LID_FRAME_WIDTH"] },
         { "label": "Cutouts", "keys": ["LID_CUTOUT_SIDES_4B"] },
@@ -79,7 +79,7 @@
         { "label": "Placement", "keys": ["POSITION_XY", "ROTATION"] }
       ],
       "divider": [
-        { "label": "Identity & Output", "keys": ["NAME", "PRINT_GROUP", "ENABLED_B", "DIV_OUTPUT_ONLY_B"] },
+        { "label": "Identity & Output", "keys": ["NAME", "PRINT_GROUP", "ENABLED_B"] },
         { "label": "Physical Size", "keys": ["DIV_THICKNESS"] },
         { "label": "Tabs", "keys": ["DIV_TAB_SIZE_XY", "DIV_TAB_RADIUS", "DIV_TAB_CYCLE", "DIV_TAB_CYCLE_START"] },
         { "label": "Tab Text", "keys": ["DIV_TAB_TEXT", "DIV_TAB_TEXT_SIZE", "DIV_TAB_TEXT_FONT", "DIV_TAB_TEXT_SPACING", "DIV_TAB_TEXT_CHAR_THRESHOLD", "DIV_TAB_TEXT_EMBOSSED_B"] },
@@ -92,7 +92,7 @@
       "description": "Top-level element (BOX, DIVIDERS, or SPACER)",
       "keys": {
         "NAME":              { "type": "string", "default": "", "help": "Display name for the element" },
-        "PRINT_GROUP":       { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag. A string or list of strings can be selected with G_PRINT_GROUP.", "contexts": ["BOX", "SPACER"] },
+        "PRINT_GROUP":       { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag. A string or list of strings can be selected with G_PRINT_GROUPS.", "contexts": ["BOX", "SPACER"] },
         "BOX_SIZE_XYZ":      { "type": "xyz", "default": [100, 100, 30], "help": "Box outer dimensions [x, y, z]. Omit to auto-calculate.", "contexts": ["BOX", "SPACER"] },
         "BOX_FEATURE":     { "type": "table_list", "child_context": "feature", "help": "List of compartment components", "contexts": ["BOX", "SPACER"] },
         "FEATURE_GROUP":   { "type": "table_list", "child_context": "group", "help": "Grouped child features with local position and rotation", "contexts": ["BOX", "SPACER"] },
@@ -182,7 +182,6 @@
         "DIV_LAYOUT_BAY_SIZE":       { "type": "number", "default": 0, "step": 0.5, "help": "Bay span along the divider axis in mm; 0 evenly spaces generated dividers" },
         "DIV_RAIL_SIZE_XYZ":         { "type": "xyz_or_false", "default": false, "help": "Rail groove size [thickness, width, height]; height can be MAX; false uses BIT's wall/compartment-based default" },
         "DIV_NO_RAILS_B":            { "type": "bool", "default": false, "help": "If true, omit matching box-side divider rail grooves" },
-        "DIV_OUTPUT_ONLY_B":         { "type": "bool", "default": false, "help": "If true, output only this generated divider subgroup and suppress its parent box" },
         "DIV_THICKNESS":             { "type": "number", "default": 0.5, "step": 0.1, "help": "Divider card thickness in mm" },
         "DIV_TAB_SIZE_XY":           { "type": "xy", "default": [32, 14], "help": "Tab dimensions [width, height]" },
         "DIV_TAB_RADIUS":            { "type": "number", "default": 4, "step": 0.5, "help": "Tab corner radius" },
@@ -206,6 +205,7 @@
       "keys": {
         "NAME":                         { "type": "string", "default": "", "help": "Display name for the lid" },
         "PRINT_GROUP":                  { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag; defaults to the parent box print group" },
+        "ENABLED_B":                    { "type": "bool", "default": true, "help": "If false, lid is skipped" },
         "LID_FIT_UNDER_B":              { "type": "bool", "default": true, "help": "Lid fits under the box (cap style)" },
         "LID_SOLID_B":                  { "type": "bool", "default": false, "help": "Solid lid (no pattern cutouts)" },
         "LID_HEIGHT":                   { "type": "number", "default": 4.0, "step": 0.5, "help": "Lid height in mm (default: 4 cap, 2 inset)" },
@@ -262,9 +262,8 @@
       "description": "Divider parameters (OBJECT_DIVIDERS)",
       "keys": {
         "NAME":                      { "type": "string", "default": "", "help": "Display name for the element" },
-        "PRINT_GROUP":               { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag. A string or list of strings can be selected with G_PRINT_GROUP." },
+        "PRINT_GROUP":               { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag. A string or list of strings can be selected with G_PRINT_GROUPS." },
         "ENABLED_B":                 { "type": "bool", "default": true, "help": "If false, divider is skipped" },
-        "DIV_OUTPUT_ONLY_B":         { "type": "bool", "default": false, "help": "If true, output only this divider object" },
         "DIV_THICKNESS":             { "type": "number", "default": 0.5, "step": 0.1, "help": "Divider card thickness in mm" },
         "DIV_TAB_SIZE_XY":           { "type": "xy", "default": [32, 14], "help": "Tab dimensions [width, height]" },
         "DIV_TAB_RADIUS":            { "type": "number", "default": 4, "step": 0.5, "help": "Tab corner radius" },
@@ -286,13 +285,10 @@
     }
   },
   "globals": {
-    "G_PRINT_LID_B":           { "type": "bool",   "default": true,  "help": "Print lid" },
-    "G_PRINT_BOX_B":           { "type": "bool",   "default": true,  "help": "Print box" },
-    "G_PRINT_GROUP":           { "type": "bool_string_list", "default": false, "help": "Select printable groups: false or empty prints normal output; a string or list prints matching PRINT_GROUP tags" },
-    "G_PRINT_DIVIDERS":        { "type": "bool_string_list", "default": true, "help": "Print generated divider panels: true, false, a name string, or a list of name strings" },
-    "G_PRINT_DIVIDERS_ONLY_B": { "type": "bool",   "default": false, "help": "Output only generated divider panels and suppress boxes and lids" },
+    "G_PRINT_TYPES":           { "type": "string_list", "default": [], "help": "Select output target types: empty prints all; BOX, LID, DIVIDERS, or a list prints matching target types" },
+    "G_PRINT_GROUPS":          { "type": "string_list", "default": [], "help": "Select printable groups: empty prints normal output; a string or list prints matching PRINT_GROUP tags" },
+    "G_PRINT_BOXES":           { "type": "string_list", "default": [], "help": "Select top-level entries by NAME: empty prints all; a string or list prints matching boxes/objects" },
     "G_FIT_TEST_B":            { "type": "bool",   "default": false, "help": "Output everything as placeholders for fit testing" },
-    "G_ISOLATED_PRINT_BOX":    { "type": "string", "default": "",    "help": "Print only this named box" },
     "G_VISUALIZATION_B":       { "type": "bool",   "default": false, "help": "Show boxes assembled (visualization mode)" },
     "G_PREVIEW_NO_LABELS_B":   { "type": "bool",   "default": false, "help": "Turn off labels during preview" },
     "G_VALIDATE_KEYS_B":       { "type": "bool",   "default": true,  "help": "Warn about unknown/malformed keys and known physical fit or printability risks" },

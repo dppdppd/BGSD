@@ -32,10 +32,10 @@ describe("generateScad", () => {
 
   it("emits boolean globals", () => {
     const project = makeProject([
-      { raw: "    [ G_PRINT_LID_B, true ],", kind: "global", depth: 1, globalKey: "G_PRINT_LID_B", globalValue: true },
+      { raw: "    [ G_FIT_TEST_B, true ],", kind: "global", depth: 1, globalKey: "G_FIT_TEST_B", globalValue: true },
     ]);
     const output = generateScad(project);
-    expect(output).toContain("G_PRINT_LID_B, true");
+    expect(output).toContain("G_FIT_TEST_B, true");
   });
 
   it("emits number globals", () => {
@@ -56,10 +56,10 @@ describe("generateScad", () => {
 
   it("emits string array globals with quoted strings", () => {
     const project = makeProject([
-      { raw: "    [ G_PRINT_DIVIDERS, [\"box 1\", \"tray\"] ],", kind: "global", depth: 1, globalKey: "G_PRINT_DIVIDERS", globalValue: ["box 1", "tray"] },
+      { raw: "    [ G_PRINT_GROUPS, [\"box 1\", \"tray\"] ],", kind: "global", depth: 1, globalKey: "G_PRINT_GROUPS", globalValue: ["box 1", "tray"] },
     ]);
     const output = generateScad(project);
-    expect(output).toContain('G_PRINT_DIVIDERS, ["box 1", "tray"]');
+    expect(output).toContain('G_PRINT_GROUPS, ["box 1", "tray"]');
   });
 
   it("emits string globals with quotes", () => {
@@ -68,6 +68,14 @@ describe("generateScad", () => {
     ]);
     const output = generateScad(project);
     expect(output).toContain('"Arial"');
+  });
+
+  it("emits OpenSCAD constants in string globals without quotes", () => {
+    const project = makeProject([
+      { raw: '    [ G_PRINT_TYPES, "DIVIDERS" ],', kind: "global", depth: 1, globalKey: "G_PRINT_TYPES", globalValue: "DIVIDERS" },
+    ]);
+    const output = generateScad(project);
+    expect(output).toContain("G_PRINT_TYPES, DIVIDERS");
   });
 
   it("emits KV lines verbatim", () => {

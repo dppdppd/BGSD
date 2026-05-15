@@ -84,9 +84,9 @@ Make(data);`;
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "DIV_RAIL_SIZE_XYZ")?.kvValue).toEqual([1, 1.5, 15]);
   });
 
-  it("parses BIT 4.9.1 feature groups, copies, print groups, and nested child features", () => {
+  it("parses BIT 4.11.0 feature groups, copies, print groups, and nested child features", () => {
     const scad = `// BGSD
-include <../lib/boardgame_insert_toolkit_lib.4.9.1.scad>;
+include <../lib/boardgame_insert_toolkit_lib.4.11.0.scad>;
 data = [
     [ OBJECT_BOX, [
         [ NAME, "box 1" ],

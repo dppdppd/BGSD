@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import bitSchema from "../schema/bit.schema.json";
 
 describe("BIT schema", () => {
-  it("tracks BIT 4.9.1 print groups, feature groups/copies, lid, divider, shape-axis, and validation options", () => {
-    expect(bitSchema.version).toBe("4.9.1");
+  it("tracks BIT 4.11.0 print selectors, feature groups/copies, lid, divider, shape-axis, and validation options", () => {
+    expect(bitSchema.version).toBe("4.11.0");
 
     const elementKeys = bitSchema.contexts.element.keys;
     const lidKeys = bitSchema.contexts.lid.keys;
@@ -48,6 +48,10 @@ describe("BIT schema", () => {
     expect(lidKeys.LID_FRAME_WIDTH).toMatchObject({
       type: "number",
       default: 2.0,
+    });
+    expect(lidKeys.ENABLED_B).toMatchObject({
+      type: "bool",
+      default: true,
     });
 
     expect(featureKeys.FTR_DIVIDERS).toMatchObject({
@@ -132,10 +136,7 @@ describe("BIT schema", () => {
       type: "bool",
       default: false,
     });
-    expect(featureDividerKeys.DIV_OUTPUT_ONLY_B).toMatchObject({
-      type: "bool",
-      default: false,
-    });
+    expect(featureDividerKeys.DIV_OUTPUT_ONLY_B).toBeUndefined();
     expect(featureDividerKeys.DIV_NUM_DIVIDERS).toBeUndefined();
     expect(featureDividerKeys.DIV_SLOT_DEPTH).toBeUndefined();
     expect(featureDividerKeys.DIV_RAILS_B).toBeUndefined();
@@ -144,10 +145,7 @@ describe("BIT schema", () => {
       type: "xy",
       default: [80, 80],
     });
-    expect(dividerKeys.DIV_OUTPUT_ONLY_B).toMatchObject({
-      type: "bool",
-      default: false,
-    });
+    expect(dividerKeys.DIV_OUTPUT_ONLY_B).toBeUndefined();
     expect(dividerKeys.PRINT_GROUP).toMatchObject({
       type: "bool_string_list",
       default: "",
@@ -161,18 +159,24 @@ describe("BIT schema", () => {
       default: "",
     });
 
-    expect(globals.G_PRINT_GROUP).toMatchObject({
-      type: "bool_string_list",
-      default: false,
+    expect(globals.G_PRINT_TYPES).toMatchObject({
+      type: "string_list",
+      default: [],
     });
-    expect(globals.G_PRINT_DIVIDERS).toMatchObject({
-      type: "bool_string_list",
-      default: true,
+    expect(globals.G_PRINT_GROUPS).toMatchObject({
+      type: "string_list",
+      default: [],
     });
-    expect(globals.G_PRINT_DIVIDERS_ONLY_B).toMatchObject({
-      type: "bool",
-      default: false,
+    expect(globals.G_PRINT_BOXES).toMatchObject({
+      type: "string_list",
+      default: [],
     });
+    expect(globals.G_PRINT_LID_B).toBeUndefined();
+    expect(globals.G_PRINT_BOX_B).toBeUndefined();
+    expect(globals.G_PRINT_GROUP).toBeUndefined();
+    expect(globals.G_PRINT_DIVIDERS).toBeUndefined();
+    expect(globals.G_PRINT_DIVIDERS_ONLY_B).toBeUndefined();
+    expect(globals.G_ISOLATED_PRINT_BOX).toBeUndefined();
     expect(globals.G_VALIDATE_PHYSICAL_B).toBeUndefined();
     expect(globals[["G_PRINT", "MMU", "LAYER"].join("_")]).toBeUndefined();
     expect(globals.G_VALIDATE_KEYS_B.help).toContain("physical");

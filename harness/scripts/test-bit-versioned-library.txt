@@ -1,5 +1,5 @@
 wait app-root
 new bit
-js (() => { const scad = document.querySelector('[data-testid="scad-output"]')?.textContent || ""; const m = scad.match(/boardgame_insert_toolkit_lib\.(\d+\.\d+\.\d+)\.scad/); if (!m) throw new Error(`missing versioned BIT include: ${(scad.split('\n')[1] || '').trim()}`); if (m[1] !== "4.9.1") throw new Error(`expected BIT 4.9.1 include, got ${m[1]}`); return `versioned BIT include ${m[1]}`; })()
+js (() => { const scad = document.querySelector('[data-testid="scad-output"]')?.textContent || ""; const m = scad.match(/boardgame_insert_toolkit_lib\.(\d+\.\d+\.\d+)\.scad/); if (!m) throw new Error(`missing versioned BIT include: ${(scad.split('\n')[1] || '').trim()}`); if (m[1] !== "4.11.0") throw new Error(`expected BIT 4.11.0 include, got ${m[1]}`); return `versioned BIT include ${m[1]}`; })()
 shot versioned_bit_include
 scad

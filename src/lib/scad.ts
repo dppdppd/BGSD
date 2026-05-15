@@ -78,7 +78,7 @@ export function generateScadWithSourceMap(project: Project): GeneratedScad {
         } else if (Array.isArray(line.globalValue)) {
           pushGeneratedLine(out, sourceMap, `${indent}[ ${gk}, [${line.globalValue.map(formatKvValue).join(", ")}] ],`, i);
         } else if (gk) {
-          pushGeneratedLine(out, sourceMap, `${indent}[ ${gk}, "${line.globalValue ?? ""}" ],`, i);
+          pushGeneratedLine(out, sourceMap, `${indent}[ ${gk}, ${formatKvValue(line.globalValue ?? "")} ],`, i);
         }
         break;
       }

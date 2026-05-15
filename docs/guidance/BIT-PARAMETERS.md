@@ -1,66 +1,47 @@
-# BIT Parameter Frequency
+# BIT Common Parameters Quick Reference
 
-Source: `examples.4.scad` (17 boxes, 35 features, 2 divider sets) + `starter.scad`.
+All parameters for the v4 data array format. See `release/lib/boardgame_insert_toolkit_lib.4.scad` for full definitions.
 
-| Parameter | Uses | Context |
-|-----------|------|---------|
-| `FTR_COMPARTMENT_SIZE_XYZ` | 35 | feature |
-| `POSITION_XY` | 26 | feature, label |
-| `FTR_SHAPE` | 20 | feature |
-| `NAME` | 19 | element |
-| `BOX_SIZE_XYZ` | 17 | element |
-| `LBL_TEXT` | 15 | label |
-| `LBL_SIZE` | 14 | label |
-| `FTR_NUM_COMPARTMENTS_XY` | 9 | feature |
-| `LBL_PLACEMENT` | 9 | label |
-| `LID_SOLID_B` | 8 | lid |
-| `FTR_SHAPE_VERTICAL_B` | 8 | feature |
-| `LID_PATTERN_RADIUS` | 7 | lid |
-| `FTR_SHAPE_AXIS` | 7 | feature |
-| `ROTATION` | 6 | feature, label |
-| `LID_PATTERN_THICKNESS` | 5 | lid |
-| `FTR_PADDING_XY` | 4 | feature |
-| `FTR_CUTOUT_SIDES_4B` | 4 | feature |
-| `LID_PATTERN_N1` | 4 | lid |
-| `LID_PATTERN_N2` | 4 | lid |
-| `LID_PATTERN_ANGLE` | 4 | lid |
-| `LID_PATTERN_ROW_OFFSET` | 4 | lid |
-| `LID_PATTERN_COL_OFFSET` | 4 | lid |
-| `FTR_PADDING_HEIGHT_ADJUST_XY` | 3 | feature |
-| `BOX_STACKABLE_B` | 2 | element |
-| `ENABLED_B` | 2 | element |
-| `FTR_SHEAR` | 2 | feature |
-| `FTR_MARGIN_FBLR` | 2 | feature |
-| `FTR_FILLET_RADIUS` | 2 | feature |
-| `LID_INSET_B` | 2 | lid |
-| `DIV_TAB_TEXT` | 2 | divider |
-| `G_TOLERANCE` | 1 | global |
-| `G_DEFAULT_FONT` | 1 | global |
-| `LID_HEIGHT` | 1 | lid |
-| `LID_FIT_UNDER_B` | 1 | lid |
-| `LID_LABELS_INVERT_B` | 1 | lid |
-| `LID_LABELS_BG_THICKNESS` | 1 | lid |
-| `LID_LABELS_BORDER_THICKNESS` | 1 | lid |
-| `LBL_FONT` | 1 | label |
-| `FTR_PEDESTAL_BASE_B` | 1 | feature |
-| `FTR_CUTOUT_CORNERS_4B` | 1 | feature |
-| `FTR_CUTOUT_TYPE` | 1 | feature |
-| `FTR_CUTOUT_HEIGHT_PCT` | 1 | feature |
-| `FTR_CUTOUT_DEPTH_PCT` | 1 | feature |
-| `FTR_CUTOUT_WIDTH_PCT` | 1 | feature |
-| `FTR_CUTOUT_BOTTOM_B` | 1 | feature |
-| `DIV_TAB_TEXT_SIZE` | 1 | divider |
-| `DIV_TAB_SIZE_XY` | 1 | divider |
-| `DIV_TAB_CYCLE` | 1 | divider |
-| `DIV_TAB_CYCLE_START` | 1 | divider |
-| `DIV_FRAME_SIZE_XY` | 1 | divider |
-| `DIV_FRAME_NUM_COLUMNS` | 1 | divider |
-| `DIV_FRAME_COLUMN` | 1 | divider |
+## Element-level (inside OBJECT_BOX)
 
-## Never used in examples
+`NAME`, `PRINT_GROUP`, `BOX_SIZE_XYZ`, `BOX_FEATURE`, `FEATURE_GROUP`, `FEATURE_COPY`, `BOX_LID`, `BOX_NO_LID_B`, `BOX_STACKABLE_B`, `CHAMFER_N`, `ENABLED_B`
 
-`PRINT_GROUP`, `BOX_NO_LID_B`, `BOX_WALL_THICKNESS`, `CHAMFER_N`, `DEBUG_B`, `FTR_CUTOUT_BOTTOM_PCT`, `FTR_CUTOUT_DEPTH_MAX`, `LBL_DEPTH`, `LBL_SPACING`, `LBL_IMAGE`, `LBL_AUTO_SCALE_FACTOR`, `LID_CUTOUT_SIDES_4B`, `LID_TABS_4B`, `LID_STRIPE_WIDTH`, `LID_STRIPE_SPACE`, `LID_SOLID_LABELS_DEPTH`, `DIV_THICKNESS`, `DIV_TAB_RADIUS`, `DIV_TAB_TEXT_FONT`, `DIV_TAB_TEXT_SPACING`, `DIV_TAB_TEXT_CHAR_THRESHOLD`, `DIV_TAB_TEXT_EMBOSSED_B`, `DIV_FRAME_TOP`, `DIV_FRAME_BOTTOM`, `DIV_FRAME_RADIUS`, `G_PRINT_LID_B`, `G_PRINT_BOX_B`, `G_PRINT_GROUP`, `G_ISOLATED_PRINT_BOX`, `G_VISUALIZATION_B`, `G_VALIDATE_KEYS_B`, `G_WALL_THICKNESS`, `G_TOLERANCE_DETENT_POS`, `G_FIT_TEST_B`, `G_DETENT_THICKNESS`, `G_DETENT_SPACING`, `G_DETENT_DIST_FROM_CORNER`, `G_DETENT_MIN_SPACING`, `G_LID_THICKNESS`, `G_COLORIZE_B`, `G_PREVIEW_NO_LABELS_B`
+## Feature-level (inside BOX_FEATURE)
 
-## Print Group Notes
+`PRINT_GROUP`, `FTR_COMPARTMENT_SIZE_XYZ`, `FTR_NUM_COMPARTMENTS_XY`, `FTR_SHAPE` (SQUARE/HEX/HEX2/OCT/OCT2/ROUND/FILLET), `FTR_SHAPE_AXIS` (X/Y, default Y), `FTR_SHAPE_VERTICAL_B`, `FTR_PADDING_XY`, `FTR_PADDING_HEIGHT_ADJUST_XY`, `FTR_MARGIN_FBLR`, `FTR_CUTOUT_SIDES_4B`, `FTR_CUTOUT_CORNERS_4B`, `FTR_CUTOUT_HEIGHT_PCT`, `FTR_CUTOUT_DEPTH_PCT`, `FTR_CUTOUT_WIDTH_PCT`, `FTR_CUTOUT_BOTTOM_B`, `FTR_CUTOUT_BOTTOM_PCT`, `FTR_CUTOUT_TYPE` (INTERIOR/EXTERIOR/BOTH), `FTR_DIVIDERS`, `FTR_SHEAR`, `FTR_FILLET_RADIUS`, `FTR_PEDESTAL_BASE_B`, `CHAMFER_N`, `POSITION_XY`, `ROTATION`, `BOX_FEATURE`, `FEATURE_GROUP`, `FEATURE_COPY`
 
-In BIT 4.9.1, a box feature printed separately from its parent box emits feature-local rim/wall geometry. `FTR_MARGIN_FBLR` controls that rim explicitly; when omitted, BIT uses the box wall thickness as the default rim.
+## Group-level (inside FEATURE_GROUP)
+
+`FEATURE_GROUP` is a non-geometry transform wrapper. It supports `NAME`, `PRINT_GROUP`, `ENABLED_B`, `DEBUG_B`, `POSITION_XY`, and `ROTATION`. It can appear at box level or inside `BOX_FEATURE`, and can contain `BOX_FEATURE` and nested `FEATURE_GROUP` entries. Group `POSITION_XY` is a numeric `[x, y]` origin, and `ROTATION` rotates children around that origin. Child `BOX_FEATURE` positions inside a group are numeric group-local coordinates. Use `FEATURE_GROUP` when multiple adjacent features should move or rotate together without creating a parent cavity. Use nested `BOX_FEATURE` when children are physically inside a parent tray/cavity and should cut into that parent floor.
+
+## Copy-level (inside FEATURE_COPY)
+
+`FEATURE_COPY` is a non-geometry transform wrapper that repeats a named `BOX_FEATURE` or `FEATURE_GROUP`. It supports `NAME`, `PRINT_GROUP`, `ENABLED_B`, `DEBUG_B`, `FEATURE_REFERENCE`, `POSITION_XY`, and `ROTATION`. `FEATURE_REFERENCE` is a string matching the referenced feature/group `NAME`. The copy's `POSITION_XY` and `ROTATION` supply the outer placement for the repeated geometry; the referenced entry supplies local shape parameters and, for groups, child layout. Copies can appear at box level, inside `FEATURE_GROUP`, or inside nested `BOX_FEATURE` children. References resolve by searching the nearest containing scope first, then the containing box; the first matching `BOX_FEATURE` or `FEATURE_GROUP` name wins. `FEATURE_COPY` entries are not valid reference targets.
+
+`FTR_DIVIDERS` is an optional subgroup inside `BOX_FEATURE`, shaped like `LABEL`. It carries the bay layout for one compartment axis and the normal divider-generation parameters: `DIV_LAYOUT_BAYS`, `DIV_LAYOUT_BAY_SIZE`, `DIV_AXIS`, `DIV_NO_RAILS_B`, `DIV_RAIL_SIZE_XYZ`, `DIV_THICKNESS`, `DIV_TAB_SIZE_XY`, `DIV_TAB_RADIUS`, `DIV_TAB_CYCLE`, `DIV_TAB_CYCLE_START`, `DIV_TAB_TEXT`, `DIV_TAB_TEXT_SIZE`, `DIV_TAB_TEXT_FONT`, `DIV_TAB_TEXT_SPACING`, `DIV_TAB_TEXT_CHAR_THRESHOLD`, `DIV_TAB_TEXT_EMBOSSED_B`, `DIV_FRAME_TOP`, `DIV_FRAME_BOTTOM`, `DIV_FRAME_COLUMN`, `DIV_FRAME_RADIUS`, and `DIV_FRAME_NUM_COLUMNS`. `DIV_LAYOUT_BAYS` is the number of stored bays along `DIV_AXIS`, and BIT generates one divider between each adjacent pair of bays. `DIV_LAYOUT_BAY_SIZE` is each bay's physical span along `DIV_AXIS`; when omitted or set to `0`, BIT evenly spaces the generated dividers across the compartment. When `DIV_LAYOUT_BAY_SIZE` is positive, the required layout span is `DIV_LAYOUT_BAYS * DIV_LAYOUT_BAY_SIZE + (DIV_LAYOUT_BAYS - 1) * DIV_THICKNESS`, centered in the compartment. `DIV_AXIS` is `X` or `Y` and defaults to `X`. X-axis dividers are placed at X positions and run front/back; Y-axis dividers are placed at Y positions and run left/right. Rails are generated by default; set `DIV_NO_RAILS_B` to `true` to omit matching box-side rail grooves. The divider slot gap is inferred from `DIV_THICKNESS + G_TOLERANCE`. `DIV_RAIL_SIZE_XYZ` controls positive rail dimensions as `[thickness, width, height]`, where thickness is the material beside each groove, width is the projection inward from the compartment side wall, and height is a number or `MAX`; `MAX` resolves to the full compartment height. It defaults to `[wall_thickness / 2, wall_thickness, MAX]`. Rails live inside the normal feature transform, so box-side rails inherit `POSITION_XY`, `ROTATION`, and `FTR_SHEAR`. Rails and generated loose divider panels are clipped by intersecting the slot slice with the compartment shape, so round/hex/oct side profiles produce matching divider edges. In normal mode, `FTR_DIVIDERS` outputs both the box rails and matching loose divider panels, one panel per generated divider in each repeated compartment. Preview places generated panels in their slots; render lays them out separately for printing. `G_PRINT_TYPES` controls whether generated panels are emitted: include `DIVIDERS` to print generated divider panels and standalone `OBJECT_DIVIDERS`, omit `DIVIDERS` to suppress them, or set `[ G_PRINT_TYPES, DIVIDERS ]` to output only divider panels/objects. Fitted panel extents come from the compartment shape and never exceed the compartment height or side profile, so `DIV_FRAME_SIZE_XY` is only for standalone `OBJECT_DIVIDERS` and is not valid inside `FTR_DIVIDERS`. `DIV_TAB_*` tabs are first constrained to the fitted divider side span with their top aligned to the compartment top, then the combined divider is clipped to the compartment profile so tabs do not protrude above or beside the fitted divider. Tab corners are clamped to rounded-rectangle corners, not semicircular caps. `DIV_FRAME_*` keys control optional frame openings when `DIV_FRAME_NUM_COLUMNS` is zero or greater; `DIV_FRAME_COLUMN` controls the side and internal bar width, and `DIV_FRAME_RADIUS` controls rounded opening corners. Fitted generated dividers clamp oversized frame bars to keep openings printable in shallow compartments. The standalone `OBJECT_DIVIDERS` path remains rectangular and independent. Physical validation warns for malformed axis/layout/rail-size values, overfull requested divider layouts, non-positive rail dimensions, edge-adjacent generated rail grooves, rail pairs that would overlap across the compartment, oversized generated tabs that get clamped by fitted panel height, and generated fitted divider panels that collide with or lack tolerance below inset lids.
+
+## Lid-level (inside BOX_LID)
+
+`PRINT_GROUP`, `ENABLED_B`, `LID_TYPE` (`LID_CAP`/`LID_INSET`/`LID_SLIDING`), `LID_SLIDE_SIDE` (`FRONT`/`BACK`/`LEFT`/`RIGHT`, default `FRONT`), `LID_DETENT_LOCK_ANGLE` (sliding lid groove lock-side angle in degrees, default 45; 90 is vertical), `LID_FRAME_WIDTH` (default wall thickness; 0 omits the extra perimeter frame on patterned, non-solid lids), `LID_SOLID_B`, `LID_HEIGHT`, `LID_FIT_UNDER_B`, `LID_INSET_B` (legacy boolean used when `LID_TYPE` is omitted), `LID_PATTERN_RADIUS`, `LID_PATTERN_N1/N2`, `LID_PATTERN_ANGLE`, `LID_PATTERN_ROW_OFFSET/COL_OFFSET`, `LID_PATTERN_THICKNESS`, `LID_CUTOUT_SIDES_4B`, `LID_LABELS_INVERT_B`, `LID_SOLID_LABELS_DEPTH`, `LID_LABELS_BG_THICKNESS`, `LID_LABELS_BORDER_THICKNESS`, `LID_STRIPE_WIDTH/SPACE`, `LID_TABS_4B`
+
+`LID_SLIDING` creates a sliding panel with matching box rails and a stop on the opposite side from `LID_SLIDE_SIDE`. The rail groove has a horizontal bottom and printable 45-degree top, and the top of that 45-degree wall is the top of the groove. The groove extends halfway into the wall so the lid rests on a wall shelf under the wedge. The lid edge has the matching bevel. Sliding lids use `G_TOLERANCE` for fit: the rail sides get `2 * G_TOLERANCE` clearance each, the stop side gets `G_TOLERANCE`, and the lid panel is shortened vertically for `G_TOLERANCE` above and below. The slide opening has a top-open lead-in rather than a covered slot. Patterned lids include a perimeter frame for rigidity, clipped to the appropriate lid surface; solid lids ignore `LID_FRAME_WIDTH`. Sliding lids include a right-triangle locking detent on the top of the opening-side wall with a matching groove in the underside of the lid. The detent stays on the flat rail shelf after the chamfer, spans that flat width minus `G_TOLERANCE` on both sides, uses `G_DETENT_THICKNESS` for protrusion height, orients the vertical face to resist the lid sliding back out, and cuts the matching lid groove with `LID_DETENT_LOCK_ANGLE` on the lock side. Lower lock angles bevel the lid cavity for less resistance; `90` keeps a vertical lock face. Sliding lids rotate detached lids 180 degrees for printing so the wedge edges and detent groove face upward, use `G_LID_THICKNESS` for sliding panel and rail height when set, ignore `LID_HEIGHT` and `LID_FIT_UNDER_B`, and can use the normal solid, pattern, and label parameters.
+
+## Label-level (inside BOX_LID, BOX_FEATURE, or box-level)
+
+`PRINT_GROUP`, `LBL_TEXT`, `LBL_SIZE` (number or AUTO), `LBL_PLACEMENT` (FRONT/BACK/LEFT/RIGHT/FRONT_WALL/BACK_WALL/LEFT_WALL/RIGHT_WALL/CENTER/BOTTOM), `LBL_FONT`, `LBL_DEPTH`, `LBL_SPACING`, `LBL_IMAGE`, `ROTATION`, `POSITION_XY`
+
+## Divider-level
+
+`DIV_TAB_TEXT`, `DIV_TAB_SIZE_XY`, `DIV_TAB_RADIUS`, `DIV_TAB_CYCLE`, `DIV_TAB_CYCLE_START`, `DIV_TAB_TEXT_SIZE/FONT/SPACING`, `DIV_TAB_TEXT_EMBOSSED_B`, `DIV_FRAME_SIZE_XY` (standalone `OBJECT_DIVIDERS` only), `DIV_FRAME_NUM_COLUMNS`, `DIV_FRAME_COLUMN`, `DIV_FRAME_TOP/BOTTOM/RADIUS`, `DIV_THICKNESS`, `DIV_LAYOUT_BAYS` (only meaningful in `FTR_DIVIDERS`), `DIV_LAYOUT_BAY_SIZE` (only meaningful in `FTR_DIVIDERS`), `DIV_AXIS` (only meaningful in `FTR_DIVIDERS`), `DIV_NO_RAILS_B` (only meaningful in `FTR_DIVIDERS`), `DIV_RAIL_SIZE_XYZ` (only meaningful in `FTR_DIVIDERS`)
+
+## Globals (as `[G_*, value]` pairs in data array)
+
+`G_PRINT_TYPES`, `G_PRINT_GROUPS`, `G_PRINT_BOXES`, `G_VISUALIZATION_B`, `G_VALIDATE_KEYS_B`, `G_WALL_THICKNESS` (default 2.0mm), `G_LID_THICKNESS` (default follows wall thickness), `G_DETENT_THICKNESS` (default 0.8mm), `G_DETENT_SPACING`, `G_DETENT_DIST_FROM_CORNER`, `G_DETENT_MIN_SPACING`, `G_TOLERANCE`, `G_TOLERANCE_DETENT_POS`, `G_DEFAULT_FONT`
+
+File-scope `$g_*` variables provide defaults; data array entries override them via `Make()`. `G_PRINT_TYPES` accepts an empty value, one target (`BOX`, `LID`, or `DIVIDERS`), or a list of targets. Empty values (`false`, `""`, or `[]`) print all target types. `BOX` prints boxes and spacers, `LID` prints lids, and `DIVIDERS` prints standalone `OBJECT_DIVIDERS` plus generated panels from `FTR_DIVIDERS`. `G_PRINT_BOXES` accepts an empty value, one top-level `NAME`, or a list of names; empty values print all top-level entries. `PRINT_GROUP` tags printable boxes/spacers/dividers, lids, box features, feature groups/copies, and labels for grouped output; values may be a string or list of strings. `G_PRINT_GROUPS` accepts an empty value, a string, or a list of strings; empty values print the normal single-material output and string/list values print only matching printable groups. Lid `PRINT_GROUP` inherits from its box unless overridden. Feature and label print groups inherit from their containing box/lid/feature/group unless overridden. The equivalent call-style override is `Make(data, print_groups = "group1")`, which takes precedence over `[ G_PRINT_GROUPS, ... ]`. When a feature or label is assigned to a different group from its containing box/lid, the containing body cuts that detail out and the selected group emits the positive detail geometry. A separately printed box feature reserves and emits feature-local rim/wall geometry; `FTR_MARGIN_FBLR` controls that rim explicitly, and when omitted the box wall thickness is used as the default rim. When a print group selector is active, selected groups are preview-colored from a stable palette based on the first explicit `PRINT_GROUP` order in the data; this is separate from `G_COLORIZE_B` random visualization coloring. `G_VALIDATE_KEYS_B` enables validation messages for typos, malformed entries, wrong value types, and known fit/printability risks, including cap/inset/sliding lid fit tolerances, cap/inset/sliding-lid detent sizing/placement, sliding-detent matching groove skin/width/height, sliding-detent exterior-chamfer and opening-side cutout clipping, divider slot placement/depth, and fragile side, rounded finger, bottom, and corner cutout dimensions.
+
+Validation is enabled by default. Set `[ G_VALIDATE_KEYS_B, false ]` to suppress both key/type messages and physical warnings.
+
+## Gotchas
+
+- **`FTR_SHAPE_VERTICAL_B = true` does nothing without an explicit `FTR_SHAPE`.** The default `FTR_SHAPE` is `SQUARE`, and the vertical flag is ignored for square cavities. To get a round vertical cavity (e.g. for a cylindrical token stack), set `FTR_SHAPE = ROUND` and `FTR_SHAPE_VERTICAL_B = true` together. Same applies for vertical hex / oct — pair with `FTR_SHAPE = HEX` (or `HEX2`/`OCT`/`OCT2`).

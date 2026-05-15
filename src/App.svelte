@@ -132,10 +132,10 @@
   let blockDefaultsKeyCounter = 0;
   let blockDefaultsKeys = new WeakMap<Line, string>();
   let favoriteKeys = $state<Set<string>>(new Set());
-  const FAVORITE_KEYS_VERSION = 10;
+  const FAVORITE_KEYS_VERSION = 11;
   const FAVORITE_KEYS_ADDED_IN_V2 = ["LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH"];
   const FAVORITE_KEYS_ADDED_IN_V3 = [
-    "FTR_DIVIDERS", "DIV_AXIS", "DIV_OUTPUT_ONLY_B",
+    "FTR_DIVIDERS", "DIV_AXIS",
   ];
   const FAVORITE_KEYS_ADDED_IN_V4 = [
     "DIV_LAYOUT_BAYS", "DIV_LAYOUT_BAY_SIZE", "DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B",
@@ -143,7 +143,8 @@
   const FAVORITE_KEYS_ADDED_IN_V5 = ["FTR_SHAPE_AXIS"];
   const FAVORITE_KEYS_ADDED_IN_V8 = ["FEATURE_GROUP"];
   const FAVORITE_KEYS_ADDED_IN_V9 = ["FEATURE_COPY", "FEATURE_REFERENCE"];
-  const FAVORITE_KEYS_ADDED_IN_V10 = ["G_PRINT_GROUP"];
+  const FAVORITE_KEYS_ADDED_IN_V10: string[] = [];
+  const FAVORITE_KEYS_ADDED_IN_V11 = ["G_PRINT_TYPES", "G_PRINT_GROUPS", "G_PRINT_BOXES"];
   function collectFavoriteSchemaKeys(): Set<string> {
     const keys = new Set<string>();
     for (const profile of ["bit", "ctd"]) {
@@ -160,7 +161,9 @@
   // no longer in any loaded schema are pruned below as part of migration.
   const REMOVED_FAVORITE_KEYS = [
     "DIV_NUM_DIVIDERS", "DIV_SLOT_DEPTH", "DIV_RAILS_B", "FTR_SHAPE_ROTATED_B",
-    "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_VALIDATE_PHYSICAL_B", "BOX_GROUP",
+    "DIV_OUTPUT_ONLY_B", "G_PRINT_LID_B", "G_PRINT_BOX_B", "G_PRINT_GROUP",
+    "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_ISOLATED_PRINT_BOX",
+    "G_VALIDATE_PHYSICAL_B", "BOX_GROUP",
   ];
   // Default favorites based on frequency data from docs/guidance/BIT-PARAMETERS.md (3+ uses)
   // and docs/guidance/CTD-PARAMETERS.md (3+ designs). Seeded on first run.
@@ -174,7 +177,7 @@
     "DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B",
     "LID_SOLID_B", "LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH",
     "LBL_TEXT", "LBL_SIZE", "LBL_PLACEMENT",
-    "G_PRINT_GROUP", "G_VALIDATE_KEYS_B",
+    "G_PRINT_TYPES", "G_PRINT_GROUPS", "G_PRINT_BOXES", "G_VALIDATE_KEYS_B",
     "G_DIMENSIONS_XY", "G_FLOOR_THICKNESS_N", "G_MIN_PADDING_XY", "G_FRAME_STYLE_N",
     "COUNTER_SIZE_XYZ", "COUNTER_MARGINS_POST_LENGTH_FRACTION_N",
     "PRINT_COUNT_N", "ROWS_N", "COUNTER_SHAPE",
@@ -1020,6 +1023,9 @@
       if (favoriteVersion < 10) {
         for (const key of FAVORITE_KEYS_ADDED_IN_V10) migrated.add(key);
       }
+      if (favoriteVersion < 11) {
+        for (const key of FAVORITE_KEYS_ADDED_IN_V11) migrated.add(key);
+      }
       for (const key of REMOVED_FAVORITE_KEYS) {
         if (migrated.delete(key)) changedFavorites = true;
       }
@@ -1593,7 +1599,7 @@
   });
 
   const KNOWN_CONSTANTS: Record<string, any> = {
-    BOX:"BOX",DIVIDERS:"DIVIDERS",SPACER:"SPACER",
+    BOX:"BOX",LID:"LID",DIVIDERS:"DIVIDERS",SPACER:"SPACER",
     OBJECT_BOX:"OBJECT_BOX",OBJECT_DIVIDERS:"OBJECT_DIVIDERS",OBJECT_SPACER:"OBJECT_SPACER",
     SQUARE:"SQUARE",
     HEX:"HEX",HEX2:"HEX2",OCT:"OCT",OCT2:"OCT2",ROUND:"ROUND",FILLET:"FILLET",
@@ -1731,11 +1737,11 @@
     return uniqueSortedTerms(names);
   }
 
-  function collectBoxNames(): string[] {
+  function collectTopLevelObjectNames(): string[] {
     const names: string[] = [];
     for (let i = 0; i < $project.lines.length; i++) {
       const line = $project.lines[i];
-      if (line.kind === "open" && line.role === "object" && line.label === "OBJECT_BOX") {
+      if (line.kind === "open" && line.role === "object") {
         const name = findChildName(i).trim();
         if (name) names.push(name);
       }
@@ -1745,22 +1751,28 @@
 
   function dynamicMultiReferenceConfig(key: string, value: any): DynamicMultiReferenceConfig | null {
     if ($project.libraryProfile === "ctd") return null;
-    if (key === "G_PRINT_GROUP") {
+    if (key === "G_PRINT_TYPES") {
+      return {
+        options: ["BOX", "LID", "DIVIDERS"],
+        allLabel: "All",
+        allValue: [],
+        emptyValue: [],
+      };
+    }
+    if (key === "G_PRINT_GROUPS") {
       return {
         options: mergeCurrentTerms(collectPrintGroupTerms(), value),
         allLabel: "All",
-        allValue: false,
-        emptyValue: false,
+        allValue: [],
+        emptyValue: [],
       };
     }
-    if (key === "G_PRINT_DIVIDERS") {
+    if (key === "G_PRINT_BOXES") {
       return {
-        options: mergeCurrentTerms(collectNamedBlocks(), value),
+        options: mergeCurrentTerms(collectTopLevelObjectNames(), value),
         allLabel: "All",
-        allValue: true,
-        noneLabel: "None",
-        noneValue: false,
-        emptyValue: false,
+        allValue: [],
+        emptyValue: [],
       };
     }
     return null;
@@ -1768,13 +1780,6 @@
 
   function dynamicSingleReferenceConfig(key: string, value: any): DynamicSingleReferenceConfig | null {
     if ($project.libraryProfile === "ctd") return null;
-    if (key === "G_ISOLATED_PRINT_BOX") {
-      return {
-        options: mergeCurrentTerms(collectBoxNames(), value),
-        allLabel: "All",
-        allValue: "",
-      };
-    }
     if (key === "FEATURE_REFERENCE") {
       return {
         options: mergeCurrentTerms(collectNamedBlocks(), value),
@@ -1792,7 +1797,9 @@
   function isDynamicAll(value: any, config: DynamicMultiReferenceConfig): boolean {
     return dynamicValueEquals(value, config.allValue) ||
       (config.allValue === false && (value === "" || (Array.isArray(value) && value.length === 0))) ||
-      (config.allValue === "" && value === false);
+      (config.allValue === "" && value === false) ||
+      (Array.isArray(config.allValue) && config.allValue.length === 0 &&
+        (value === false || value === "" || (Array.isArray(value) && value.length === 0)));
   }
 
   function isDynamicNone(value: any, config: DynamicMultiReferenceConfig): boolean {
