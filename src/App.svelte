@@ -4522,11 +4522,9 @@
     height: 18px;
     padding-top: 0;
     padding-bottom: 0;
-    padding-right: 14px;
     margin-top: 6px;
-    gap: 3px;
-    flex-direction: row-reverse;
-    justify-content: flex-start;
+    gap: 4px;
+    justify-content: center;
     color: var(--ink-mute);
   }
   .line-row.kv-category::after {
