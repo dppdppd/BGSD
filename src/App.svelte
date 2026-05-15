@@ -1676,6 +1676,152 @@
     return "";
   }
 
+  type DynamicMultiReferenceConfig = {
+    options: string[];
+    allLabel: string;
+    allValue: any;
+    noneLabel?: string;
+    noneValue?: any;
+    emptyValue: any;
+  };
+
+  type DynamicSingleReferenceConfig = {
+    options: string[];
+    allLabel: string;
+    allValue: any;
+  };
+
+  function normalizeSelectorTerms(value: any): string[] {
+    const source = Array.isArray(value) ? value : (typeof value === "string" ? [value] : []);
+    const terms: string[] = [];
+    for (const item of source) {
+      const term = String(item ?? "").trim();
+      if (term) terms.push(term);
+    }
+    return terms;
+  }
+
+  function uniqueSortedTerms(values: string[]): string[] {
+    return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+  }
+
+  function mergeCurrentTerms(options: string[], value: any): string[] {
+    return uniqueSortedTerms([...options, ...normalizeSelectorTerms(value)]);
+  }
+
+  function collectPrintGroupTerms(): string[] {
+    const terms: string[] = [];
+    for (const line of $project.lines) {
+      if (line.kind === "kv" && line.kvKey === "PRINT_GROUP") {
+        terms.push(...normalizeSelectorTerms(line.kvValue));
+      }
+    }
+    return uniqueSortedTerms(terms);
+  }
+
+  function collectNamedBlocks(): string[] {
+    const names: string[] = [];
+    for (const line of $project.lines) {
+      if (line.kind === "kv" && line.kvKey === "NAME") {
+        const name = String(line.kvValue ?? "").trim();
+        if (name) names.push(name);
+      }
+    }
+    return uniqueSortedTerms(names);
+  }
+
+  function collectBoxNames(): string[] {
+    const names: string[] = [];
+    for (let i = 0; i < $project.lines.length; i++) {
+      const line = $project.lines[i];
+      if (line.kind === "open" && line.role === "object" && line.label === "OBJECT_BOX") {
+        const name = findChildName(i).trim();
+        if (name) names.push(name);
+      }
+    }
+    return uniqueSortedTerms(names);
+  }
+
+  function dynamicMultiReferenceConfig(key: string, value: any): DynamicMultiReferenceConfig | null {
+    if ($project.libraryProfile === "ctd") return null;
+    if (key === "G_PRINT_GROUP") {
+      return {
+        options: mergeCurrentTerms(collectPrintGroupTerms(), value),
+        allLabel: "All",
+        allValue: false,
+        emptyValue: false,
+      };
+    }
+    if (key === "G_PRINT_DIVIDERS") {
+      return {
+        options: mergeCurrentTerms(collectNamedBlocks(), value),
+        allLabel: "All",
+        allValue: true,
+        noneLabel: "None",
+        noneValue: false,
+        emptyValue: false,
+      };
+    }
+    return null;
+  }
+
+  function dynamicSingleReferenceConfig(key: string, value: any): DynamicSingleReferenceConfig | null {
+    if ($project.libraryProfile === "ctd") return null;
+    if (key === "G_ISOLATED_PRINT_BOX") {
+      return {
+        options: mergeCurrentTerms(collectBoxNames(), value),
+        allLabel: "All",
+        allValue: "",
+      };
+    }
+    if (key === "FEATURE_REFERENCE") {
+      return {
+        options: mergeCurrentTerms(collectNamedBlocks(), value),
+        allLabel: "None",
+        allValue: "",
+      };
+    }
+    return null;
+  }
+
+  function dynamicValueEquals(a: any, b: any): boolean {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  function isDynamicAll(value: any, config: DynamicMultiReferenceConfig): boolean {
+    return dynamicValueEquals(value, config.allValue) ||
+      (config.allValue === false && (value === "" || (Array.isArray(value) && value.length === 0))) ||
+      (config.allValue === "" && value === false);
+  }
+
+  function isDynamicNone(value: any, config: DynamicMultiReferenceConfig): boolean {
+    return config.noneLabel !== undefined && dynamicValueEquals(value, config.noneValue);
+  }
+
+  function dynamicMultiSummary(value: any, config: DynamicMultiReferenceConfig): string {
+    if (isDynamicAll(value, config)) return config.allLabel;
+    if (isDynamicNone(value, config)) return config.noneLabel || "None";
+    const terms = normalizeSelectorTerms(value);
+    if (!terms.length) return config.allLabel;
+    if (terms.length <= 2) return terms.join(", ");
+    return `${terms.length} selected`;
+  }
+
+  function dynamicSingleSummary(value: any, config: DynamicSingleReferenceConfig): string {
+    const text = typeof value === "string" ? value.trim() : "";
+    return text || config.allLabel;
+  }
+
+  function dynamicMultiToggleValue(value: any, term: string, config: DynamicMultiReferenceConfig): any {
+    const selected = new Set(normalizeSelectorTerms(value));
+    if (selected.has(term)) selected.delete(term);
+    else selected.add(term);
+    const next = [...selected];
+    if (!next.length) return config.emptyValue;
+    return next.length === 1 ? next[0] : next;
+  }
+
   function numberOrFalseMode(value: any): "false" | "number" {
     return value === false ? "false" : "number";
   }
@@ -1809,6 +1955,7 @@
   /** Which preset dropdown is currently open (field key like "COUNTER_SIZE_XYZ"), or null. */
   let presetOpen = $state<string | null>(null);
   let addMenuOpen = $state<string | null>(null);
+  let dynamicSelectOpen = $state<string | null>(null);
 
   /** Close preset dropdown when clicking outside. */
   $effect(() => {
@@ -1829,6 +1976,23 @@
     }
     function handleKeydown(e: KeyboardEvent) {
       if (e.key === "Escape") addMenuOpen = null;
+    }
+    document.addEventListener("click", handleClick, true);
+    document.addEventListener("keydown", handleKeydown, true);
+    return () => {
+      document.removeEventListener("click", handleClick, true);
+      document.removeEventListener("keydown", handleKeydown, true);
+    };
+  });
+
+  $effect(() => {
+    if (!dynamicSelectOpen) return;
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".dynamic-ref-wrap")) dynamicSelectOpen = null;
+    }
+    function handleKeydown(e: KeyboardEvent) {
+      if (e.key === "Escape") dynamicSelectOpen = null;
     }
     document.addEventListener("click", handleClick, true);
     document.addEventListener("keydown", handleKeydown, true);
@@ -3195,6 +3359,120 @@
   </span>
 {/snippet}
 
+{#snippet dynamicMultiReferenceControl(key, value, onChange, config, id)}
+  {@const selectedTerms = normalizeSelectorTerms(value)}
+  <span class="dynamic-ref-wrap">
+    <button
+      class="dynamic-ref-btn"
+      title="Choose {label(key)}"
+      data-testid="dynamic-ref-{id}"
+      aria-haspopup="menu"
+      aria-expanded={dynamicSelectOpen === id}
+      onclick={(e) => { e.stopPropagation(); dynamicSelectOpen = dynamicSelectOpen === id ? null : id; }}
+    >
+      <span>{dynamicMultiSummary(value, config)}</span>
+      <span class="dynamic-ref-caret">▾</span>
+    </button>
+    {#if dynamicSelectOpen === id}
+      <div class="dynamic-ref-menu" role="menu">
+        <button
+          class="dynamic-ref-item"
+          class:checked={isDynamicAll(value, config)}
+          data-testid="dynamic-ref-{id}-all"
+          role="menuitemcheckbox"
+          aria-checked={isDynamicAll(value, config)}
+          onclick={() => { onChange(config.allValue); dynamicSelectOpen = null; }}
+        >
+          <span class="dynamic-ref-check">{isDynamicAll(value, config) ? "✓" : ""}</span>
+          <span>{config.allLabel}</span>
+        </button>
+        {#if config.noneLabel}
+          <button
+            class="dynamic-ref-item"
+            class:checked={isDynamicNone(value, config)}
+            data-testid="dynamic-ref-{id}-none"
+            role="menuitemcheckbox"
+            aria-checked={isDynamicNone(value, config)}
+            onclick={() => { onChange(config.noneValue); dynamicSelectOpen = null; }}
+          >
+            <span class="dynamic-ref-check">{isDynamicNone(value, config) ? "✓" : ""}</span>
+            <span>{config.noneLabel}</span>
+          </button>
+        {/if}
+        {#if config.options.length}
+          <div class="dynamic-ref-sep"></div>
+          {#each config.options as term (term)}
+            {@const selected = selectedTerms.includes(term)}
+            <button
+              class="dynamic-ref-item"
+              class:checked={selected}
+              data-testid="dynamic-ref-{id}-term-{categoryId(term)}"
+              role="menuitemcheckbox"
+              aria-checked={selected}
+              onclick={() => onChange(dynamicMultiToggleValue(value, term, config))}
+            >
+              <span class="dynamic-ref-check">{selected ? "✓" : ""}</span>
+              <span>{term}</span>
+            </button>
+          {/each}
+        {:else}
+          <div class="dynamic-ref-empty">No entries yet</div>
+        {/if}
+      </div>
+    {/if}
+  </span>
+{/snippet}
+
+{#snippet dynamicSingleReferenceControl(key, value, onChange, config, id)}
+  <span class="dynamic-ref-wrap">
+    <button
+      class="dynamic-ref-btn"
+      title="Choose {label(key)}"
+      data-testid="dynamic-ref-{id}"
+      aria-haspopup="menu"
+      aria-expanded={dynamicSelectOpen === id}
+      onclick={(e) => { e.stopPropagation(); dynamicSelectOpen = dynamicSelectOpen === id ? null : id; }}
+    >
+      <span>{dynamicSingleSummary(value, config)}</span>
+      <span class="dynamic-ref-caret">▾</span>
+    </button>
+    {#if dynamicSelectOpen === id}
+      <div class="dynamic-ref-menu" role="menu">
+        <button
+          class="dynamic-ref-item"
+          class:checked={dynamicValueEquals(value, config.allValue)}
+          data-testid="dynamic-ref-{id}-all"
+          role="menuitemcheckbox"
+          aria-checked={dynamicValueEquals(value, config.allValue)}
+          onclick={() => { onChange(config.allValue); dynamicSelectOpen = null; }}
+        >
+          <span class="dynamic-ref-check">{dynamicValueEquals(value, config.allValue) ? "✓" : ""}</span>
+          <span>{config.allLabel}</span>
+        </button>
+        {#if config.options.length}
+          <div class="dynamic-ref-sep"></div>
+          {#each config.options as term (term)}
+            {@const selected = value === term}
+            <button
+              class="dynamic-ref-item"
+              class:checked={selected}
+              data-testid="dynamic-ref-{id}-term-{categoryId(term)}"
+              role="menuitemcheckbox"
+              aria-checked={selected}
+              onclick={() => { onChange(term); dynamicSelectOpen = null; }}
+            >
+              <span class="dynamic-ref-check">{selected ? "✓" : ""}</span>
+              <span>{term}</span>
+            </button>
+          {/each}
+        {:else}
+          <div class="dynamic-ref-empty">No entries yet</div>
+        {/if}
+      </div>
+    {/if}
+  </span>
+{/snippet}
+
 {#snippet numberOrFalseControl(value, onChange, key)}
   {@const mode = numberOrFalseMode(value)}
   <span class="union-control">
@@ -3525,6 +3803,10 @@
                     value={formatKvValue(gVal)}
                     onblur={(e) => handleRawValueBlur(row.lineIndex!, e.currentTarget.value, gDef.default, true)}
                     onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+                {:else if dynamicMultiReferenceConfig(row.key, gVal)}
+                  {@render dynamicMultiReferenceControl(row.key, gVal, gOnChange, dynamicMultiReferenceConfig(row.key, gVal), `global-${row.key}`)}
+                {:else if dynamicSingleReferenceConfig(row.key, gVal)}
+                  {@render dynamicSingleReferenceControl(row.key, gVal, gOnChange, dynamicSingleReferenceConfig(row.key, gVal), `global-${row.key}`)}
                 {:else if gDef.type === "bool"}
                   <input type="checkbox" checked={gVal === true} onchange={(e) => gOnChange(e.currentTarget.checked)} />
                 {:else if gDef.type === "enum"}
@@ -3604,6 +3886,10 @@
                   value={formatKvValue(val)}
                   onblur={(e) => handleRawValueBlur(row.lineIndex!, e.currentTarget.value, row.def.default)}
                   onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+              {:else if dynamicMultiReferenceConfig(row.key, val)}
+                {@render dynamicMultiReferenceControl(row.key, val, onChange, dynamicMultiReferenceConfig(row.key, val), `schema-${i}-${row.key}`)}
+              {:else if dynamicSingleReferenceConfig(row.key, val)}
+                {@render dynamicSingleReferenceControl(row.key, val, onChange, dynamicSingleReferenceConfig(row.key, val), `schema-${i}-${row.key}`)}
               {:else if rkt === "bool"}
                 <input type="checkbox" checked={val === true} onchange={(e) => onChange(e.currentTarget.checked)} />
               {:else if rkt === "enum"}
@@ -3737,7 +4023,11 @@
             <div class="line-row kv virtual" class:fading-out={fadingOutKeys.has(srow.key)} class:search-match={keyMatchesSearch(srow.key)} style="{padDepth(lidChildDepth)}; {bracketStyle(lidChildDepth)}" data-testid="virtual-lid-{srow.key}">
               <span class="kv-key virtual-key" title={tip(srow.key)}>{label(srow.key)}</span>
               <span class="kv-control">
-                {#if rkt === "bool"}
+                {#if dynamicMultiReferenceConfig(srow.key, val)}
+                  {@render dynamicMultiReferenceControl(srow.key, val, onChange, dynamicMultiReferenceConfig(srow.key, val), `virtual-lid-${srow.key}`)}
+                {:else if dynamicSingleReferenceConfig(srow.key, val)}
+                  {@render dynamicSingleReferenceControl(srow.key, val, onChange, dynamicSingleReferenceConfig(srow.key, val), `virtual-lid-${srow.key}`)}
+                {:else if rkt === "bool"}
                   <input type="checkbox" checked={val === true} onchange={(e) => onChange(e.currentTarget.checked)} />
                 {:else if rkt === "enum"}
                   <select value={val} onchange={(e) => onChange(e.currentTarget.value)}>
@@ -3824,6 +4114,10 @@
                 value={formatKvValue(line.kvValue)}
                 onblur={(e) => handleRawValueBlur(i, e.currentTarget.value, sd)}
                 onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+            {:else if dynamicMultiReferenceConfig(line.kvKey, line.kvValue)}
+              {@render dynamicMultiReferenceControl(line.kvKey, line.kvValue, (v: any) => updateKv(i, v, sd), dynamicMultiReferenceConfig(line.kvKey, line.kvValue), `kv-${i}-${line.kvKey}`)}
+            {:else if dynamicSingleReferenceConfig(line.kvKey, line.kvValue)}
+              {@render dynamicSingleReferenceControl(line.kvKey, line.kvValue, (v: any) => updateKv(i, v, sd), dynamicSingleReferenceConfig(line.kvKey, line.kvValue), `kv-${i}-${line.kvKey}`)}
             {:else if kt === "bool"}
               <input type="checkbox" checked={line.kvValue === true}
                 onchange={(e) => updateKv(i, e.currentTarget.checked, sd)} />
@@ -4953,6 +5247,40 @@
   }
   .kv-str.union-text,
   .kv-str.union-list { width: 144px; }
+  .dynamic-ref-wrap { position: relative; display: inline-flex; min-width: 0; }
+  .dynamic-ref-btn {
+    display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+    min-width: 120px; max-width: 220px; height: 22px;
+    padding: 1px 6px;
+    border: 1px solid var(--rule); border-radius: 2px;
+    background: var(--input-bg); color: var(--ink);
+    font-family: "Courier New", monospace; font-size: 13px; font-weight: 400;
+    cursor: pointer;
+  }
+  .dynamic-ref-btn span:first-child {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .dynamic-ref-caret { color: var(--ink-mute); font-size: 10px; flex-shrink: 0; }
+  .dynamic-ref-menu {
+    position: absolute; top: calc(100% + 2px); left: 0; z-index: 70;
+    min-width: 190px; max-width: 320px; max-height: 260px; overflow: auto;
+    padding: 3px 0;
+    border: 1px solid #c5bba5; border-radius: 4px;
+    background: #ffffff; box-shadow: 0 8px 18px rgba(20, 35, 50, 0.18);
+  }
+  .dynamic-ref-item {
+    width: 100%; display: flex; align-items: center; gap: 7px;
+    padding: 5px 9px;
+    border: none; background: transparent; color: #3c3836;
+    cursor: pointer; font-family: "Courier New", monospace; font-size: 13px; text-align: left;
+  }
+  .dynamic-ref-item:hover { background: #ebe4d2; }
+  .dynamic-ref-item.checked { color: #8f3f00; font-weight: 700; }
+  .dynamic-ref-check {
+    width: 12px; min-width: 12px; color: #b57614; font-weight: 700; text-align: center;
+  }
+  .dynamic-ref-sep { height: 1px; background: #c5bba5; margin: 3px 0; }
+  .dynamic-ref-empty { padding: 6px 10px; color: #665c54; font-size: 12px; white-space: nowrap; }
   /* Smaller checkboxes — they were dominating the row visually. */
   .kv-control input[type="checkbox"] { width: 13px; height: 13px; accent-color: var(--accent); }
   .kv-fallback { color: var(--ink-faint); font-size: 13px; }
