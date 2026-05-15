@@ -207,6 +207,9 @@
   let versionSaveInFlight = false;
   let showFileMenu = $state(false);
   let showViewMenu = $state(false);
+  let searchQuery = $state("");
+  let searchInputEl = $state<HTMLInputElement | null>(null);
+  let normalizedSearchQuery = $derived(searchQuery.trim().toLowerCase());
   let recentFiles = $state<string[]>([]);
   let toastText = $state("");
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -937,7 +940,9 @@
 
     // After 1 s of input inactivity, commit the focused control so autosave picks it up.
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
-    document.addEventListener("input", () => {
+    document.addEventListener("input", (event) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.(".toolbar-search")) return;
       markOpenScadDiagnosticsEditing();
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
@@ -964,9 +969,16 @@
 
     document.addEventListener("keydown", (event) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() !== "s") return;
-      event.preventDefault();
-      void saveVersion();
+      const key = event.key.toLowerCase();
+      if (key === "s") {
+        event.preventDefault();
+        void saveVersion();
+        return;
+      }
+      if (key === "f" && !showWelcome) {
+        event.preventDefault();
+        focusSearch();
+      }
     });
 
     // Load favorite keys from preferences (seed defaults on first run)
@@ -1681,6 +1693,37 @@
   const i18n = tooltips as Record<string, { label?: string; tooltip?: string }>;
   function tip(key: string): string { return i18n[key]?.tooltip || ""; }
   function label(key: string): string { return i18n[key]?.label || key; }
+  function keySearchText(key: string): string {
+    const def = KEY_SCHEMA_MAP[key] || {};
+    return [
+      key,
+      label(key),
+      tip(key),
+      typeof def.help === "string" ? def.help : "",
+    ].join(" ").toLowerCase();
+  }
+  function keyMatchesSearchQuery(key: string | null | undefined, query: string): boolean {
+    return !!key && !!query && keySearchText(key).includes(query);
+  }
+  function keyMatchesSearch(key: string | null | undefined): boolean {
+    return keyMatchesSearchQuery(key, normalizedSearchQuery);
+  }
+  let searchMatchCount = $derived.by(() => {
+    if (!normalizedSearchQuery) return 0;
+    let count = 0;
+    for (const key of ALL_KEYS) {
+      if (keyMatchesSearchQuery(key, normalizedSearchQuery)) count += 1;
+    }
+    return count;
+  });
+  function focusSearch() {
+    searchInputEl?.focus();
+    searchInputEl?.select();
+  }
+  function clearSearch() {
+    searchQuery = "";
+    searchInputEl?.focus();
+  }
   function unitForSchema(key: string, def: any): string {
     const explicit = typeof def?.unit === "string" ? def.unit : typeof def?.units === "string" ? def.units : "";
     if (explicit.trim()) return explicit.trim();
@@ -2379,6 +2422,7 @@
 
   function shouldShowParameterRow(row: ParameterRow): boolean {
     if (row.isReal) return true;
+    if (keyMatchesSearch(row.key)) return true;
     if (defaultsMode === "all") return true;
     if (defaultsMode === "favorites") return isFavorite(row.key) || fadingOutKeys.has(row.key);
     return false;
@@ -3121,6 +3165,29 @@
       <button class="toolbar-icon-btn" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" data-testid="toolbar-redo-button" disabled={!$canRedo} onclick={() => redo()}>&#8631;</button>
     </div>
     <div class="toolbar-sep"></div>
+    <div class="toolbar-search" role="search">
+      <input
+        class="toolbar-search-input"
+        data-testid="toolbar-search-input"
+        bind:this={searchInputEl}
+        bind:value={searchQuery}
+        type="search"
+        placeholder="Find"
+        aria-label="Find parameters"
+        title="Find parameters by label, raw key, or tooltip (Ctrl+F)"
+        onkeydown={(e) => {
+          if (e.key === "Escape") {
+            searchQuery = "";
+            e.currentTarget.blur();
+          }
+        }}
+      />
+      {#if normalizedSearchQuery}
+        <span class="toolbar-search-count" class:empty={searchMatchCount === 0}>{searchMatchCount}</span>
+        <button class="toolbar-search-clear" data-testid="toolbar-search-clear" title="Clear search" aria-label="Clear search" onclick={clearSearch}>x</button>
+      {/if}
+    </div>
+    <div class="toolbar-sep"></div>
     <div class="toolbar-group">
       <div class="diagnostics-wrap">
         <button
@@ -3267,7 +3334,7 @@
             {@const gOnChange = row.isReal
               ? (v: any) => updateGlobalWithDefault(row.lineIndex!, v, gDef.default)
               : (v: any) => onVirtualGlobalChange(row.key, gDef, v)}
-            <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} class:has-diagnostic={lineDiagnosticSeverity(row.lineIndex) != null} class:diagnostic-error={lineDiagnosticSeverity(row.lineIndex) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(row.lineIndex) === "warning"} class:diag-highlight={hoveredDiagKeys.has(row.key)} class:diag-x={hoveredDiagAxes.has("x")} class:diag-y={hoveredDiagAxes.has("y")} class:diag-z={hoveredDiagAxes.has("z")} style="{padDepth(1)}; {bracketStyle(1)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
+            <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} class:has-diagnostic={lineDiagnosticSeverity(row.lineIndex) != null} class:diagnostic-error={lineDiagnosticSeverity(row.lineIndex) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(row.lineIndex) === "warning"} class:diag-highlight={hoveredDiagKeys.has(row.key)} class:diag-x={hoveredDiagAxes.has("x")} class:diag-y={hoveredDiagAxes.has("y")} class:diag-z={hoveredDiagAxes.has("z")} class:search-match={keyMatchesSearch(row.key)} style="{padDepth(1)}; {bracketStyle(1)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
               <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
               {@render diagnosticSlot(row.lineIndex)}
               <span class="kv-control">
@@ -3346,7 +3413,7 @@
             ? (v) => updateKv(row.lineIndex, v, row.def.default)
             : (v) => onVirtualChange(closeIdx, row.key, row.def, v)}
           {@const val = row.value}
-          <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} class:has-diagnostic={lineDiagnosticSeverity(row.lineIndex) != null} class:diagnostic-error={lineDiagnosticSeverity(row.lineIndex) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(row.lineIndex) === "warning"} class:diag-highlight={hoveredDiagKeys.has(row.key)} class:diag-x={hoveredDiagAxes.has("x")} class:diag-y={hoveredDiagAxes.has("y")} class:diag-z={hoveredDiagAxes.has("z")} style="{padDepth(row.depth)}; {bracketStyle(row.depth)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
+          <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} class:has-diagnostic={lineDiagnosticSeverity(row.lineIndex) != null} class:diagnostic-error={lineDiagnosticSeverity(row.lineIndex) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(row.lineIndex) === "warning"} class:diag-highlight={hoveredDiagKeys.has(row.key)} class:diag-x={hoveredDiagAxes.has("x")} class:diag-y={hoveredDiagAxes.has("y")} class:diag-z={hoveredDiagAxes.has("z")} class:search-match={keyMatchesSearch(row.key)} style="{padDepth(row.depth)}; {bracketStyle(row.depth)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
             <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
             {@render diagnosticSlot(row.lineIndex)}
             <span class="kv-control">
@@ -3454,7 +3521,8 @@
       {:else if line.kind === "close"}
         <!-- Virtual BOX_LID block for OBJECT_BOX without a lid (BIT only) -->
         {@const _lidScalarsAll = [...getScalarKeysForContext("lid")].sort((a, b) => a.key.localeCompare(b.key))}
-        {@const _showVirtualLid = defaultsMode !== "none" && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (defaultsMode === "all" || _lidScalarsAll.some(s => isFavorite(s.key)))}
+        {@const _lidSearchMatch = !!normalizedSearchQuery && _lidScalarsAll.some(s => keyMatchesSearch(s.key))}
+        {@const _showVirtualLid = $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && ((defaultsMode !== "none" && (defaultsMode === "all" || _lidScalarsAll.some(s => isFavorite(s.key)))) || _lidSearchMatch)}
         <div class="block-tail" transition:slide|global={{ duration: slideDur }}>
         {#if _showVirtualLid}
           {@const lidDepth = (line.depth ?? 0) + 1}
@@ -3481,7 +3549,7 @@
             {@const rkt = srow.def.type}
             {@const val = srow.value}
             {@const onChange = (v: any) => materializeVirtualLidSetting(i, srow.key, srow.def, v)}
-            <div class="line-row kv virtual" class:fading-out={fadingOutKeys.has(srow.key)} style="{padDepth(lidChildDepth)}; {bracketStyle(lidChildDepth)}" data-testid="virtual-lid-{srow.key}">
+            <div class="line-row kv virtual" class:fading-out={fadingOutKeys.has(srow.key)} class:search-match={keyMatchesSearch(srow.key)} style="{padDepth(lidChildDepth)}; {bracketStyle(lidChildDepth)}" data-testid="virtual-lid-{srow.key}">
               <span class="kv-key virtual-key" title={tip(srow.key)}>{label(srow.key)}</span>
               <span class="kv-control">
                 {#if rkt === "bool"}
@@ -3531,7 +3599,8 @@
         {/if}
         <!-- Close bracket(s) — split merged ]] into separate lines -->
         {#if line.mergedClose}
-          {@const hasVirtualLid = defaultsMode !== "none" && $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && (defaultsMode === "all" || getScalarKeysForContext("lid").some(s => isFavorite(s.key)))}
+          {@const closeLidScalars = getScalarKeysForContext("lid")}
+          {@const hasVirtualLid = $project.libraryProfile !== "ctd" && supportsLid(i) && !hasLidChild(i) && ((defaultsMode !== "none" && (defaultsMode === "all" || closeLidScalars.some(s => isFavorite(s.key)))) || (!!normalizedSearchQuery && closeLidScalars.some(s => keyMatchesSearch(s.key))))}
           {#if !hasVirtualLid}
             <div class="line-row struct close" style="{padDepth((line.depth ?? 0) + 1)}; {bracketStyle((line.depth ?? 0) + 1)}" data-testid="line-{i}-inner">
               <span class="struct-bracket">],</span>
@@ -3557,7 +3626,7 @@
         {@const kt = getKeyType(line.kvKey)}
         {@const ks = getKeySchema(line.kvKey)}
         {@const sd = getSchemaDefault(line.kvKey)}
-        <div class="line-row kv" class:is-default={isDefault(line.kvKey, line.kvValue)} class:has-diagnostic={lineDiagnosticSeverity(i) != null} class:diagnostic-error={lineDiagnosticSeverity(i) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(i) === "warning"} class:diag-highlight={hoveredDiagKeys.has(line.kvKey || "")} class:diag-x={hoveredDiagAxes.has("x")} class:diag-y={hoveredDiagAxes.has("y")} class:diag-z={hoveredDiagAxes.has("z")} style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
+        <div class="line-row kv" class:is-default={isDefault(line.kvKey, line.kvValue)} class:has-diagnostic={lineDiagnosticSeverity(i) != null} class:diagnostic-error={lineDiagnosticSeverity(i) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(i) === "warning"} class:diag-highlight={hoveredDiagKeys.has(line.kvKey || "")} class:diag-x={hoveredDiagAxes.has("x")} class:diag-y={hoveredDiagAxes.has("y")} class:diag-z={hoveredDiagAxes.has("z")} class:search-match={keyMatchesSearch(line.kvKey || "")} style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="line-{i}" transition:slide|global={{ duration: slideDur }}>
           <span class="kv-key" title={tip(line.kvKey || "")}>{label(line.kvKey || "")}</span>
           {@render diagnosticSlot(i)}
           <span class="kv-control">
@@ -4022,6 +4091,28 @@
   .toolbar-icon-btn:disabled:hover {
     border-color: #c5bba5; background: #c5bba5;
   }
+  .toolbar-search {
+    display: inline-flex; align-items: center; gap: 4px;
+    flex: 0 1 230px; min-width: 128px;
+  }
+  .toolbar-search-input {
+    width: 160px; max-width: 22vw; min-width: 112px; height: 24px; box-sizing: border-box;
+    border: 1px solid #c5bba5; border-radius: 3px; background: #fff; color: #3c3836;
+    padding: 2px 6px; font: inherit; font-size: 12px;
+  }
+  .toolbar-search-input:focus {
+    outline: none; border-color: #b57614; box-shadow: 0 0 0 2px rgba(181, 118, 20, 0.16);
+  }
+  .toolbar-search-count {
+    min-width: 18px; color: #665c54; font-size: 11px; font-weight: 700; text-align: right;
+  }
+  .toolbar-search-count.empty { color: #9d0006; }
+  .toolbar-search-clear {
+    width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid #c5bba5; border-radius: 3px; background: #e3dac4;
+    color: #3c3836; cursor: pointer; font-size: 12px; line-height: 1;
+  }
+  .toolbar-search-clear:hover { background: #fff; border-color: #a89984; }
   .diagnostics-wrap {
     position: relative;
     display: inline-flex;
@@ -4418,23 +4509,47 @@
     --bracket-bg: var(--paper);
   }
   .line-row.kv-category {
-    --bracket-bg: color-mix(in srgb, var(--paper), var(--sepia-tint) 42%);
-    height: 22px;
-    padding-top: 2px;
-    padding-bottom: 2px;
+    --bracket-bg: var(--paper);
+    height: 18px;
+    padding-top: 0;
+    padding-bottom: 0;
     margin-top: 6px;
-    gap: 8px;
+    gap: 0;
     color: var(--ink-mute);
+  }
+  .line-row.kv-category::after {
+    content: "";
+    position: absolute;
+    left: calc(var(--indent, 0px) + 22px);
+    right: 8px;
+    top: 50%;
+    height: 1px;
+    background: color-mix(in srgb, var(--bracket-color), var(--paper) 35%);
+    opacity: 0.65;
+    pointer-events: none;
+    z-index: 1;
   }
   .line-row.kv-category + .line-row.kv-category { margin-top: 0; }
   .line-row.kv-category:first-child { margin-top: 0; }
   .category-label {
-    font-size: 12px;
+    position: relative;
+    z-index: 2;
+    margin-left: 10px;
+    padding: 0 6px;
+    background: var(--paper);
+    font-size: 10px;
     font-weight: 700;
+    line-height: 14px;
+    text-transform: uppercase;
     color: var(--bracket-color);
   }
   .category-count {
-    font-size: 11px;
+    position: relative;
+    z-index: 2;
+    padding: 0 5px;
+    background: var(--paper);
+    font-size: 10px;
+    line-height: 14px;
     color: var(--ink-faint);
   }
   /* close rows are just `]` — keep them slim so they read as a footer
@@ -4476,6 +4591,16 @@
      not reflow as a ghost materialises, but faded deeper than before so
      "default" reads as recessive at a glance. */
   .line-row.kv.is-default .kv-key { color: var(--ink-mute); }
+  .line-row.kv.search-match {
+    --bracket-bg: color-mix(in srgb, var(--paper), var(--warn) 18%);
+  }
+  .line-row.kv.search-match .kv-key {
+    color: #8f3f00;
+  }
+  .line-row.kv.search-match .kv-key::after {
+    border-bottom-color: #d79921;
+    opacity: 0.82;
+  }
 
   .virtual-key { }
 
