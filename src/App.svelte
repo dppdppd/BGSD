@@ -1628,12 +1628,6 @@
     return { ok: false, value: null };
   }
 
-  function parseNumberOrFalse(text: string): number | false {
-    const t = text.trim().toLowerCase();
-    if (t === "false" || t === "f") return false;
-    return parseNum(text);
-  }
-
   function parseXyzOrFalse(text: string): any {
     const t = text.trim().toLowerCase();
     if (t === "false" || t === "f") return false;
@@ -1641,13 +1635,60 @@
     return parsed.ok ? parsed.value : text.trim();
   }
 
-  function parseFlexibleValue(text: string): any {
-    const parsed = parseSimpleValue(text);
-    return parsed.ok ? parsed.value : text.trim();
+  type BoolStringListMode = "false" | "true" | "text" | "list";
+
+  function boolStringListMode(value: any): BoolStringListMode {
+    if (value === false) return "false";
+    if (value === true) return "true";
+    if (Array.isArray(value)) return "list";
+    return "text";
   }
 
-  function formatTextLikeValue(value: any): string {
-    return typeof value === "string" ? value : formatKvValue(value);
+  function boolStringListText(value: any): string {
+    if (Array.isArray(value)) return value.map(String).join(", ");
+    return typeof value === "string" ? value : "";
+  }
+
+  function parseBoolStringList(text: string): string[] {
+    return text
+      .split(/[,\n]/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  function boolStringListValueForMode(value: any, mode: string): any {
+    if (mode === "false") return false;
+    if (mode === "true") return true;
+    if (mode === "list") {
+      if (Array.isArray(value)) return value;
+      if (typeof value === "string" && value.trim()) return [value.trim()];
+      return [];
+    }
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return value.map(String).join(", ");
+    return "";
+  }
+
+  function numberOrFalseMode(value: any): "false" | "number" {
+    return value === false ? "false" : "number";
+  }
+
+  function numberOrFalseValueForMode(value: any, mode: string): number | false {
+    if (mode === "false") return false;
+    return typeof value === "number" ? value : 0;
+  }
+
+  function xyzOrFalseMode(value: any): "false" | "xyz" {
+    return value === false ? "false" : "xyz";
+  }
+
+  function xyzOrFalseText(value: any): string {
+    return value === false ? "" : formatKvValue(value);
+  }
+
+  function xyzOrFalseValueForMode(value: any, mode: string): any {
+    if (mode === "false") return false;
+    return value === false ? [0, 0, 0] : value;
   }
 
   const KV_RE = /^\s*\[\s*([_A-Z][A-Z0-9_]*)\s*,\s*(.*?)\s*\]\s*,?\s*(?:\/\/.*)?$/;
@@ -3054,8 +3095,8 @@
   </span>
 {/snippet}
 
-{#snippet unitSuffix(key, def)}
-  {@const unit = unitForField(key, def)}
+{#snippet unitSuffix(key, def, value)}
+  {@const unit = value === false && (def?.type === "number_or_false" || def?.type === "xyz_or_false") ? "" : unitForField(key, def)}
   {#if unit}
     <span class="unit-suffix" title="Unit: {unit}">{unit}</span>
   {/if}
@@ -3076,6 +3117,58 @@
       {/if}
     </span>
   {/if}
+{/snippet}
+
+{#snippet boolStringListControl(value, onChange)}
+  {@const mode = boolStringListMode(value)}
+  <span class="union-control">
+    <select class="kv-type-select" title="Value type" value={mode}
+      onchange={(e) => onChange(boolStringListValueForMode(value, e.currentTarget.value))}>
+      <option value="false">False</option>
+      <option value="true">True</option>
+      <option value="text">Text</option>
+      <option value="list">List</option>
+    </select>
+    {#if mode === "text"}
+      <input class="kv-str union-text" type="text" value={boolStringListText(value)}
+        onchange={(e) => onChange(e.currentTarget.value)} />
+    {:else if mode === "list"}
+      <input class="kv-str union-list" type="text" value={boolStringListText(value)}
+        title="Comma-separated text values"
+        onchange={(e) => onChange(parseBoolStringList(e.currentTarget.value))} />
+    {/if}
+  </span>
+{/snippet}
+
+{#snippet numberOrFalseControl(value, onChange, key)}
+  {@const mode = numberOrFalseMode(value)}
+  <span class="union-control">
+    <select class="kv-type-select" title="Value type" value={mode}
+      onchange={(e) => onChange(numberOrFalseValueForMode(value, e.currentTarget.value))}>
+      <option value="false">False</option>
+      <option value="number">Number</option>
+    </select>
+    {#if mode === "number"}
+      <input class="kv-num" type="number" step={getStep(key)} value={value}
+        onchange={(e) => onChange(parseNum(e.currentTarget.value))} />
+    {/if}
+  </span>
+{/snippet}
+
+{#snippet xyzOrFalseControl(value, onChange)}
+  {@const mode = xyzOrFalseMode(value)}
+  <span class="union-control">
+    <select class="kv-type-select" title="Value type" value={mode}
+      onchange={(e) => onChange(xyzOrFalseValueForMode(value, e.currentTarget.value))}>
+      <option value="false">False</option>
+      <option value="xyz">XYZ</option>
+    </select>
+    {#if mode === "xyz"}
+      <input class="kv-str union-list" type="text" value={xyzOrFalseText(value)}
+        title="OpenSCAD vector, e.g. [1, 2, MAX]"
+        onchange={(e) => onChange(parseXyzOrFalse(e.currentTarget.value))} />
+    {/if}
+  </span>
 {/snippet}
 
 {#snippet addMenuButton(menuKey, items)}
@@ -3371,11 +3464,11 @@
                 {:else if gDef.type === "number"}
                   <input class="kv-num" type="number" step={getStep(row.key)} value={gVal} onchange={(e) => gOnChange(parseNum(e.currentTarget.value))} />
                 {:else if gDef.type === "number_or_false"}
-                  <input class="kv-str" type="text" value={formatKvValue(gVal)} onchange={(e) => gOnChange(parseNumberOrFalse(e.currentTarget.value))} />
+                  {@render numberOrFalseControl(gVal, gOnChange, row.key)}
                 {:else if gDef.type === "xyz_or_false"}
-                  <input class="kv-str" type="text" value={formatKvValue(gVal)} onchange={(e) => gOnChange(parseXyzOrFalse(e.currentTarget.value))} />
+                  {@render xyzOrFalseControl(gVal, gOnChange)}
                 {:else if gDef.type === "bool_string_list"}
-                  <input class="kv-str" type="text" value={formatTextLikeValue(gVal)} onchange={(e) => gOnChange(parseFlexibleValue(e.currentTarget.value))} />
+                  {@render boolStringListControl(gVal, gOnChange)}
                 {:else if gDef.type === "xy"}
                   {#if typeof gVal === "string" && $knownConstantsStore.has(gVal)}
                     <span class="preset-pill" title={gVal + " → " + resolvePresetValue(gVal)}>{$constantLabels[gVal] || gVal}</span>
@@ -3398,7 +3491,7 @@
                 {:else}
                   <input class="kv-str" type="text" value={gVal ?? ""} onchange={(e) => gOnChange(e.currentTarget.value)} />
                 {/if}
-                {@render unitSuffix(row.key, gDef)}
+                {@render unitSuffix(row.key, gDef, gVal)}
               </span>
               {@render presetBtn(row.key, gOnChange, `global-${row.key}`)}
               {#if row.isReal && row.lineIndex !== null}
@@ -3450,11 +3543,11 @@
               {:else if rkt === "number"}
                 <input class="kv-num" type="number" step={getStep(row.key)} value={val} onchange={(e) => onChange(parseNum(e.currentTarget.value))} />
               {:else if rkt === "number_or_false"}
-                <input class="kv-str" type="text" value={formatKvValue(val)} onchange={(e) => onChange(parseNumberOrFalse(e.currentTarget.value))} />
+                {@render numberOrFalseControl(val, onChange, row.key)}
               {:else if rkt === "xyz_or_false"}
-                <input class="kv-str" type="text" value={formatKvValue(val)} onchange={(e) => onChange(parseXyzOrFalse(e.currentTarget.value))} />
+                {@render xyzOrFalseControl(val, onChange)}
               {:else if rkt === "bool_string_list"}
-                <input class="kv-str" type="text" value={formatTextLikeValue(val)} onchange={(e) => onChange(parseFlexibleValue(e.currentTarget.value))} />
+                {@render boolStringListControl(val, onChange)}
               {:else if rkt === "string"}
                 <input class="kv-str" type="text" value={val ?? ""} onchange={(e) => onChange(e.currentTarget.value)} />
               {:else if rkt === "xyz"}
@@ -3517,7 +3610,7 @@
               {:else}
                 <span class="kv-fallback">{JSON.stringify(val)}</span>
               {/if}
-              {@render unitSuffix(row.key, row.def)}
+              {@render unitSuffix(row.key, row.def, val)}
             </span>
             {@render presetBtn(row.key, onChange, `schema-${i}-${row.key}`)}
             {#if row.isReal && row.lineIndex !== null}
@@ -3580,7 +3673,7 @@
                 {:else if rkt === "number"}
                   <input class="kv-num" type="number" step={getStep(srow.key)} value={val} onchange={(e) => onChange(parseNum(e.currentTarget.value))} />
                 {:else if rkt === "bool_string_list"}
-                  <input class="kv-str" type="text" value={formatTextLikeValue(val)} onchange={(e) => onChange(parseFlexibleValue(e.currentTarget.value))} />
+                  {@render boolStringListControl(val, onChange)}
                 {:else if rkt === "string"}
                   <input class="kv-str" type="text" value={val ?? ""} onchange={(e) => onChange(e.currentTarget.value)} />
                 {:else if rkt === "4bool" && Array.isArray(val)}
@@ -3593,7 +3686,7 @@
                 {:else}
                   <span class="kv-fallback">{JSON.stringify(val)}</span>
                 {/if}
-                {@render unitSuffix(srow.key, srow.def)}
+                {@render unitSuffix(srow.key, srow.def, val)}
               </span>
               <button class="comment-btn" title="Add comment" onclick={() => materializeVirtualLidKvWithComment(i, srow.key, srow.def, lidChildDepth)}>//</button>
               <span class="spacer"></span>
@@ -3667,14 +3760,11 @@
               <input class="kv-num" type="number" step={getStep(line.kvKey)} value={line.kvValue}
                 onchange={(e) => updateKv(i, parseNum(e.currentTarget.value), sd)} />
             {:else if kt === "number_or_false"}
-              <input class="kv-str" type="text" value={formatKvValue(line.kvValue)}
-                onchange={(e) => updateKv(i, parseNumberOrFalse(e.currentTarget.value), sd)} />
+              {@render numberOrFalseControl(line.kvValue, (v: any) => updateKv(i, v, sd), line.kvKey)}
             {:else if kt === "xyz_or_false"}
-              <input class="kv-str" type="text" value={formatKvValue(line.kvValue)}
-                onchange={(e) => updateKv(i, parseXyzOrFalse(e.currentTarget.value), sd)} />
+              {@render xyzOrFalseControl(line.kvValue, (v: any) => updateKv(i, v, sd))}
             {:else if kt === "bool_string_list"}
-              <input class="kv-str" type="text" value={formatTextLikeValue(line.kvValue)}
-                onchange={(e) => updateKv(i, parseFlexibleValue(e.currentTarget.value), sd)} />
+              {@render boolStringListControl(line.kvValue, (v: any) => updateKv(i, v, sd))}
             {:else if kt === "string"}
               <input class="kv-str" type="text" value={line.kvValue ?? ""}
                 onchange={(e) => updateKv(i, e.currentTarget.value, sd)} />
@@ -3738,7 +3828,7 @@
             {:else}
               <span class="kv-fallback">{JSON.stringify(line.kvValue)}</span>
             {/if}
-            {@render unitSuffix(line.kvKey, ks)}
+            {@render unitSuffix(line.kvKey, ks, line.kvValue)}
           </span>
           {@render presetBtn(line.kvKey, (v: any) => updateKv(i, v, sd), `kv-${i}-${line.kvKey}`)}
           {@render commentBtn(line, i)}
@@ -4748,6 +4838,15 @@
   .kv-str { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px; width: 160px; background: var(--input-bg); color: var(--ink); }
   .kv-str.sm { width: 56px; }
   .kv-control select { font-family: "Courier New", monospace; font-size: 15px; font-weight: 400; padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px; background: var(--input-bg); color: var(--ink); }
+  .union-control { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .kv-control select.kv-type-select {
+    width: 76px;
+    height: 22px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .kv-str.union-text,
+  .kv-str.union-list { width: 144px; }
   /* Smaller checkboxes — they were dominating the row visually. */
   .kv-control input[type="checkbox"] { width: 13px; height: 13px; accent-color: var(--accent); }
   .kv-fallback { color: var(--ink-faint); font-size: 13px; }
