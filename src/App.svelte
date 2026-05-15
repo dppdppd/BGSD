@@ -47,10 +47,10 @@
   // Static lib versions fetched via IPC on mount (preload can't require()
   // arbitrary files in sandboxed mode). Always shown in the status bar
   // regardless of which (or whether any) project is loaded.
-  let libVersions = $state<Record<string, { name: string; major: number | null }>>({});
+  let libVersions = $state<Record<string, { name: string; major: number | null; version?: string | null }>>({});
   let libDisplay = $derived([
-    { id: "bit", label: "BIT", major: libVersions.bit?.major ?? null },
-    { id: "ctd", label: "CTD", major: libVersions.ctd?.major ?? null },
+    { id: "bit", label: "BIT", major: libVersions.bit?.major ?? null, version: libVersions.bit?.version ?? null },
+    { id: "ctd", label: "CTD", major: libVersions.ctd?.major ?? null, version: libVersions.ctd?.version ?? null },
   ]);
 
   // Filled by the on-mount checkUpdates probe; null while pending or on
@@ -59,9 +59,10 @@
     bgsd: { current: string; latest: string | null; hasUpdate: boolean; releaseUrl: string };
     libs: Record<string, { name: string; hasUpdate: boolean; localVersion: string | null; remoteVersion: string | null }>;
   } | null>(null);
-  function libVersionString(profileId: string, fallbackMajor: number | null): string {
+  function libVersionString(profileId: string, fallbackVersion: string | null, fallbackMajor: number | null): string {
     const probed = updateInfo?.libs?.[profileId]?.localVersion;
     if (probed) return probed;
+    if (fallbackVersion) return fallbackVersion;
     return fallbackMajor !== null ? String(fallbackMajor) : "";
   }
   let bgsdUpdateAvailable = $derived(!!updateInfo?.bgsd?.hasUpdate);
@@ -78,16 +79,17 @@
   function libVersionTooltip(profileId: string, label: string): string {
     if (!updateInfo) return "Checking for updates…";
     const l = updateInfo.libs?.[profileId];
+    const localVersion = l?.localVersion || libVersions[profileId]?.version;
     if (!l) return `${label} update check skipped (no working directory)`;
     const errored = l.files?.some((f: any) => f.error);
-    if (errored && !l.hasUpdate) return `${label} update check failed (offline?)`;
+    if (errored && !l.hasUpdate) return localVersion ? `${label} lib ${localVersion}; update check failed (offline?)` : `${label} update check failed (offline?)`;
     if (l.hasUpdate) {
-      if (l.localVersion && l.remoteVersion && l.localVersion !== l.remoteVersion) {
-        return `${label} lib: ${l.localVersion} → ${l.remoteVersion} (click ↑ to update)`;
+      if (localVersion && l.remoteVersion && localVersion !== l.remoteVersion) {
+        return `${label} lib: ${localVersion} → ${l.remoteVersion} (click ↑ to update)`;
       }
       return `${label} lib has updates upstream — click ↑ to refresh`;
     }
-    if (l.localVersion) return `${label} lib ${l.localVersion} — current with upstream`;
+    if (localVersion) return `${label} lib ${localVersion} — current with upstream`;
     return `${label} lib current with upstream`;
   }
 
@@ -299,6 +301,11 @@
   }
 
   onSaveStatus((msg: string) => { statusMsg = msg; });
+
+  function refreshLibVersions() {
+    const bgsd = (window as any).bgsd;
+    bgsd?.getLibVersions?.().then((v: any) => { if (v) libVersions = v; }).catch(() => {});
+  }
 
   function commitActiveInput() {
     const el = document.activeElement;
@@ -1035,7 +1042,7 @@
     }
 
     // Static lib versions (always-shown chips). Silent on failure.
-    bgsd?.getLibVersions?.().then((v: any) => { if (v) libVersions = v; }).catch(() => {});
+    refreshLibVersions();
 
     // Background check for newer BGSD or lib versions. Silent on failure.
     bgsd?.checkUpdates?.().then((info: any) => { if (info) updateInfo = info; }).catch(() => {});
@@ -1058,6 +1065,7 @@
     bgsd?.onStartupLibrariesUpdated?.((result: { ok: boolean; messages?: string[]; error?: string }) => {
       if (!result?.ok) return;
       loadLibraryTree();
+      refreshLibVersions();
       bgsd?.checkUpdates?.().then((info: any) => { if (info) updateInfo = info; }).catch(() => {});
     });
 
@@ -1414,6 +1422,7 @@
         setTimeout(() => { setupStatus = ""; setupLog = []; }, 3000);
         setTimeout(() => { if (statusMsg === "Libraries updated") statusMsg = ""; }, 3000);
         loadLibraryTree();
+        refreshLibVersions();
         // Re-probe so the lib update chip clears when there's nothing more
         bgsd?.checkUpdates?.().then((info: any) => { if (info) updateInfo = info; }).catch(() => {});
       } else {
@@ -3834,8 +3843,8 @@
         <button class="status-update-chip" data-testid="status-update-bgsd" title="New BGSD version {updateInfo!.bgsd.latest} — click to download and install" disabled={selfUpdating} onclick={runSelfUpdate}>↑ {updateInfo!.bgsd.latest}</button>
       {/if}
       {#each libDisplay as lib (lib.id)}
-        {#if lib.major !== null}
-          {@const versionString = libVersionString(lib.id, lib.major)}
+        {#if lib.version || lib.major !== null}
+          {@const versionString = libVersionString(lib.id, lib.version, lib.major)}
           <span class="status-version-sep">·</span>
           <span class="status-version-lib" class:status-version-active={$project.libraryProfile === lib.id} data-testid="status-version-{lib.id}" title={libVersionTooltip(lib.id, lib.label)}>{lib.label} {versionString}</span>
           {#if libUpdateAvailable(lib.id)}
