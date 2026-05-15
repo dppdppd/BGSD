@@ -4513,8 +4513,11 @@
     height: 18px;
     padding-top: 0;
     padding-bottom: 0;
+    padding-right: 14px;
     margin-top: 6px;
-    gap: 0;
+    gap: 3px;
+    flex-direction: row-reverse;
+    justify-content: flex-start;
     color: var(--ink-mute);
   }
   .line-row.kv-category::after {
@@ -4534,7 +4537,7 @@
   .category-label {
     position: relative;
     z-index: 2;
-    margin-left: 10px;
+    margin-left: 0;
     padding: 0 6px;
     background: var(--paper);
     font-size: 10px;
