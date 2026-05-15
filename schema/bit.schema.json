@@ -1,5 +1,5 @@
 {
-  "version": "4.9.0",
+  "version": "4.9.1",
   "types": {
     "bool": "Checkbox (true/false)",
     "number": "Numeric input",
@@ -16,6 +16,76 @@
     "xyz_or_false": "Three-value input [x, y, z] or false; string constants such as MAX are allowed where BIT accepts them",
     "bool_string_list": "Boolean, string selector, or list of string selectors",
     "position_xy": "Two inputs: each is number, CENTER, or MAX"
+  },
+  "categories": {
+    "globals": [
+      { "label": "Output", "keys": ["G_PRINT_LID_B", "G_PRINT_BOX_B", "G_PRINT_GROUP", "G_PRINT_DIVIDERS", "G_PRINT_DIVIDERS_ONLY_B", "G_ISOLATED_PRINT_BOX"] },
+      { "label": "Preview & Validation", "keys": ["G_VISUALIZATION_B", "G_PREVIEW_NO_LABELS_B", "G_VALIDATE_KEYS_B", "G_FIT_TEST_B", "G_COLORIZE_B"] },
+      { "label": "Fit & Tolerance", "keys": ["G_TOLERANCE", "G_TOLERANCE_DETENT_POS"] },
+      { "label": "Defaults", "keys": ["G_WALL_THICKNESS", "G_LID_THICKNESS", "G_DEFAULT_FONT"] },
+      { "label": "Detents", "keys": ["G_DETENT_THICKNESS", "G_DETENT_SPACING", "G_DETENT_DIST_FROM_CORNER", "G_DETENT_MIN_SPACING"] }
+    ],
+    "contexts": {
+      "element": [
+        { "label": "Identity & Output", "keys": ["NAME", "PRINT_GROUP", "ENABLED_B", "DEBUG_B"] },
+        { "label": "Size & Walls", "keys": ["BOX_SIZE_XYZ", "BOX_WALL_THICKNESS", "CHAMFER_N"] },
+        { "label": "Lid Behavior", "keys": ["BOX_NO_LID_B", "BOX_STACKABLE_B", "BOX_LID"] },
+        { "label": "Contents", "keys": ["BOX_FEATURE", "FEATURE_GROUP", "FEATURE_COPY", "LABEL"] },
+        { "label": "Visualization", "keys": ["BOX_VISUALIZATION"] }
+      ],
+      "feature": [
+        { "label": "Identity & Output", "keys": ["NAME", "PRINT_GROUP", "ENABLED_B", "DEBUG_B"] },
+        { "label": "Size & Placement", "keys": ["FTR_COMPARTMENT_SIZE_XYZ", "FTR_NUM_COMPARTMENTS_XY", "POSITION_XY", "ROTATION"] },
+        { "label": "Shape", "keys": ["FTR_SHAPE", "FTR_SHAPE_AXIS", "FTR_SHAPE_VERTICAL_B", "FTR_FILLET_RADIUS", "FTR_SHEAR", "CHAMFER_N"] },
+        { "label": "Spacing & Margins", "keys": ["FTR_PADDING_XY", "FTR_PADDING_HEIGHT_ADJUST_XY", "FTR_MARGIN_FBLR"] },
+        { "label": "Cutouts", "keys": ["FTR_CUTOUT_SIDES_4B", "FTR_CUTOUT_CORNERS_4B", "FTR_CUTOUT_HEIGHT_PCT", "FTR_CUTOUT_DEPTH_PCT", "FTR_CUTOUT_WIDTH_PCT", "FTR_CUTOUT_BOTTOM_B", "FTR_CUTOUT_BOTTOM_PCT", "FTR_CUTOUT_TYPE", "FTR_CUTOUT_DEPTH_MAX"] },
+        { "label": "Print Helpers", "keys": ["FTR_PEDESTAL_BASE_B"] },
+        { "label": "Children", "keys": ["FTR_DIVIDERS", "BOX_FEATURE", "FEATURE_GROUP", "FEATURE_COPY", "LABEL"] }
+      ],
+      "group": [
+        { "label": "Identity & Output", "keys": ["NAME", "PRINT_GROUP", "ENABLED_B", "DEBUG_B"] },
+        { "label": "Placement", "keys": ["POSITION_XY", "ROTATION"] },
+        { "label": "Children", "keys": ["BOX_FEATURE", "FEATURE_GROUP", "FEATURE_COPY"] }
+      ],
+      "copy": [
+        { "label": "Identity & Output", "keys": ["NAME", "PRINT_GROUP", "ENABLED_B", "DEBUG_B"] },
+        { "label": "Reference", "keys": ["FEATURE_REFERENCE"] },
+        { "label": "Placement", "keys": ["POSITION_XY", "ROTATION"] }
+      ],
+      "feature_divider": [
+        { "label": "Identity & Output", "keys": ["NAME", "ENABLED_B", "DEBUG_B", "DIV_OUTPUT_ONLY_B"] },
+        { "label": "Layout", "keys": ["DIV_AXIS", "DIV_LAYOUT_BAYS", "DIV_LAYOUT_BAY_SIZE"] },
+        { "label": "Physical Size", "keys": ["DIV_RAIL_SIZE_XYZ", "DIV_NO_RAILS_B", "DIV_THICKNESS"] },
+        { "label": "Tabs", "keys": ["DIV_TAB_SIZE_XY", "DIV_TAB_RADIUS", "DIV_TAB_CYCLE", "DIV_TAB_CYCLE_START"] },
+        { "label": "Tab Text", "keys": ["DIV_TAB_TEXT", "DIV_TAB_TEXT_SIZE", "DIV_TAB_TEXT_FONT", "DIV_TAB_TEXT_SPACING", "DIV_TAB_TEXT_CHAR_THRESHOLD", "DIV_TAB_TEXT_EMBOSSED_B"] },
+        { "label": "Frame", "keys": ["DIV_FRAME_TOP", "DIV_FRAME_BOTTOM", "DIV_FRAME_COLUMN", "DIV_FRAME_RADIUS", "DIV_FRAME_NUM_COLUMNS"] }
+      ],
+      "lid": [
+        { "label": "Identity & Output", "keys": ["NAME", "PRINT_GROUP", "DEBUG_B"] },
+        { "label": "Fit & Type", "keys": ["LID_TYPE", "LID_FIT_UNDER_B", "LID_INSET_B", "LID_HEIGHT", "LID_TABS_4B"] },
+        { "label": "Sliding Lid", "keys": ["LID_SLIDE_SIDE", "LID_DETENT_LOCK_ANGLE", "LID_FRAME_WIDTH"] },
+        { "label": "Cutouts", "keys": ["LID_CUTOUT_SIDES_4B"] },
+        { "label": "Pattern", "keys": ["LID_SOLID_B", "LID_STRIPE_WIDTH", "LID_STRIPE_SPACE", "LID_PATTERN_RADIUS", "LID_PATTERN_N1", "LID_PATTERN_N2", "LID_PATTERN_ANGLE", "LID_PATTERN_ROW_OFFSET", "LID_PATTERN_COL_OFFSET", "LID_PATTERN_THICKNESS"] },
+        { "label": "Labels", "keys": ["LID_LABELS_INVERT_B", "LID_SOLID_LABELS_DEPTH", "LID_LABELS_BG_THICKNESS", "LID_LABELS_BORDER_THICKNESS", "LABEL"] }
+      ],
+      "label": [
+        { "label": "Identity & Output", "keys": ["NAME", "PRINT_GROUP", "ENABLED_B"] },
+        { "label": "Content", "keys": ["LBL_TEXT", "LBL_IMAGE"] },
+        { "label": "Placement", "keys": ["LBL_PLACEMENT", "POSITION_XY", "ROTATION"] },
+        { "label": "Typography", "keys": ["LBL_SIZE", "LBL_FONT", "LBL_SPACING", "LBL_AUTO_SCALE_FACTOR"] },
+        { "label": "Cut & Emboss", "keys": ["LBL_DEPTH"] }
+      ],
+      "visualization": [
+        { "label": "Placement", "keys": ["POSITION_XY", "ROTATION"] }
+      ],
+      "divider": [
+        { "label": "Identity & Output", "keys": ["NAME", "PRINT_GROUP", "ENABLED_B", "DIV_OUTPUT_ONLY_B"] },
+        { "label": "Physical Size", "keys": ["DIV_THICKNESS"] },
+        { "label": "Tabs", "keys": ["DIV_TAB_SIZE_XY", "DIV_TAB_RADIUS", "DIV_TAB_CYCLE", "DIV_TAB_CYCLE_START"] },
+        { "label": "Tab Text", "keys": ["DIV_TAB_TEXT", "DIV_TAB_TEXT_SIZE", "DIV_TAB_TEXT_FONT", "DIV_TAB_TEXT_SPACING", "DIV_TAB_TEXT_CHAR_THRESHOLD", "DIV_TAB_TEXT_EMBOSSED_B"] },
+        { "label": "Frame", "keys": ["DIV_FRAME_SIZE_XY", "DIV_FRAME_TOP", "DIV_FRAME_BOTTOM", "DIV_FRAME_COLUMN", "DIV_FRAME_RADIUS", "DIV_FRAME_NUM_COLUMNS"] }
+      ]
+    }
   },
   "contexts": {
     "element": {

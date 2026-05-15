@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import bitSchema from "../schema/bit.schema.json";
 
 describe("BIT schema", () => {
-  it("tracks BIT 4.9.0 print groups, feature groups/copies, lid, divider, shape-axis, and validation options", () => {
-    expect(bitSchema.version).toBe("4.9.0");
+  it("tracks BIT 4.9.1 print groups, feature groups/copies, lid, divider, shape-axis, and validation options", () => {
+    expect(bitSchema.version).toBe("4.9.1");
 
     const elementKeys = bitSchema.contexts.element.keys;
     const lidKeys = bitSchema.contexts.lid.keys;

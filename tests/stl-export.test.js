@@ -8,7 +8,7 @@ import {
 } from "../lib/stl-export.js";
 
 const SCAD_WITH_GROUPS = `// BGSD
-include <../lib/boardgame_insert_toolkit_lib.4.9.0.scad>;
+include <../lib/boardgame_insert_toolkit_lib.4.9.1.scad>;
 data = [
     [ G_PRINT_GROUP, "red" ],
     [ OBJECT_BOX,

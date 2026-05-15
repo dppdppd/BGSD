@@ -9,6 +9,30 @@
     "xyz": "Three numeric inputs [x, y, z]",
     "table_list": "List of nested key-value tables"
   },
+  "categories": {
+    "globals": [
+      { "label": "Tray Size", "keys": ["G_DIMENSIONS_XY", "G_FLOOR_THICKNESS_N", "G_MIN_PADDING_XY"] },
+      { "label": "Lid & Frame", "keys": ["G_LID_DEPTH_N", "G_FRAME_STYLE_N", "G_MAGNET_DIAMETER_N"] },
+      { "label": "Counters", "keys": ["COUNTER_SHAPE", "COUNTER_MARGINS_XY", "COUNTER_MARGINS_POST_LENGTH_FRACTION_N", "COUNTER_HOLE_FRACTION_N", "COUNTER_PEDESTAL_B", "COUNTER_PEDESTAL_MIN"] }
+    ],
+    "contexts": {
+      "tray": [
+        { "label": "Output", "keys": ["PRINT_COUNT_N"] },
+        { "label": "Tray Size", "keys": ["G_DIMENSIONS_XY", "G_FLOOR_THICKNESS_N", "G_MIN_PADDING_XY"] },
+        { "label": "Frame", "keys": ["G_FRAME_STYLE_N"] },
+        { "label": "Counter Defaults", "keys": ["COUNTER_SHAPE", "COUNTER_MARGINS_XY", "COUNTER_MARGINS_POST_LENGTH_FRACTION_N", "COUNTER_HOLE_FRACTION_N", "COUNTER_PEDESTAL_B", "COUNTER_PEDESTAL_MIN"] }
+      ],
+      "lid": [
+        { "label": "Output", "keys": ["PRINT_COUNT_N"] }
+      ],
+      "counter_set": [
+        { "label": "Output", "keys": ["ENABLED_B"] },
+        { "label": "Counter Size", "keys": ["COUNTER_SIZE_XYZ", "ROWS_N"] },
+        { "label": "Shape & Fit", "keys": ["COUNTER_SHAPE", "COUNTER_MARGINS_XY", "COUNTER_MARGINS_POST_LENGTH_FRACTION_N", "COUNTER_HOLE_FRACTION_N"] },
+        { "label": "Pedestal", "keys": ["COUNTER_PEDESTAL_B", "COUNTER_PEDESTAL_MIN"] }
+      ]
+    }
+  },
   "contexts": {
     "tray": {
       "description": "Top-level tray element",

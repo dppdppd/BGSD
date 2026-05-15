@@ -1516,6 +1516,21 @@
 
   // --- Schema lookup (reactive based on active profile) ---
   let activeSchema = $derived(getSchema($project.libraryProfile || "bit"));
+  type ParameterRow = {
+    key: string;
+    def: any;
+    lineIndex: number | null;
+    value: any;
+    isReal: boolean;
+    depth?: number;
+  };
+  type ParameterGroup = {
+    id: string;
+    label: string;
+    rows: ParameterRow[];
+    changedCount: number;
+    depth: number;
+  };
 
   let ALL_KEYS = $derived.by(() => {
     const s = new Set<string>();
@@ -2317,6 +2332,109 @@
     return KEY_SCHEMA_MAP[key]?.default;
   }
 
+  function getCategoryConfig(scope: string): { label: string; keys: string[] }[] {
+    const categories = (activeSchema as any).categories || {};
+    const raw = scope === "globals"
+      ? categories.globals
+      : categories.contexts?.[scope];
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((cat: any) => ({
+        label: String(cat?.label || "Other"),
+        keys: Array.isArray(cat?.keys) ? cat.keys.map(String) : [],
+      }))
+      .filter((cat: { label: string; keys: string[] }) => cat.keys.length > 0);
+  }
+
+  function categoryId(label: string): string {
+    return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "other";
+  }
+
+  function parameterRowChanged(row: ParameterRow): boolean {
+    return row.isReal && JSON.stringify(row.value) !== JSON.stringify(row.def?.default);
+  }
+
+  function shouldShowParameterRow(row: ParameterRow): boolean {
+    if (row.isReal) return true;
+    if (defaultsMode === "all") return true;
+    if (defaultsMode === "favorites") return isFavorite(row.key) || fadingOutKeys.has(row.key);
+    return false;
+  }
+
+  function groupRowsForDisplay(rows: ParameterRow[], scope: string, fallbackDepth: number = 0): ParameterGroup[] {
+    const visibleRows = rows.filter(shouldShowParameterRow);
+    if (!visibleRows.length) return [];
+
+    const visibleByKey = new Map(visibleRows.map((row) => [row.key, row]));
+    const used = new Set<string>();
+    const groups: ParameterGroup[] = [];
+
+    if (defaultsMode === "all") {
+      const favoriteRows = visibleRows.filter((row) => isFavorite(row.key));
+      if (favoriteRows.length) {
+        for (const row of favoriteRows) used.add(row.key);
+        groups.push({
+          id: "favorites",
+          label: "Favorites",
+          rows: favoriteRows,
+          changedCount: favoriteRows.filter(parameterRowChanged).length,
+          depth: favoriteRows[0]?.depth ?? fallbackDepth,
+        });
+      }
+    }
+
+    for (const cat of getCategoryConfig(scope)) {
+      const categoryRows = cat.keys
+        .map((key) => visibleByKey.get(key))
+        .filter((row): row is ParameterRow => !!row && !used.has(row.key));
+      if (!categoryRows.length) continue;
+      for (const row of categoryRows) used.add(row.key);
+      groups.push({
+        id: categoryId(cat.label),
+        label: cat.label,
+        rows: categoryRows,
+        changedCount: categoryRows.filter(parameterRowChanged).length,
+        depth: categoryRows[0]?.depth ?? fallbackDepth,
+      });
+    }
+
+    const otherRows = visibleRows
+      .filter((row) => !used.has(row.key))
+      .sort((a, b) => a.key.localeCompare(b.key));
+    if (otherRows.length) {
+      groups.push({
+        id: "other",
+        label: "Other",
+        rows: otherRows,
+        changedCount: otherRows.filter(parameterRowChanged).length,
+        depth: otherRows[0]?.depth ?? fallbackDepth,
+      });
+    }
+
+    return groups;
+  }
+
+  function getSchemaScopeForOpen(openIndex: number): string {
+    const closeIdx = findMatchingClose(openIndex);
+    if (closeIdx < 0) return "";
+    const closeLine = $project.lines[closeIdx];
+    const ctx = getCloseContext(closeLine, closeIdx);
+    if (ctx) return ctx;
+    if (closeLine?.role === "data" && $project.libraryProfile === "ctd") return "globals";
+    return "";
+  }
+
+  function groupScalarDefaultsForDisplay(rows: { key: string; def: any }[], scope: string, depth: number): ParameterGroup[] {
+    return groupRowsForDisplay(rows.map((row) => ({
+      key: row.key,
+      def: row.def,
+      lineIndex: null,
+      value: row.def.default,
+      isReal: false,
+      depth,
+    })), scope, depth);
+  }
+
   /** Find the NAME kv value among immediate children of an open bracket. */
   function findChildName(openIdx: number): string {
     const closeIdx = findMatchingClose(openIdx);
@@ -2999,8 +3117,14 @@
         <div class="block-body" transition:slide|global={{ duration: slideDur }}>
         <!-- Virtual globals block inside data = [ (BIT only; CTD uses per-scene KVs) -->
         {#if line.role === "data" && $project.libraryProfile !== "ctd"}
-          {#each getGlobalRows() as row (row.key)}
-            {#if !row.isReal && (defaultsMode === "none" || (defaultsMode === "favorites" && !isFavorite(row.key) && !fadingOutKeys.has(row.key)))}{:else}
+          {#each groupRowsForDisplay(getGlobalRows(), "globals", 1) as group (group.id)}
+            <div class="line-row kv-category" style="{padDepth(group.depth)}; {bracketStyle(group.depth)}" data-testid="category-globals-{group.id}">
+              <span class="category-label">{group.label}</span>
+              {#if group.changedCount > 0}
+                <span class="category-count">{group.changedCount} changed</span>
+              {/if}
+            </div>
+            {#each group.rows as row (row.key)}
             {@const gDef = row.def}
             {@const gVal = row.value}
             {@const gOnChange = row.isReal
@@ -3066,12 +3190,18 @@
               {/if}
               <button class="fav-btn" class:active={isFavorite(row.key)} title={isFavorite(row.key) ? "Remove from favorites" : "Add to favorites"} onclick={() => toggleFavorite(row.key)}>{isFavorite(row.key) ? "★" : "☆"}</button>
             </div>
-            {/if}
+            {/each}
           {/each}
         {/if}
         <!-- Sorted schema rows (real + virtual) after open bracket -->
-        {#each getSortedSchemaRowsForOpen(i) as row (row.key)}
-          {#if !row.isReal && (defaultsMode === "none" || (defaultsMode === "favorites" && !isFavorite(row.key) && !fadingOutKeys.has(row.key)))}{:else}
+        {#each groupRowsForDisplay(getSortedSchemaRowsForOpen(i), getSchemaScopeForOpen(i), (line.depth ?? 0) + 1) as group (group.id)}
+          <div class="line-row kv-category" style="{padDepth(group.depth)}; {bracketStyle(group.depth)}" data-testid="category-{group.id}">
+            <span class="category-label">{group.label}</span>
+            {#if group.changedCount > 0}
+              <span class="category-count">{group.changedCount} changed</span>
+            {/if}
+          </div>
+          {#each group.rows as row (row.key)}
           {@const rkt = getKeyType(row.key)}
           {@const rks = getKeySchema(row.key)}
           {@const closeIdx = findMatchingClose(i)}
@@ -3179,7 +3309,7 @@
             {/if}
             <button class="fav-btn" class:active={isFavorite(row.key)} title={isFavorite(row.key) ? "Remove from favorites" : "Add to favorites"} onclick={() => toggleFavorite(row.key)}>{isFavorite(row.key) ? "★" : "☆"}</button>
           </div>
-          {/if}
+          {/each}
         {/each}
         </div>
         {/if}
@@ -3203,10 +3333,16 @@
             <span class="struct-bracket">{vLidCollapsed ? "[ ... ]" : "["}</span>
           </div>
           {#if !vLidCollapsed}
-          {#each lidScalars as srow (srow.key)}
-            {#if defaultsMode === "favorites" && !isFavorite(srow.key) && !fadingOutKeys.has(srow.key)}{:else}
+          {#each groupScalarDefaultsForDisplay(lidScalars, "lid", lidChildDepth) as group (group.id)}
+            <div class="line-row kv-category" style="{padDepth(group.depth)}; {bracketStyle(group.depth)}" data-testid="category-virtual-lid-{group.id}">
+              <span class="category-label">{group.label}</span>
+              {#if group.changedCount > 0}
+                <span class="category-count">{group.changedCount} changed</span>
+              {/if}
+            </div>
+            {#each group.rows as srow (srow.key)}
             {@const rkt = srow.def.type}
-            {@const val = srow.def.default}
+            {@const val = srow.value}
             {@const onChange = (v: any) => materializeVirtualLidSetting(i, srow.key, srow.def, v)}
             <div class="line-row kv virtual" class:fading-out={fadingOutKeys.has(srow.key)} style="{padDepth(lidChildDepth)}; {bracketStyle(lidChildDepth)}" data-testid="virtual-lid-{srow.key}">
               <span class="kv-key virtual-key" title={tip(srow.key)}>{label(srow.key)}</span>
@@ -3237,7 +3373,7 @@
               <span class="spacer"></span>
               <button class="fav-btn" class:active={isFavorite(srow.key)} title={isFavorite(srow.key) ? "Remove from favorites" : "Add to favorites"} onclick={() => toggleFavorite(srow.key)}>{isFavorite(srow.key) ? "★" : "☆"}</button>
             </div>
-            {/if}
+            {/each}
           {/each}
           <div class="line-row add-row virtual" style="{padDepth(lidChildDepth)}; {bracketStyle(lidChildDepth)}">
             <button class="add-btn" title="Add LABEL block inside lid" onclick={() => { addLid(i, lidDepth); addLabel(i + 2, lidChildDepth); }}>+ Label</button>
@@ -4187,6 +4323,26 @@
      card, not by tinting every row. Keys win first read. */
   .line-row.kv {
     --bracket-bg: var(--paper);
+  }
+  .line-row.kv-category {
+    --bracket-bg: color-mix(in srgb, var(--paper), var(--sepia-tint) 42%);
+    height: 22px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    margin-top: 6px;
+    gap: 8px;
+    color: var(--ink-mute);
+  }
+  .line-row.kv-category + .line-row.kv-category { margin-top: 0; }
+  .line-row.kv-category:first-child { margin-top: 0; }
+  .category-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--bracket-color);
+  }
+  .category-count {
+    font-size: 11px;
+    color: var(--ink-faint);
   }
   /* close rows are just `]` — keep them slim so they read as a footer
      line, not another data row. No min-height (would clamp the slide). */

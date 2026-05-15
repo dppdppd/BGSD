@@ -1,0 +1,8 @@
+wait app-root
+new bit
+js document.querySelector('[data-testid="view-menu-button"]').click()
+js document.querySelector('[data-testid="view-defaults-all"]').click()
+js document.querySelector('[data-testid="view-menu-button"]').click()
+js document.querySelector('[data-testid="content-area"]').scrollTop = 0
+shot parameter_categories_top
+js (() => { const labels = [...document.querySelectorAll('.line-row.kv-category .category-label')].map((el) => el.textContent.trim()); for (const expected of ["Favorites", "Output", "Preview & Validation", "Size & Walls", "Lid Behavior"]) { if (!labels.includes(expected)) throw new Error(`missing category ${expected}: ${labels.join(", ")}`); } return labels.join(" | "); })()
