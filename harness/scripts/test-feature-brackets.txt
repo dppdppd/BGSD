@@ -1,13 +1,11 @@
 wait app-root
 new bit
-wait element-0-name
 shot new-project
-click element-0-expand
-wait kv-BOX_SIZE_XYZ-x
+js document.querySelector('[data-testid="content-area"]').scrollTop = 0
 shot expanded-box
 js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
 shot bottom-of-box
-js document.querySelector('button[title="Add BOX_FEATURE block"]').click()
+js (async () => { for (const trigger of [...document.querySelectorAll('button.add-menu-trigger')]) { trigger.click(); await new Promise((r) => setTimeout(r, 50)); const item = [...document.querySelectorAll('button.add-menu-item')].find((b) => b.title === 'Add BOX_FEATURE block'); if (item) { item.click(); await new Promise((r) => setTimeout(r, 200)); return; } trigger.click(); } throw new Error('Add BOX_FEATURE block item not found'); })()
 shot feature-added
 js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
 shot bottom-with-feature

@@ -1,6 +1,6 @@
 wait app-root
 new bit
-js (() => { const btns = [...document.querySelectorAll('.add-btn')].filter(b => /\+\s*Feature/i.test(b.textContent || '')); btns[0]?.click(); })()
+js (async () => { const add = async (title) => { for (const trigger of [...document.querySelectorAll('button.add-menu-trigger')]) { trigger.click(); await new Promise((r) => setTimeout(r, 50)); const item = [...document.querySelectorAll('button.add-menu-item')].find((b) => b.title === title); if (item) { item.click(); await new Promise((r) => setTimeout(r, 200)); return; } trigger.click(); } }; await add('Add BOX_FEATURE block'); })()
 shot light-with-feature
 js document.documentElement.dataset.theme = 'dark'
 js new Promise(r => setTimeout(r, 100))

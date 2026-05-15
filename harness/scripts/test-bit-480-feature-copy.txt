@@ -4,7 +4,7 @@ click view-menu-button
 click view-defaults-all
 js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
 shot before_copy
-js (async () => { const btn = [...document.querySelectorAll('button.add-btn')].find((b) => b.title === 'Add FEATURE_COPY block'); if (!btn) throw new Error('Add FEATURE_COPY button not found'); btn.click(); await new Promise((r) => setTimeout(r, 200)); })()
+js (async () => { const add = async (title) => { for (const trigger of [...document.querySelectorAll('button.add-menu-trigger')]) { trigger.click(); await new Promise((r) => setTimeout(r, 50)); const item = [...document.querySelectorAll('button.add-menu-item')].find((b) => b.title === title); if (item) { item.click(); await new Promise((r) => setTimeout(r, 200)); return; } trigger.click(); } throw new Error(`${title} item not found`); }; await add('Add FEATURE_COPY block'); })()
 js (() => { const label = [...document.querySelectorAll('.line-row.struct.open .struct-label')].find((el) => /Copy/.test(el.textContent || '')); if (!label) throw new Error('FEATURE_COPY label not found after add'); label.scrollIntoView({ block: 'center' }); return label.textContent.trim(); })()
 shot copy_added
 scad

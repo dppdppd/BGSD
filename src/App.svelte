@@ -1531,6 +1531,11 @@
     changedCount: number;
     depth: number;
   };
+  type AddMenuItem = {
+    label: string;
+    title: string;
+    action: () => void;
+  };
 
   let ALL_KEYS = $derived.by(() => {
     const s = new Set<string>();
@@ -1699,6 +1704,7 @@
 
   /** Which preset dropdown is currently open (field key like "COUNTER_SIZE_XYZ"), or null. */
   let presetOpen = $state<string | null>(null);
+  let addMenuOpen = $state<string | null>(null);
 
   /** Close preset dropdown when clicking outside. */
   $effect(() => {
@@ -1709,6 +1715,23 @@
     }
     document.addEventListener("click", handleClick, true);
     return () => document.removeEventListener("click", handleClick, true);
+  });
+
+  $effect(() => {
+    if (!addMenuOpen) return;
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".add-menu-wrap")) addMenuOpen = null;
+    }
+    function handleKeydown(e: KeyboardEvent) {
+      if (e.key === "Escape") addMenuOpen = null;
+    }
+    document.addEventListener("click", handleClick, true);
+    document.addEventListener("keydown", handleKeydown, true);
+    return () => {
+      document.removeEventListener("click", handleClick, true);
+      document.removeEventListener("keydown", handleKeydown, true);
+    };
   });
 
   $effect(() => {
@@ -2845,6 +2868,93 @@
       return { ...p };
     });
   }
+
+  function addMenuItemsInsideClose(lineIndex: number, line: Line): AddMenuItem[] {
+    const role = line.role || "";
+    const depth = line.depth ?? 0;
+
+    if (role === "data") {
+      if ($project.libraryProfile === "ctd") {
+        return [
+          { label: "Tray", title: "Add tray", action: () => addTray(lineIndex, depth) },
+          { label: "Lid", title: "Add lid", action: () => addCtdLid(lineIndex, depth) },
+        ];
+      }
+      return [{ label: "Object", title: "Add object", action: () => addObject(lineIndex, depth) }];
+    }
+
+    if ($project.libraryProfile === "ctd") return [];
+
+    if (role === "params") {
+      const childDepth = depth + 1;
+      const items: AddMenuItem[] = [
+        { label: "Label", title: "Add LABEL block", action: () => addLabel(lineIndex, childDepth) },
+        { label: "Feature", title: "Add BOX_FEATURE block", action: () => addFeatureList(lineIndex, childDepth) },
+        { label: "Group", title: "Add FEATURE_GROUP block", action: () => addGroup(lineIndex, childDepth) },
+        { label: "Copy", title: "Add FEATURE_COPY block", action: () => addCopy(lineIndex, childDepth) },
+      ];
+      if (!hasChildBlock(lineIndex, "visualization")) {
+        items.push({ label: "Visualization", title: "Add BOX_VISUALIZATION block", action: () => addVisualization(lineIndex, childDepth) });
+      }
+      return items;
+    }
+
+    if (role === "object") {
+      const childDepth = depth + 1;
+      const items: AddMenuItem[] = [
+        { label: "Label", title: "Add LABEL block", action: () => addLabel(lineIndex, childDepth) },
+        { label: "Feature", title: "Add BOX_FEATURE block", action: () => addFeatureList(lineIndex, childDepth) },
+        { label: "Group", title: "Add FEATURE_GROUP block", action: () => addGroup(lineIndex, childDepth) },
+        { label: "Copy", title: "Add FEATURE_COPY block", action: () => addCopy(lineIndex, childDepth) },
+      ];
+      if (!hasChildBlock(lineIndex, "visualization")) {
+        items.push({ label: "Visualization", title: "Add BOX_VISUALIZATION block", action: () => addVisualization(lineIndex, childDepth) });
+      }
+      return items;
+    }
+
+    if (role === "feature_list") {
+      const childDepth = depth + 1;
+      const items: AddMenuItem[] = [
+        { label: "Label", title: "Add LABEL block inside feature", action: () => addLabel(lineIndex, childDepth) },
+      ];
+      if (!hasFeatureDividersChild(lineIndex)) {
+        items.push({ label: "Dividers", title: "Add FTR_DIVIDERS block", action: () => addFeatureDividers(lineIndex, childDepth) });
+      }
+      items.push(
+        { label: "Feature", title: "Add nested BOX_FEATURE block", action: () => addFeatureList(lineIndex, childDepth) },
+        { label: "Group", title: "Add nested FEATURE_GROUP block", action: () => addGroup(lineIndex, childDepth) },
+        { label: "Copy", title: "Add FEATURE_COPY block inside feature", action: () => addCopy(lineIndex, childDepth) },
+      );
+      return items;
+    }
+
+    if (role === "box_group" || role === "group_params") {
+      const childDepth = depth + 1;
+      return [
+        { label: "Feature", title: "Add BOX_FEATURE block inside group", action: () => addFeatureList(lineIndex, childDepth) },
+        { label: "Group", title: "Add nested FEATURE_GROUP block", action: () => addGroup(lineIndex, childDepth) },
+        { label: "Copy", title: "Add FEATURE_COPY block inside group", action: () => addCopy(lineIndex, childDepth) },
+      ];
+    }
+
+    if (role === "lid" || role === "lid_params") {
+      const childDepth = depth + 1;
+      return [{ label: "Label", title: "Add LABEL block inside lid", action: () => addLabel(lineIndex, childDepth) }];
+    }
+
+    return [];
+  }
+
+  function addMenuItemsAfterClose(lineIndex: number, line: Line): AddMenuItem[] {
+    if (line.role === "counter_set" && $project.libraryProfile === "ctd" && isLastOfKind(lineIndex)) {
+      return [{ label: "Counter Set", title: "Add counter set", action: () => addCounterSet(lineIndex + 1, (line.depth ?? 1) - 1) }];
+    }
+    if (line.role === "data") {
+      return [{ label: "Scene", title: "Add another scene", action: () => handleAddScene(lineIndex) }];
+    }
+    return [];
+  }
 </script>
 
 {#snippet commentBtn(line, i)}
@@ -2903,6 +3013,33 @@
       {/if}
     </span>
   {/if}
+{/snippet}
+
+{#snippet addMenuButton(menuKey, items)}
+  <span class="add-menu-wrap">
+    <button
+      class="add-btn add-menu-trigger"
+      title="Add..."
+      aria-label="Add"
+      aria-haspopup="menu"
+      aria-expanded={addMenuOpen === menuKey}
+      data-testid="add-menu-{menuKey}"
+      onclick={(e) => { e.stopPropagation(); addMenuOpen = addMenuOpen === menuKey ? null : menuKey; }}
+    >+</button>
+    {#if addMenuOpen === menuKey}
+      <span class="add-menu" role="menu">
+        {#each items as item}
+          <button
+            class="add-menu-item"
+            title={item.title}
+            role="menuitem"
+            data-testid="add-menu-item-{categoryId(item.label)}"
+            onclick={() => { addMenuOpen = null; item.action(); }}
+          >{item.label}</button>
+        {/each}
+      </span>
+    {/if}
+  </span>
 {/snippet}
 
 <main data-testid="app-root">
@@ -3376,59 +3513,20 @@
             {/each}
           {/each}
           <div class="line-row add-row virtual" style="{padDepth(lidChildDepth)}; {bracketStyle(lidChildDepth)}">
-            <button class="add-btn" title="Add LABEL block inside lid" onclick={() => { addLid(i, lidDepth); addLabel(i + 2, lidChildDepth); }}>+ Label</button>
+            {@render addMenuButton(`virtual-lid-add-${i}`, [
+              { label: "Label", title: "Add LABEL block inside lid", action: () => { addLid(i, lidDepth); addLabel(i + 2, lidChildDepth); } },
+            ])}
           </div>
           <div class="line-row struct close virtual" style="{padDepth(lidDepth)}; {bracketStyle(lidDepth)}">
             <span class="struct-bracket">],</span>
           </div>
           {/if}
         {/if}
-        <!-- Add buttons on their own line, indented inside the block -->
-        {#if line.role === "data" || (line.role === "params" && $project.libraryProfile !== "ctd") || (line.role === "object" && $project.libraryProfile !== "ctd") || (line.role === "feature_list" && $project.libraryProfile !== "ctd") || ((line.role === "box_group" || line.role === "group_params") && $project.libraryProfile !== "ctd") || ((line.role === "lid" || line.role === "lid_params") && $project.libraryProfile !== "ctd")}
+        <!-- Add menu on its own line, indented inside the block -->
+        {#if addMenuItemsInsideClose(i, line).length}
           {@const addDepth = (line.depth ?? 0) + 1}
           <div class="line-row add-row virtual" style="{padDepth(addDepth)}; {bracketStyle(addDepth)}" data-testid="add-{i}">
-            {#if line.role === "data"}
-              {#if $project.libraryProfile === "ctd"}
-                <button class="add-btn" title="Add tray" onclick={() => addTray(i, line.depth ?? 0)}>+ Tray</button>
-                <button class="add-btn" title="Add lid" onclick={() => addCtdLid(i, line.depth ?? 0)}>+ Lid</button>
-              {:else}
-                <button class="add-btn" title="Add object" onclick={() => addObject(i, line.depth ?? 0)}>+ Object</button>
-              {/if}
-            {:else if line.role === "params"}
-              <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, (line.depth ?? 0) + 1)}>+ Label</button>
-              <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, (line.depth ?? 0) + 1)}>+ Feature</button>
-              <button class="add-btn" title="Add FEATURE_GROUP block" onclick={() => addGroup(i, (line.depth ?? 0) + 1)}>+ Group</button>
-              <button class="add-btn" title="Add FEATURE_COPY block" onclick={() => addCopy(i, (line.depth ?? 0) + 1)}>+ Copy</button>
-              {#if !hasChildBlock(i, "visualization")}
-                <button class="add-btn" title="Add BOX_VISUALIZATION block" onclick={() => addVisualization(i, (line.depth ?? 0) + 1)}>+ Visualization</button>
-              {/if}
-            {:else if line.role === "object"}
-              {@const childDepth = (line.depth ?? 0) + 1}
-              <button class="add-btn" title="Add LABEL block" onclick={() => addLabel(i, childDepth)}>+ Label</button>
-              <button class="add-btn" title="Add BOX_FEATURE block" onclick={() => addFeatureList(i, childDepth)}>+ Feature</button>
-              <button class="add-btn" title="Add FEATURE_GROUP block" onclick={() => addGroup(i, childDepth)}>+ Group</button>
-              <button class="add-btn" title="Add FEATURE_COPY block" onclick={() => addCopy(i, childDepth)}>+ Copy</button>
-              {#if !hasChildBlock(i, "visualization")}
-                <button class="add-btn" title="Add BOX_VISUALIZATION block" onclick={() => addVisualization(i, childDepth)}>+ Visualization</button>
-              {/if}
-            {:else if line.role === "feature_list"}
-              {@const featureChildDepth = (line.depth ?? 0) + 1}
-              <button class="add-btn" title="Add LABEL block inside feature" onclick={() => addLabel(i, featureChildDepth)}>+ Label</button>
-              {#if !hasFeatureDividersChild(i)}
-                <button class="add-btn" title="Add FTR_DIVIDERS block" onclick={() => addFeatureDividers(i, featureChildDepth)}>+ Dividers</button>
-              {/if}
-              <button class="add-btn" title="Add nested BOX_FEATURE block" onclick={() => addFeatureList(i, featureChildDepth)}>+ Feature</button>
-              <button class="add-btn" title="Add nested FEATURE_GROUP block" onclick={() => addGroup(i, featureChildDepth)}>+ Group</button>
-              <button class="add-btn" title="Add FEATURE_COPY block inside feature" onclick={() => addCopy(i, featureChildDepth)}>+ Copy</button>
-            {:else if line.role === "box_group" || line.role === "group_params"}
-              {@const groupChildDepth = (line.depth ?? 0) + 1}
-              <button class="add-btn" title="Add BOX_FEATURE block inside group" onclick={() => addFeatureList(i, groupChildDepth)}>+ Feature</button>
-              <button class="add-btn" title="Add nested FEATURE_GROUP block" onclick={() => addGroup(i, groupChildDepth)}>+ Group</button>
-              <button class="add-btn" title="Add FEATURE_COPY block inside group" onclick={() => addCopy(i, groupChildDepth)}>+ Copy</button>
-            {:else if line.role === "lid" || line.role === "lid_params"}
-              {@const lidChildDepth = (line.depth ?? 0) + 1}
-              <button class="add-btn" title="Add LABEL block inside lid" onclick={() => addLabel(i, lidChildDepth)}>+ Label</button>
-            {/if}
+            {@render addMenuButton(`inside-${i}`, addMenuItemsInsideClose(i, line))}
           </div>
         {/if}
         <!-- Close bracket(s) — split merged ]] into separate lines -->
@@ -3447,15 +3545,10 @@
             <span class="struct-bracket">{line.raw.trim()}</span>
           </div>
         {/if}
-        <!-- Buttons that appear AFTER a close bracket (outside the block) -->
-        {#if line.role === "counter_set" && $project.libraryProfile === "ctd" && isLastOfKind(i)}
-          <div class="line-row add-row virtual" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="add-counter-set-{i}">
-            <button class="add-btn" title="Add counter set" onclick={() => addCounterSet(i + 1, (line.depth ?? 1) - 1)}>+ Counter Set</button>
-          </div>
-        {/if}
-        {#if line.role === "data"}
-          <div class="line-row add-scene-row" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="add-scene-{i}">
-            <button class="add-btn" title="Add another scene" onclick={() => handleAddScene(i)}>+ Scene</button>
+        <!-- Add menus that appear AFTER a close bracket (outside the block) -->
+        {#if addMenuItemsAfterClose(i, line).length}
+          <div class="line-row add-row add-scene-row virtual" style="{pad(line)}; {bracketStyle(line.depth)}" data-testid="add-after-{i}">
+            {@render addMenuButton(`after-${i}`, addMenuItemsAfterClose(i, line))}
           </div>
         {/if}
         </div>
@@ -4566,10 +4659,40 @@
   }
   .add-btn {
     background: none; border: 1px dashed #c5bba5; color: #546e7a;
-    padding: 0 8px; border-radius: 3px; cursor: pointer;
+    width: 22px; height: 20px; padding: 0; border-radius: 3px; cursor: pointer;
     font-size: 14px; font-weight: 700; line-height: 1.4;
   }
   .add-btn:hover { border-color: #b57614; color: #b57614; }
+  .add-menu-wrap { position: relative; display: inline-flex; align-items: center; }
+  .add-menu {
+    position: absolute;
+    top: calc(100% + 3px);
+    left: 0;
+    z-index: 40;
+    min-width: 150px;
+    padding: 3px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    box-shadow: 0 6px 18px rgba(60, 48, 32, 0.16);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .add-menu-item {
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    text-align: left;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-family: "Courier New", monospace;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .add-menu-item:hover { background: #ebe4d2; color: #b57614; }
   .add-scene-row { border-bottom: none; }
   .comment-btn {
     background: none; border: none; color: #ccc; cursor: pointer;

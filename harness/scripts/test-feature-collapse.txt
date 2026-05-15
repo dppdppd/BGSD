@@ -1,6 +1,6 @@
 wait app-root
 new bit
-js (() => { const btns = [...document.querySelectorAll('.add-btn')].filter(b => /\+\s*Feature/i.test(b.textContent || '')); if (!btns.length) throw new Error('no +Feature button'); btns[0].click(); })()
+js (async () => { const add = async (title) => { for (const trigger of [...document.querySelectorAll('button.add-menu-trigger')]) { trigger.click(); await new Promise((r) => setTimeout(r, 50)); const item = [...document.querySelectorAll('button.add-menu-item')].find((b) => b.title === title); if (item) { item.click(); await new Promise((r) => setTimeout(r, 200)); return; } trigger.click(); } throw new Error(`${title} item not found`); }; await add('Add BOX_FEATURE block'); })()
 shot feature-added
 js (() => { const labels = [...document.querySelectorAll('.line-row.struct.open .struct-label')].filter(l => /FEATURE/i.test(l.textContent || '')); if (!labels.length) throw new Error('no FEATURE label'); window._featBtn = labels[0].closest('.line-row').querySelector('.collapse-btn'); window._featBtn.click(); return 'clicked'; })()
 js new Promise(r => setTimeout(r, 50))

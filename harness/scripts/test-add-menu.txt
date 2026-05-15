@@ -1,0 +1,7 @@
+wait app-root
+new bit
+intent "Add actions should be hidden behind one + menu per block."
+js document.querySelector('[data-testid="content-area"]').scrollTop = 99999
+js (async () => { for (const trigger of [...document.querySelectorAll('button.add-menu-trigger')]) { trigger.click(); await new Promise((r) => setTimeout(r, 50)); const items = [...document.querySelectorAll('button.add-menu-item')].map((b) => b.textContent.trim()); if (items.includes('Label') && items.includes('Feature')) return 'opened object add menu'; trigger.click(); } throw new Error('object add menu not found'); })()
+shot add_menu_open
+js (() => { const items = [...document.querySelectorAll('button.add-menu-item')].map((b) => b.textContent.trim()); for (const expected of ['Label', 'Feature', 'Group', 'Copy']) { if (!items.includes(expected)) throw new Error(`missing add item ${expected}: ${items.join(', ')}`); } return items.join(','); })()

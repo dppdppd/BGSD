@@ -2,7 +2,7 @@ wait app-root
 new bit
 shot 01_initial
 scad
-js (() => { const btn = [...document.querySelectorAll('button.add-btn')].find(b => b.title === 'Add another scene'); if (!btn) return 'no +Scene btn'; btn.click(); return 'added scene'; })()
+js (async () => { const add = async (title) => { for (const trigger of [...document.querySelectorAll('button.add-menu-trigger')]) { trigger.click(); await new Promise((r) => setTimeout(r, 50)); const item = [...document.querySelectorAll('button.add-menu-item')].find((b) => b.title === title); if (item) { item.click(); await new Promise((r) => setTimeout(r, 200)); return 'added scene'; } trigger.click(); } return 'no +Scene item'; }; return await add('Add another scene'); })()
 js (async () => { await new Promise(r => setTimeout(r, 300)); })()
 shot 02_after_add_scene
 scad
