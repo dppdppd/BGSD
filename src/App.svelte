@@ -4536,7 +4536,8 @@
     height: 18px;
     padding-top: 0;
     padding-bottom: 0;
-    margin-top: 6px;
+    margin-top: 3px;
+    margin-bottom: 3px;
     gap: 4px;
     justify-content: center;
     color: var(--ink-mute);
@@ -4554,7 +4555,6 @@
     z-index: 1;
   }
   .line-row.kv-category + .line-row.kv-category { margin-top: 0; }
-  .line-row.kv-category:first-child { margin-top: 0; }
   .category-label {
     position: relative;
     z-index: 2;
