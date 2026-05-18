@@ -1,5 +1,6 @@
 import { writable } from "svelte/store";
 import { INDENT } from "../config";
+import { getSchema, type KeyDef } from "../schema";
 
 /** Preset entries keyed by schema field name (e.g. "COUNTER_SIZE_XYZ"). */
 export const presets = writable<Record<string, { name: string; label: string; value: string }[]>>({});
@@ -237,10 +238,7 @@ function formatGlobalRaw(key: string, value: any, inline?: boolean, existingRaw?
     const indent = (existingRaw ?? "").match(/^(\s*)/)?.[1] ?? INDENT;
     return formatInlineGlobalRawWithIndent(key, value, indent);
   }
-  if (typeof value === "boolean") return `${key} = ${value ? "true" : "false"};`;
-  if (typeof value === "number") return `${key} = ${value};`;
-  if (Array.isArray(value)) return `${key} = [${value.map(formatKvValue).join(", ")}];`;
-  return `${key} = "${value}";`;
+  return `${key} = ${formatKvValueForKey(key, value)};`;
 }
 
 function formatInlineGlobalRaw(key: string, value: any): string {
@@ -248,10 +246,7 @@ function formatInlineGlobalRaw(key: string, value: any): string {
 }
 
 function formatInlineGlobalRawWithIndent(key: string, value: any, indent: string): string {
-  if (typeof value === "boolean") return `${indent}[ ${key}, ${value} ],`;
-  if (typeof value === "number") return `${indent}[ ${key}, ${value} ],`;
-  if (Array.isArray(value)) return `${indent}[ ${key}, [${value.map(formatKvValue).join(", ")}] ],`;
-  return `${indent}[ ${key}, "${value ?? ""}" ],`;
+  return `${indent}[ ${key}, ${formatKvValueForKey(key, value)} ],`;
 }
 
 /** Update a kv line's value. If the new value equals the schema default, delete the line. */
@@ -268,7 +263,7 @@ export function updateKv(index: number, value: any, schemaDefault?: any) {
 
     line.kvValue = value;
     const indent = line.raw.match(/^(\s*)/)?.[1] || "";
-    line.raw = `${indent}[ ${line.kvKey}, ${formatKvValue(value)} ],`;
+    line.raw = `${indent}[ ${line.kvKey}, ${formatKvValueForKey(line.kvKey, value)} ],`;
     return { ...p };
   });
 }
@@ -280,7 +275,7 @@ export function updateKv(index: number, value: any, schemaDefault?: any) {
 export function materializeKv(beforeIndex: number, key: string, value: any, depth: number) {
   project.update((p) => {
     const indent = INDENT.repeat(depth);
-    const raw = `${indent}[ ${key}, ${formatKvValue(value)} ],`;
+    const raw = `${indent}[ ${key}, ${formatKvValueForKey(key, value)} ],`;
     p.lines.splice(beforeIndex, 0, { raw, kind: "kv", depth, kvKey: key, kvValue: value });
     return { ...p };
   });
@@ -426,21 +421,69 @@ export function addScene(afterIndex: number, sceneName: string) {
   });
 }
 
-export function formatKvValue(value: any): string {
+type FormatKvValueOptions = {
+  forceQuoteStrings?: boolean;
+};
+
+const SCHEMA_PROFILE_IDS = ["bit", "ctd"];
+const schemaKeyDefCache = new Map<string, KeyDef | null>();
+const constantStringKeys = new Set(["G_PRINT_TYPES"]);
+
+function getSchemaKeyDef(key: string): KeyDef | null {
+  if (schemaKeyDefCache.has(key)) return schemaKeyDefCache.get(key) ?? null;
+
+  for (const profileId of SCHEMA_PROFILE_IDS) {
+    const s = getSchema(profileId) as any;
+    if (s.globals?.[key]) {
+      schemaKeyDefCache.set(key, s.globals[key]);
+      return s.globals[key];
+    }
+    for (const ctx of Object.values(s.contexts || {})) {
+      const def = (ctx as any).keys?.[key];
+      if (def) {
+        schemaKeyDefCache.set(key, def as KeyDef);
+        return def as KeyDef;
+      }
+    }
+  }
+
+  schemaKeyDefCache.set(key, null);
+  return null;
+}
+
+function keyUsesStringLiterals(key?: string): boolean {
+  if (!key || constantStringKeys.has(key)) return false;
+  const def = getSchemaKeyDef(key);
+  return def?.type === "string" ||
+    def?.type === "string_list" ||
+    def?.type === "bool_string_list";
+}
+
+function quoteScadString(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+export function formatKvValueForKey(key: string | undefined, value: any): string {
+  return formatKvValue(value, { forceQuoteStrings: keyUsesStringLiterals(key) });
+}
+
+export function formatKvValue(value: any, options: FormatKvValueOptions = {}): string {
   if (value === true) return "true";
   if (value === false) return "false";
   if (typeof value === "number") return String(value);
   if (typeof value === "string") {
-    // ALL_UPPERCASE identifiers (OpenSCAD constants like SQUARE, BOX, etc.) → unquoted
-    if (/^[A-Z][A-Z0-9_]*$/.test(value)) return value;
-    // $-prefixed OpenSCAD special variables → unquoted
-    if (/^\$[a-zA-Z_]\w*$/.test(value)) return value;
-    // Known constants from parsed presets → unquoted
-    if (knownConstants.has(value)) return value;
-    return `"${value}"`;
+    if (!options.forceQuoteStrings) {
+      // ALL_UPPERCASE identifiers (OpenSCAD constants like SQUARE, BOX, etc.) → unquoted
+      if (/^[A-Z][A-Z0-9_]*$/.test(value)) return value;
+      // $-prefixed OpenSCAD special variables → unquoted
+      if (/^\$[a-zA-Z_]\w*$/.test(value)) return value;
+      // Known constants from parsed presets → unquoted
+      if (knownConstants.has(value)) return value;
+    }
+    return quoteScadString(value);
   }
   if (Array.isArray(value)) {
-    return `[${value.map(formatKvValue).join(", ")}]`;
+    return `[${value.map((item) => formatKvValue(item, options)).join(", ")}]`;
   }
   return String(value);
 }

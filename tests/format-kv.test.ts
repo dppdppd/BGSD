@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatKvValue } from "../src/lib/stores/project";
+import { formatKvValue, formatKvValueForKey } from "../src/lib/stores/project";
 
 describe("formatKvValue", () => {
   it("formats true as 'true'", () => {
@@ -54,5 +54,22 @@ describe("formatKvValue", () => {
 
   it("formats empty string with quotes", () => {
     expect(formatKvValue("")).toBe('""');
+  });
+
+  it("quotes all-caps values for schema string keys", () => {
+    expect(formatKvValueForKey("NAME", "BOX")).toBe('"BOX"');
+    expect(formatKvValueForKey("LBL_TEXT", "PLAYER")).toBe('"PLAYER"');
+    expect(formatKvValueForKey("FEATURE_REFERENCE", "FEATURE_A")).toBe('"FEATURE_A"');
+  });
+
+  it("quotes all-caps values in schema string lists", () => {
+    expect(formatKvValueForKey("DIV_TAB_TEXT", ["A", "B"])).toBe('["A", "B"]');
+    expect(formatKvValueForKey("G_PRINT_BOXES", "BOX")).toBe('"BOX"');
+    expect(formatKvValueForKey("G_PRINT_GROUPS", ["RED", "BLUE"])).toBe('["RED", "BLUE"]');
+  });
+
+  it("keeps BIT print type constants unquoted", () => {
+    expect(formatKvValueForKey("G_PRINT_TYPES", "DIVIDERS")).toBe("DIVIDERS");
+    expect(formatKvValueForKey("G_PRINT_TYPES", ["BOX", "LID"])).toBe("[BOX, LID]");
   });
 });

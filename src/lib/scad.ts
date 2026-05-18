@@ -1,4 +1,4 @@
-import { formatKvValue, type Project } from "./stores/project";
+import { formatKvValueForKey, type Project } from "./stores/project";
 import { INDENT } from "./config";
 
 const FLAT_OBJECT_LABELS = new Set(["OBJECT_BOX", "OBJECT_DIVIDERS", "OBJECT_SPACER", "TRAY", "LID"]);
@@ -71,14 +71,8 @@ export function generateScadWithSourceMap(project: Project): GeneratedScad {
         // v4 format: emit as [ G_KEY, value ] inside data array
         const gk = line.globalKey ?? "";
         const indent = (line.raw ?? "").match(/^(\s*)/)?.[1] ?? INDENT;
-        if (typeof line.globalValue === "boolean") {
-          pushGeneratedLine(out, sourceMap, `${indent}[ ${gk}, ${line.globalValue} ],`, i);
-        } else if (typeof line.globalValue === "number") {
-          pushGeneratedLine(out, sourceMap, `${indent}[ ${gk}, ${line.globalValue} ],`, i);
-        } else if (Array.isArray(line.globalValue)) {
-          pushGeneratedLine(out, sourceMap, `${indent}[ ${gk}, [${line.globalValue.map(formatKvValue).join(", ")}] ],`, i);
-        } else if (gk) {
-          pushGeneratedLine(out, sourceMap, `${indent}[ ${gk}, ${formatKvValue(line.globalValue ?? "")} ],`, i);
+        if (gk) {
+          pushGeneratedLine(out, sourceMap, `${indent}[ ${gk}, ${formatKvValueForKey(gk, line.globalValue ?? "")} ],`, i);
         }
         break;
       }

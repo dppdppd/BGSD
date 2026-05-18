@@ -1,0 +1,6 @@
+wait app-root
+new bit
+intent "Set a box name to all caps; generated SCAD should keep it quoted."
+js (async () => { const rows = [...document.querySelectorAll('.line-row.kv')]; const row = rows.find((r) => r.querySelector('.kv-key')?.textContent?.trim() === 'Name'); const input = row?.querySelector('input.kv-str'); if (!input) return 'missing name input'; input.value = 'BOX'; input.dispatchEvent(new Event('change', { bubbles: true })); await new Promise((resolve) => setTimeout(resolve, 200)); return document.querySelector('[data-testid="scad-output"]')?.textContent || ''; })()
+scad
+shot all_caps_name
