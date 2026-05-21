@@ -2,8 +2,8 @@
 
 ## Project Status
 - **Current phase**: 0.5.x — feature polish (version history, schema coverage, defaults UX, self-update)
-- **Latest release**: v0.5.23 (2026-05-03) — https://github.com/dppdppd/BGSD/releases/tag/v0.5.23
-- **Last updated**: 2026-05-03
+- **Latest release**: v0.5.35 (2026-05-21) — https://github.com/dppdppd/BGSD/releases/tag/v0.5.35
+- **Last updated**: 2026-05-21
 
 ## Completed Work
 - Cross-platform release builds via electron-builder
@@ -25,6 +25,14 @@
 - Lid defaults visibility fix (non-merged BOX_LID close resolves to lid context)
 - Virtual BOX_LID params sort alphabetically — no resort when first param is edited
 - Library update always overwrites base libs; publisher/game examples respect the writable-skip
+- BIT 4.12.0 schema/import/UI support for nested SVG feature shape blocks
+- Dynamic print/reference selectors for print groups, print boxes, and feature references
+- Per-block Show-Defaults mode radios; file-wide default-key view removed
+- Parameter search with Ctrl+F, key/tooltip matching, and highlighted results
+- Parameter category dividers and grouped default rows for denser editing
+- STL export creates one combined STL and one STL per print group
+- OpenSCAD diagnostics surfaced asynchronously with toolbar status and issue details
+- Windows release builds use Debian Wine via a temporary shim to avoid WineHQ devel `rcedit` hangs
 
 ## Active Specs
 (none — operating ad-hoc; specs will live in `docs/spec/`)
