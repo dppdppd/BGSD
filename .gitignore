@@ -6,6 +6,7 @@ node_modules/
 dist/
 release/
 harness/out/
+screen_recordings/
 *.bak
 tests/workspace/
 docs/rpm/~rpm-*
