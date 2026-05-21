@@ -132,7 +132,7 @@
   let blockDefaultsKeyCounter = 0;
   let blockDefaultsKeys = new WeakMap<Line, string>();
   let favoriteKeys = $state<Set<string>>(new Set());
-  const FAVORITE_KEYS_VERSION = 11;
+  const FAVORITE_KEYS_VERSION = 12;
   const FAVORITE_KEYS_ADDED_IN_V2 = ["LID_TYPE", "LID_SLIDE_SIDE", "LID_FRAME_WIDTH"];
   const FAVORITE_KEYS_ADDED_IN_V3 = [
     "FTR_DIVIDERS", "DIV_AXIS",
@@ -145,6 +145,7 @@
   const FAVORITE_KEYS_ADDED_IN_V9 = ["FEATURE_COPY", "FEATURE_REFERENCE"];
   const FAVORITE_KEYS_ADDED_IN_V10: string[] = [];
   const FAVORITE_KEYS_ADDED_IN_V11 = ["G_PRINT_TYPES", "G_PRINT_GROUPS", "G_PRINT_BOXES"];
+  const FAVORITE_KEYS_ADDED_IN_V12 = ["SVG_FILE", "SVG_WIDTH_MM", "SVG_CLEARANCE_MM"];
   function collectFavoriteSchemaKeys(): Set<string> {
     const keys = new Set<string>();
     for (const profile of ["bit", "ctd"]) {
@@ -170,6 +171,7 @@
   const DEFAULT_FAVORITE_KEYS = [
     "NAME", "BOX_SIZE_XYZ", "FEATURE_GROUP", "FEATURE_COPY", "FEATURE_REFERENCE", "ENABLED_B",
     "FTR_COMPARTMENT_SIZE_XYZ", "FTR_NUM_COMPARTMENTS_XY", "FTR_SHAPE",
+    "SVG_FILE", "SVG_WIDTH_MM", "SVG_CLEARANCE_MM",
     "FTR_SHAPE_VERTICAL_B", "FTR_SHAPE_AXIS",
     "FTR_PADDING_XY", "FTR_PADDING_HEIGHT_ADJUST_XY",
     "FTR_CUTOUT_SIDES_4B", "POSITION_XY", "ROTATION",
@@ -1026,6 +1028,9 @@
       if (favoriteVersion < 11) {
         for (const key of FAVORITE_KEYS_ADDED_IN_V11) migrated.add(key);
       }
+      if (favoriteVersion < 12) {
+        for (const key of FAVORITE_KEYS_ADDED_IN_V12) migrated.add(key);
+      }
       for (const key of REMOVED_FAVORITE_KEYS) {
         if (migrated.delete(key)) changedFavorites = true;
       }
@@ -1602,7 +1607,7 @@
     BOX:"BOX",LID:"LID",DIVIDERS:"DIVIDERS",SPACER:"SPACER",
     OBJECT_BOX:"OBJECT_BOX",OBJECT_DIVIDERS:"OBJECT_DIVIDERS",OBJECT_SPACER:"OBJECT_SPACER",
     SQUARE:"SQUARE",
-    HEX:"HEX",HEX2:"HEX2",OCT:"OCT",OCT2:"OCT2",ROUND:"ROUND",FILLET:"FILLET",
+    HEX:"HEX",HEX2:"HEX2",OCT:"OCT",OCT2:"OCT2",ROUND:"ROUND",FILLET:"FILLET",SVG:"SVG",
     INTERIOR:"INTERIOR",EXTERIOR:"EXTERIOR",BOTH:"BOTH",
     FRONT:"FRONT",BACK:"BACK",LEFT:"LEFT",RIGHT:"RIGHT",
     FRONT_WALL:"FRONT_WALL",BACK_WALL:"BACK_WALL",LEFT_WALL:"LEFT_WALL",RIGHT_WALL:"RIGHT_WALL",
@@ -2423,6 +2428,7 @@
     feature_copy: "copy",
     copy_params: "copy",
     feature_divider_params: "feature_divider",
+    shape_svg: "shape_svg",
     visualization: "visualization",
     visualization_params: "visualization",
     label_params: "label",
@@ -2437,6 +2443,7 @@
     box_group: "group_params",
     feature_copy: "copy_params",
     feature_dividers: "feature_divider_params",
+    shape: "shape_value",
     visualization: "visualization_params",
     label: "label_params",
     lid: "lid_params",
@@ -2544,10 +2551,13 @@
 
     // Collect existing kv lines
     const existingMap = new Map<string, { lineIndex: number; value: any }>();
+    const structuredKeys = new Set<string>();
     for (let i = openIdx + 1; i < closeIndex; i++) {
       const l = $project.lines[i];
       if (l.kind === "kv" && l.kvKey && l.depth === childDepth) {
         existingMap.set(l.kvKey, { lineIndex: i, value: l.kvValue });
+      } else if (l.kind === "open" && l.role === "shape" && l.depth === childDepth) {
+        structuredKeys.add("FTR_SHAPE");
       }
     }
 
@@ -2556,7 +2566,7 @@
           .filter(([_, d]: [string, any]) => d.type !== "table" && d.type !== "table_list")
           .map(([k, d]) => ({ key: k, def: d }))
       : getScalarKeysForContext(ctx!);
-    const rows = scalars.map(({ key, def }) => {
+    const rows = scalars.filter(({ key }) => !structuredKeys.has(key)).map(({ key, def }) => {
       const existing = existingMap.get(key);
       if (existing) {
         return { key, def, lineIndex: existing.lineIndex, value: existing.value, isReal: true, depth: childDepth };
@@ -2828,6 +2838,9 @@
     if (line.role === "copy_params") return { text: "copy params", inferred: true };
     if (line.role === "feature_dividers") return { text: label(line.label || "FTR_DIVIDERS") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "feature_divider_params") return { text: "feature divider params", inferred: true };
+    if (line.role === "shape") return { text: label(line.label || "FTR_SHAPE"), inferred: false };
+    if (line.role === "shape_value") return { text: "shape value", inferred: true };
+    if (line.role === "shape_svg") return { text: label(line.label || "SVG"), inferred: false };
     if (line.role === "visualization") return { text: label(line.label || "BOX_VISUALIZATION") + nameSuffix(lineIndex), inferred: false };
     if (line.role === "visualization_params") return { text: "visualization params", inferred: true };
     if (line.role === "label") return { text: label(line.label || "LABEL") + nameSuffix(lineIndex), inferred: false };
@@ -3077,6 +3090,40 @@
     });
   }
 
+  function svgShapeLines(depth: number): Line[] {
+    const d = depth;
+    const ind = (n: number) => "    ".repeat(n);
+    return [
+      { raw: `${ind(d)}[ FTR_SHAPE,`, kind: "open", depth: d, role: "shape", label: "FTR_SHAPE" },
+      { raw: `${ind(d + 1)}[ SVG,`, kind: "open", depth: d + 1, role: "shape_svg", label: "SVG" },
+      { raw: `${ind(d + 2)}[ SVG_FILE, "" ],`, kind: "kv", depth: d + 2, kvKey: "SVG_FILE", kvValue: "" },
+      { raw: `${ind(d + 2)}[ SVG_WIDTH_MM, 10 ],`, kind: "kv", depth: d + 2, kvKey: "SVG_WIDTH_MM", kvValue: 10 },
+      { raw: `${ind(d + 1)}],`, kind: "close", depth: d + 1, role: "shape_svg", label: "SVG" },
+      { raw: `${ind(d)}],`, kind: "close", depth: d, role: "shape", label: "FTR_SHAPE" },
+    ];
+  }
+
+  function addSvgShape(closeIndex: number, depth: number) {
+    spliceLines(closeIndex, 0, svgShapeLines(depth));
+  }
+
+  function updateShapeKv(lineIndex: number, value: string, schemaDefault?: any) {
+    if (value === "SVG") {
+      const depth = $project.lines[lineIndex]?.depth ?? 0;
+      spliceLines(lineIndex, 1, svgShapeLines(depth));
+      return;
+    }
+    updateKv(lineIndex, value, schemaDefault);
+  }
+
+  function updateVirtualShape(closeIndex: number, depth: number, value: string, def: any) {
+    if (value === "SVG") {
+      addSvgShape(closeIndex, depth);
+      return;
+    }
+    onVirtualChange(closeIndex, "FTR_SHAPE", def, value);
+  }
+
   /** Insert a BOX_LID block before `closeIndex` (flat format). */
   function addLid(closeIndex: number, depth: number) {
     const d = depth;
@@ -3107,6 +3154,19 @@
     if (openIdx < 0) return false;
     for (let j = openIdx + 1; j < closeIndex; j++) {
       if ($project.lines[j].kind === "open" && $project.lines[j].role === role) return true;
+    }
+    return false;
+  }
+
+  function hasDirectKv(closeIndex: number, key: string): boolean {
+    const closeLine = $project.lines[closeIndex];
+    if (!closeLine || closeLine.kind !== "close") return false;
+    const openIdx = findParentOpen(closeIndex);
+    if (openIdx < 0) return false;
+    const childDepth = (closeLine.depth ?? 0) + 1;
+    for (let j = openIdx + 1; j < closeIndex; j++) {
+      const l = $project.lines[j];
+      if (l.kind === "kv" && l.kvKey === key && l.depth === childDepth) return true;
     }
     return false;
   }
@@ -3248,6 +3308,9 @@
       const items: AddMenuItem[] = [
         { label: "Label", title: "Add LABEL block inside feature", action: () => addLabel(lineIndex, childDepth) },
       ];
+      if (!hasChildBlock(lineIndex, "shape") && !hasDirectKv(lineIndex, "FTR_SHAPE")) {
+        items.push({ label: "SVG Shape", title: "Add SVG FTR_SHAPE block", action: () => addSvgShape(lineIndex, childDepth) });
+      }
       if (!hasFeatureDividersChild(lineIndex)) {
         items.push({ label: "Dividers", title: "Add FTR_DIVIDERS block", action: () => addFeatureDividers(lineIndex, childDepth) });
       }
@@ -3736,8 +3799,8 @@
         <!-- This global line is rendered in the virtual globals block above -->
 
       {:else if line.kind === "open"}
-        {@const collapsible = !["params", "label_params", "lid_params", "feature", "group_params", "copy_params", "feature_divider_params", "visualization_params", "counter_set_params"].includes(line.role || "")}
-        {@const deletable = line.role === "data" ? sceneNames.length > 1 : !["data_list", "params", "label_params", "lid_params", "feature", "group_params", "copy_params", "feature_divider_params", "visualization_params", "counter_set_params"].includes(line.role || "")}
+        {@const collapsible = !["params", "label_params", "lid_params", "feature", "group_params", "copy_params", "feature_divider_params", "shape_value", "shape_svg", "visualization_params", "counter_set_params"].includes(line.role || "")}
+        {@const deletable = line.role === "data" ? sceneNames.length > 1 : !["data_list", "params", "label_params", "lid_params", "feature", "group_params", "copy_params", "feature_divider_params", "shape_value", "shape_svg", "visualization_params", "counter_set_params"].includes(line.role || "")}
         {@const defaultsKey = blockDefaultsKeyForOpen(i)}
         {@const defaultsModeForBlock = blockDefaultsMode(defaultsKey)}
         {@const showBlockDefaultsControl = blockHasDefaultRowsForOpen(i)}
@@ -3902,6 +3965,11 @@
               {:else if rkt === "enum"}
                 <select value={val} onchange={(e) => onChange(e.currentTarget.value)}>
                   {#each rks?.values || [] as v}<option value={v}>{v}</option>{/each}
+                </select>
+              {:else if rkt === "shape"}
+                <select value={val} onchange={(e) => row.isReal ? updateShapeKv(row.lineIndex!, e.currentTarget.value, row.def.default) : updateVirtualShape(closeIdx, row.depth, e.currentTarget.value, row.def)}>
+                  {#each rks?.values || [] as v}<option value={v}>{v}</option>{/each}
+                  <option value="SVG">SVG</option>
                 </select>
               {:else if rkt === "number"}
                 <input class="kv-num" type="number" step={getStep(row.key)} value={val} onchange={(e) => onChange(parseNum(e.currentTarget.value))} />
@@ -4131,6 +4199,11 @@
             {:else if kt === "enum"}
               <select value={line.kvValue} onchange={(e) => updateKv(i, e.currentTarget.value, sd)}>
                 {#each ks?.values || [] as v}<option value={v}>{v}</option>{/each}
+              </select>
+            {:else if kt === "shape"}
+              <select value={line.kvValue} onchange={(e) => updateShapeKv(i, e.currentTarget.value, sd)}>
+                {#each ks?.values || [] as v}<option value={v}>{v}</option>{/each}
+                <option value="SVG">SVG</option>
               </select>
             {:else if kt === "number"}
               <input class="kv-num" type="number" step={getStep(line.kvKey)} value={line.kvValue}

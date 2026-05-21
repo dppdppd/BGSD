@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import bitSchema from "../schema/bit.schema.json";
 
 describe("BIT schema", () => {
-  it("tracks BIT 4.11.0 print selectors, feature groups/copies, lid, divider, shape-axis, and validation options", () => {
-    expect(bitSchema.version).toBe("4.11.0");
+  it("tracks BIT 4.12.0 print selectors, feature groups/copies, SVG shapes, lid, divider, shape-axis, and validation options", () => {
+    expect(bitSchema.version).toBe("4.12.0");
 
     const elementKeys = bitSchema.contexts.element.keys;
     const lidKeys = bitSchema.contexts.lid.keys;
@@ -11,6 +11,7 @@ describe("BIT schema", () => {
     const groupKeys = bitSchema.contexts.group.keys;
     const visualizationKeys = bitSchema.contexts.visualization.keys;
     const featureDividerKeys = bitSchema.contexts.feature_divider.keys;
+    const shapeSvgKeys = bitSchema.contexts.shape_svg.keys;
     const dividerKeys = bitSchema.contexts.divider.keys;
     const globals = bitSchema.globals;
 
@@ -79,6 +80,24 @@ describe("BIT schema", () => {
       type: "enum",
       values: ["X", "Y"],
       default: "Y",
+    });
+    expect(featureKeys.FTR_SHAPE).toMatchObject({
+      type: "shape",
+      values: ["SQUARE", "HEX", "HEX2", "OCT", "OCT2", "ROUND", "FILLET"],
+      child_context: "shape_svg",
+      default: "SQUARE",
+    });
+    expect(shapeSvgKeys.SVG_FILE).toMatchObject({
+      type: "string",
+      default: "",
+    });
+    expect(shapeSvgKeys.SVG_WIDTH_MM).toMatchObject({
+      type: "number",
+      default: 10,
+    });
+    expect(shapeSvgKeys.SVG_CLEARANCE_MM).toMatchObject({
+      type: "number",
+      default: 0.1,
     });
     expect(featureKeys.FTR_SHAPE_ROTATED_B).toBeUndefined();
     expect(groupKeys.BOX_FEATURE).toMatchObject({

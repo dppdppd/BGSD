@@ -18,12 +18,12 @@ describe("library manager", () => {
       fs.mkdirSync(bitLib, { recursive: true });
       fs.mkdirSync(ctdLib, { recursive: true });
       fs.writeFileSync(path.join(bitLib, "boardgame_insert_toolkit_lib.4.scad"), "/* Version: 4.0.0 */\n");
-      fs.writeFileSync(path.join(bitLib, "boardgame_insert_toolkit_lib.4.11.0.scad"), "/* Version: 4.11.0 */\n");
+      fs.writeFileSync(path.join(bitLib, "boardgame_insert_toolkit_lib.4.12.0.scad"), "/* Version: 4.12.0 */\n");
       fs.writeFileSync(path.join(ctdLib, "counter_tray_designer_lib.1.scad"), 'VERSION = "1.0.3";\n');
 
       const versions = libraryManager.getInstalledLibraryVersions(workspace);
 
-      expect(versions.bit.version).toBe("4.11.0");
+      expect(versions.bit.version).toBe("4.12.0");
       expect(versions.bit.major).toBe(4);
       expect(versions.ctd.version).toBe("1.0.3");
       expect(versions.ctd.major).toBe(1);

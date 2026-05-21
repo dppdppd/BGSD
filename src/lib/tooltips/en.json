@@ -27,7 +27,11 @@
 
   "FTR_COMPARTMENT_SIZE_XYZ":    { "label": "Compartment Size",    "tooltip": "Interior size of each compartment [width, depth, height] in mm" },
   "FTR_NUM_COMPARTMENTS_XY":     { "label": "Grid Count",          "tooltip": "Grid layout [columns, rows] — how many compartments in each direction" },
-  "FTR_SHAPE":                   { "label": "Shape",               "tooltip": "Compartment cross-section shape" },
+  "FTR_SHAPE":                   { "label": "Shape",               "tooltip": "Compartment cross-section shape. SVG uses a nested shape block for custom outline cavities." },
+  "SVG":                         { "label": "SVG",                 "tooltip": "Custom SVG outline cavity shape" },
+  "SVG_FILE":                    { "label": "SVG File",            "tooltip": "Path to the SVG outline file imported by OpenSCAD" },
+  "SVG_WIDTH_MM":                { "label": "SVG Width",           "tooltip": "Measured piece width in mm used to scale the imported SVG outline" },
+  "SVG_CLEARANCE_MM":            { "label": "SVG Clearance",       "tooltip": "Outline expansion clearance in mm; omitted values use BIT's tolerance" },
   "FTR_SHAPE_AXIS":              { "label": "Shape Axis",          "tooltip": "Axis used to orient asymmetric compartment shapes: X or Y. BIT default: Y." },
   "FTR_SHAPE_VERTICAL_B":        { "label": "Shape Vertical",      "tooltip": "Orient shape for vertical piece stacks (extrude sideways instead of up)" },
   "FTR_PADDING_XY":              { "label": "Padding",             "tooltip": "Spacing between adjacent compartments [x, y] in mm" },

@@ -8,6 +8,7 @@ const KNOWN_CONSTANTS = {
   OBJECT_BOX: "OBJECT_BOX", OBJECT_DIVIDERS: "OBJECT_DIVIDERS", OBJECT_SPACER: "OBJECT_SPACER",
   SQUARE: "SQUARE", HEX: "HEX", HEX2: "HEX2",
   OCT: "OCT", OCT2: "OCT2", ROUND: "ROUND", FILLET: "FILLET",
+  SVG: "SVG",
   INTERIOR: "INTERIOR", EXTERIOR: "EXTERIOR", BOTH: "BOTH",
   FRONT: "FRONT", BACK: "BACK", LEFT: "LEFT", RIGHT: "RIGHT",
   FRONT_WALL: "FRONT_WALL", BACK_WALL: "BACK_WALL",
@@ -207,7 +208,7 @@ function collapseMultilineValues(text) {
 // on their own lines, and commas fixed).
 
 const FORMAT_STRUCTURAL_KEYS_BY_PROFILE = {
-  bit: new Set(["BOX_FEATURE", "FEATURE_GROUP", "FEATURE_COPY", "BOX_GROUP", "BOX_LID", "BOX_VISUALIZATION", "LABEL", "FTR_DIVIDERS"]),
+  bit: new Set(["BOX_FEATURE", "FEATURE_GROUP", "FEATURE_COPY", "BOX_GROUP", "BOX_LID", "BOX_VISUALIZATION", "LABEL", "FTR_DIVIDERS", "FTR_SHAPE", "SVG"]),
   ctd: new Set(["COUNTER_SET"]),
 };
 // Merged set for profile-unaware contexts
@@ -221,6 +222,8 @@ function structuralRoleForKey(key) {
   if (key === "BOX_VISUALIZATION") return "visualization";
   if (key === "LABEL") return "label";
   if (key === "FTR_DIVIDERS") return "feature_dividers";
+  if (key === "FTR_SHAPE") return "shape";
+  if (key === "SVG") return "shape_svg";
   if (key === "COUNTER_SET") return "counter_set";
   return null;
 }
@@ -233,6 +236,7 @@ function childRoleForStructuralRole(role) {
   if (role === "visualization") return "visualization_params";
   if (role === "label") return "label_params";
   if (role === "feature_dividers") return "feature_divider_params";
+  if (role === "shape") return "shape_value";
   if (role === "counter_set") return "counter_set_params";
   return "list";
 }
@@ -839,6 +843,24 @@ function inlineArray(arr) {
   return `[${parts.join(", ")}]`;
 }
 
+function renderShapeValueBlock(arr, indent, needsComma, outLines) {
+  const vals = arr.elements.filter(e => e.type !== "comment");
+  const first = vals[0];
+  if (first?.type === "atom" && first.text.trim() === "SVG") {
+    const comment = arr.commentAfterFirst || arr.elements.find(e => e.type === "comment")?.text || "";
+    outLines.push(`${indent}[ SVG,` + (comment ? ` //${comment}` : ""));
+    const childIndent = indent + " ".repeat(4);
+    for (let i = 1; i < arr.elements.length; i++) {
+      const child = arr.elements[i];
+      if (child.type === "comment") { outLines.push(`${childIndent}//${child.text}`); continue; }
+      renderEntryLines(child, childIndent, true, outLines);
+    }
+    outLines.push(`${indent}]` + (needsComma ? "," : "") + (arr.trailingComment ? ` //${arr.trailingComment}` : ""));
+    return;
+  }
+  renderArrayBlock(arr, indent, outLines, needsComma);
+}
+
 function renderEntryLines(node, indent, needsComma, outLines) {
   if (node.type === "atom") {
     // Rare inside data tables, but keep it stable.
@@ -901,6 +923,13 @@ function renderEntryLines(node, indent, needsComma, outLines) {
     // [ KEY, [a,b,c] ] => KV with array value (inline when safe)
     if (a.type === "atom" && b.type === "array") {
       const key = a.text.trim();
+
+      if (key === "FTR_SHAPE") {
+        outLines.push(`${indent}[ ${key},` + (node.commentAfterFirst ? ` //${node.commentAfterFirst}` : ""));
+        renderShapeValueBlock(b, indent + " ".repeat(4), true, outLines);
+        outLines.push(`${indent}]` + (needsComma ? "," : "") + (node.trailingComment ? ` //${node.trailingComment}` : ""));
+        return;
+      }
 
       // Known structural keys — merge brackets
       if (FORMAT_STRUCTURAL_KEYS.has(key)) {
@@ -1291,6 +1320,7 @@ function importScad(scadText) {
       else if (parent?.role === "visualization") { role = "visualization_params"; label = "visualization params"; }
       else if (parent?.role === "label") { role = "label_params"; label = "label params"; }
       else if (parent?.role === "feature_dividers") { role = "feature_divider_params"; label = "feature divider params"; }
+      else if (parent?.role === "shape") { role = "shape_value"; label = "shape value"; }
       else if (parent?.role === "counter_set") { role = "counter_set_params"; label = "counter_set params"; }
       else if (parent?.role === "data") { role = "data_list"; label = "data list"; }
 
@@ -1594,6 +1624,7 @@ function reimportBlock(text, baseDepth) {
       else if (parent?.role === "visualization") { role = "visualization_params"; label = "visualization params"; }
       else if (parent?.role === "label") { role = "label_params"; label = "label params"; }
       else if (parent?.role === "feature_dividers") { role = "feature_divider_params"; label = "feature divider params"; }
+      else if (parent?.role === "shape") { role = "shape_value"; label = "shape value"; }
       else if (parent?.role === "counter_set") { role = "counter_set_params"; label = "counter_set params"; }
       else if (parent?.role === "data") { role = "data_list"; label = "data list"; }
       lines.push({ raw, kind: "open", depth, role, label });

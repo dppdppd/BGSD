@@ -1,5 +1,5 @@
 {
-  "version": "4.11.0",
+  "version": "4.12.0",
   "types": {
     "bool": "Checkbox (true/false)",
     "number": "Numeric input",
@@ -14,6 +14,7 @@
     "string_list": "List of strings",
     "number_or_false": "Numeric input or false",
     "xyz_or_false": "Three-value input [x, y, z] or false; string constants such as MAX are allowed where BIT accepts them",
+    "shape": "Dropdown of built-in feature shapes, or an SVG shape block",
     "bool_string_list": "Boolean, string selector, or list of string selectors",
     "position_xy": "Two inputs: each is number, CENTER, or MAX"
   },
@@ -41,6 +42,9 @@
         { "label": "Cutouts", "keys": ["FTR_CUTOUT_SIDES_4B", "FTR_CUTOUT_CORNERS_4B", "FTR_CUTOUT_HEIGHT_PCT", "FTR_CUTOUT_DEPTH_PCT", "FTR_CUTOUT_WIDTH_PCT", "FTR_CUTOUT_BOTTOM_B", "FTR_CUTOUT_BOTTOM_PCT", "FTR_CUTOUT_TYPE", "FTR_CUTOUT_DEPTH_MAX"] },
         { "label": "Print Helpers", "keys": ["FTR_PEDESTAL_BASE_B"] },
         { "label": "Children", "keys": ["FTR_DIVIDERS", "BOX_FEATURE", "FEATURE_GROUP", "FEATURE_COPY", "LABEL"] }
+      ],
+      "shape_svg": [
+        { "label": "SVG Shape", "keys": ["SVG_FILE", "SVG_WIDTH_MM", "SVG_CLEARANCE_MM"] }
       ],
       "group": [
         { "label": "Identity & Output", "keys": ["NAME", "PRINT_GROUP", "ENABLED_B", "DEBUG_B"] },
@@ -115,7 +119,7 @@
         "PRINT_GROUP":               { "type": "bool_string_list", "default": "", "help": "Optional printable-output group tag inherited by child features and labels unless overridden" },
         "FTR_COMPARTMENT_SIZE_XYZ":  { "type": "xyz", "default": [10, 10, 10], "help": "Compartment inner size [x, y, z]" },
         "FTR_NUM_COMPARTMENTS_XY":   { "type": "xy", "default": [1, 1], "help": "Grid of compartments [columns, rows]" },
-        "FTR_SHAPE":                 { "type": "enum", "values": ["SQUARE", "HEX", "HEX2", "OCT", "OCT2", "ROUND", "FILLET"], "default": "SQUARE", "help": "Compartment shape" },
+        "FTR_SHAPE":                 { "type": "shape", "values": ["SQUARE", "HEX", "HEX2", "OCT", "OCT2", "ROUND", "FILLET"], "default": "SQUARE", "child_context": "shape_svg", "help": "Compartment shape; use an SVG shape block for custom-piece outline cavities" },
         "FTR_SHAPE_AXIS":            { "type": "enum", "values": ["X", "Y"], "default": "Y", "help": "Axis used to orient asymmetric compartment shapes" },
         "FTR_SHAPE_VERTICAL_B":      { "type": "bool", "default": false, "help": "Extrude shape vertically instead of up" },
         "FTR_PADDING_XY":            { "type": "xy", "default": [1.0, 1.0], "help": "Padding between compartments [x, y]" },
@@ -198,6 +202,14 @@
         "DIV_FRAME_COLUMN":          { "type": "number", "default": 7, "step": 1, "help": "Frame column divider width" },
         "DIV_FRAME_RADIUS":          { "type": "number", "default": 4, "step": 0.5, "help": "Frame corner radius" },
         "DIV_FRAME_NUM_COLUMNS":     { "type": "number", "default": -1, "step": 1, "help": "Number of frame columns (-1 = auto)" }
+      }
+    },
+    "shape_svg": {
+      "description": "SVG shape block (inside BOX_FEATURE > FTR_SHAPE)",
+      "keys": {
+        "SVG_FILE":                  { "type": "string", "default": "", "help": "Path to the SVG outline file imported by OpenSCAD" },
+        "SVG_WIDTH_MM":              { "type": "number", "default": 10, "step": 0.5, "help": "Measured real-world width for scaling the imported SVG outline" },
+        "SVG_CLEARANCE_MM":          { "type": "number", "default": 0.1, "step": 0.05, "help": "Outline expansion clearance in mm; BIT defaults to G_TOLERANCE when omitted" }
       }
     },
     "lid": {

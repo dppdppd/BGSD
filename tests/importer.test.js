@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { importScad } from "../importer.js";
+import { generateScad } from "../src/lib/scad";
 import fs from "fs";
 import path from "path";
 
@@ -120,6 +121,40 @@ Make(data);`;
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "PRINT_GROUP")?.kvValue).toBe("red");
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "FEATURE_REFERENCE")?.kvValue).toBe("nested");
     expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "FTR_COMPARTMENT_SIZE_XYZ")?.kvValue).toEqual([20, 20, 10]);
+  });
+
+  it("parses BIT 4.12.0 SVG feature shape blocks", () => {
+    const scad = `// BGSD
+include <../lib/boardgame_insert_toolkit_lib.4.12.0.scad>;
+data = [
+    [ OBJECT_BOX,
+        [ NAME, "svg box" ],
+        [ BOX_SIZE_XYZ, [80, 50, 20] ],
+        [ BOX_FEATURE,
+            [ FTR_SHAPE,
+                [ SVG,
+                    [ SVG_FILE, "../assets/meeple.svg" ],
+                    [ SVG_WIDTH_MM, 11 ],
+                    [ SVG_CLEARANCE_MM, 0.4 ],
+                ],
+            ],
+            [ FTR_COMPARTMENT_SIZE_XYZ, [28, 34, 14] ],
+        ],
+    ],
+];
+Make(data);`;
+    const project = importScad(scad);
+    expect(project.libraryProfile).toBe("bit");
+    expect(project.libraryInclude).toBe("../lib/boardgame_insert_toolkit_lib.4.12.0.scad");
+    expect(project.lines.some((l) => l.kind === "open" && l.role === "shape" && l.label === "FTR_SHAPE")).toBe(true);
+    expect(project.lines.some((l) => l.kind === "open" && l.role === "shape_svg" && l.label === "SVG")).toBe(true);
+    expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "SVG_FILE")?.kvValue).toBe("../assets/meeple.svg");
+    expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "SVG_WIDTH_MM")?.kvValue).toBe(11);
+    expect(project.lines.find((l) => l.kind === "kv" && l.kvKey === "SVG_CLEARANCE_MM")?.kvValue).toBe(0.4);
+    const output = generateScad(project);
+    expect(output).toContain("[ FTR_SHAPE,");
+    expect(output).toContain("[ SVG,");
+    expect(output).toContain('[ SVG_FILE, "../assets/meeple.svg" ]');
   });
 
   it("still parses legacy BIT 4.6.1 BOX_GROUP files", () => {
