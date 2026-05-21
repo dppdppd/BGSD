@@ -36,6 +36,7 @@ File-size progress is shown during compression.
 ## Build Notes
 
 - Windows cross-compile needs wine + a virtual display (`xvfb-run` handles this automatically)
+- `build-release.sh` prefers Debian Wine at `/usr/lib/wine/wine` for Windows packaging by prepending a temporary PATH shim and using a temporary Wine prefix. This avoids WineHQ devel builds that can hang during electron-builder's `rcedit` resource step. If `/usr/lib/wine/wine` is missing, install the Debian `wine64` package or expect the script to fall back to `wine` from PATH.
 - The bundled makensis requires a valid locale — if the configured locale isn't installed, the script falls back to `C.utf8`
 - If a build fails mid-way, clean stale artifacts before retrying: `rm -rf release/win-unpacked release/linux-unpacked`
 - The portable exe target internally uses NSIS + 7z max compression (~3-5 min for 269MB)
