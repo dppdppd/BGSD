@@ -588,33 +588,213 @@ ipcMain.handle("copy-template", async (_event, sourcePath) => {
 
 // --- OpenSCAD path resolution ---
 
-function findOpenScad() {
-  const prefs = loadPrefs();
-
-  // 1. Check user-configured path from preferences
-  if (prefs.openScadPath && fs.existsSync(prefs.openScadPath)) {
-    return prefs.openScadPath;
+// macOS apps are folders ("bundles"); the real command-line program lives at
+// <App>.app/Contents/MacOS/<name>. Given any path a user might supply — the
+// .app bundle, a containing folder, or the binary itself — work out what is
+// actually runnable and, when it isn't, say precisely why.
+//   kind: "ok" | "missing" | "bundle-no-binary" | "dir-no-binary"
+function inspectOpenScadPath(p) {
+  if (typeof p === "string") p = p.trim();
+  if (!p) return { kind: "missing", path: p };
+  let st;
+  try {
+    st = fs.statSync(p);
+  } catch {
+    return { kind: "missing", path: p };
   }
+  if (st.isFile()) return { kind: "ok", path: p };
+  if (st.isDirectory()) {
+    // An .app bundle (or a folder that contains one) — look for the binary inside.
+    let macosDir = null;
+    if (fs.existsSync(path.join(p, "Contents", "MacOS"))) {
+      macosDir = path.join(p, "Contents", "MacOS");
+    } else if (path.basename(p) === "MacOS") {
+      macosDir = p;
+    }
+    if (macosDir) {
+      // Only accept an executable regular file (on Unix the exec bit must be set).
+      const isExecFile = (f) => {
+        try {
+          const s = fs.statSync(f);
+          return s.isFile() && (process.platform === "win32" || (s.mode & 0o111) !== 0);
+        } catch { return false; }
+      };
+      const preferred = path.join(macosDir, "OpenSCAD");
+      if (isExecFile(preferred)) return { kind: "ok", path: preferred, fromBundle: p };
+      // No file named exactly "OpenSCAD": pick deterministically (sorted), and
+      // prefer one whose name looks like openscad over an arbitrary helper.
+      let files = [];
+      try {
+        files = fs.readdirSync(macosDir).sort()
+          .map((name) => path.join(macosDir, name))
+          .filter(isExecFile);
+      } catch { /* unreadable */ }
+      const chosen = files.find((f) => /openscad/i.test(path.basename(f))) || files[0];
+      if (chosen) return { kind: "ok", path: chosen, fromBundle: p };
+      return { kind: "bundle-no-binary", path: p, lookedIn: macosDir };
+    }
+    return { kind: "dir-no-binary", path: p };
+  }
+  return { kind: "missing", path: p };
+}
 
-  // 2. Platform-specific candidate paths
-  let platformCandidates;
+// Candidate install locations, in priority order, per platform.
+function openScadCandidates() {
+  const os = require("os");
+  const home = os.homedir();
   if (process.platform === "win32") {
-    platformCandidates = [
+    return [
       "C:\\Program Files\\OpenSCAD\\openscad.exe",
       "C:\\Program Files (x86)\\OpenSCAD\\openscad.exe",
       "C:\\Program Files\\OpenSCAD (Nightly)\\openscad.exe",
     ];
-  } else if (process.platform === "darwin") {
-    platformCandidates = ["/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD"];
-  } else {
-    platformCandidates = ["/usr/bin/openscad", "/usr/local/bin/openscad", "/snap/bin/openscad"];
+  }
+  if (process.platform === "darwin") {
+    const out = [];
+    for (const dir of ["/Applications", path.join(home, "Applications")]) {
+      out.push(path.join(dir, "OpenSCAD.app"));
+      out.push(path.join(dir, "OpenSCAD (Nightly).app"));
+      // Any versioned or dev build: "OpenSCAD-2021.01.app", "OpenSCAD (snapshot).app", ...
+      try {
+        for (const name of fs.readdirSync(dir)) {
+          if (/^openscad.*\.app$/i.test(name)) out.push(path.join(dir, name));
+        }
+      } catch { /* dir may not exist */ }
+    }
+    // Homebrew / command-line installs.
+    out.push("/opt/homebrew/bin/openscad", "/usr/local/bin/openscad");
+    return out;
+  }
+  return ["/usr/bin/openscad", "/usr/local/bin/openscad", "/opt/homebrew/bin/openscad", "/snap/bin/openscad"];
+}
+
+// Resolve OpenSCAD to a runnable binary, with diagnostics about why it failed.
+// Returns { cmd, source, configured?, problem?, fromBundle? }; cmd is null when
+// nothing usable was found (callers may still try a bare-"openscad" PATH lookup).
+function resolveOpenScad() {
+  const prefs = loadPrefs();
+
+  // 1. User-configured path from Preferences.
+  if (prefs.openScadPath && String(prefs.openScadPath).trim()) {
+    const info = inspectOpenScadPath(prefs.openScadPath);
+    if (info.kind === "ok") {
+      return { cmd: info.path, source: "prefs", configured: prefs.openScadPath, fromBundle: info.fromBundle || null };
+    }
+    return { cmd: null, source: "prefs", configured: prefs.openScadPath, problem: info };
   }
 
-  const found = platformCandidates.find(c => fs.existsSync(c));
-  if (found) return found;
+  // 2. Platform-specific candidate locations.
+  for (const c of openScadCandidates()) {
+    const info = inspectOpenScadPath(c);
+    if (info.kind === "ok") {
+      return { cmd: info.path, source: "candidate", fromBundle: info.fromBundle || null };
+    }
+  }
 
-  // 3. Fall back to bare "openscad" (PATH lookup)
-  return "openscad";
+  // 3. Nothing concrete — caller falls back to a bare "openscad" PATH lookup.
+  return { cmd: null, source: "path" };
+}
+
+// Backward-compatible: a runnable command string (bare "openscad" as last resort).
+function findOpenScad() {
+  return resolveOpenScad().cmd || "openscad";
+}
+
+// One-line, platform-aware instruction for the status bar / dialogs.
+function openScadPathHint() {
+  if (process.platform === "darwin") {
+    return "Open Preferences and set the OpenSCAD path to the program inside the app bundle: /Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD";
+  }
+  if (process.platform === "win32") {
+    return "Open Preferences and set the OpenSCAD path to openscad.exe, e.g. C:\\Program Files\\OpenSCAD\\openscad.exe";
+  }
+  return "Open Preferences and set the OpenSCAD path, or install OpenSCAD (e.g. /usr/bin/openscad).";
+}
+
+// Turn a resolution result (and an optional exec error) into a specific,
+// user-facing explanation. This is what reaches the status bar, so a bug report
+// tells us exactly which case fired.
+function describeOpenScadProblem(res, execErr) {
+  const hint = openScadPathHint();
+  if (res && res.source === "prefs" && res.problem) {
+    const p = res.problem;
+    if (p.kind === "missing") {
+      return `The OpenSCAD path set in Preferences does not exist: "${res.configured}". ${hint}`;
+    }
+    if (p.kind === "bundle-no-binary") {
+      return `The OpenSCAD app bundle has no runnable program inside (looked in ${p.lookedIn}). It may be incomplete or a different app. ${hint}`;
+    }
+    if (p.kind === "dir-no-binary") {
+      return `The OpenSCAD path in Preferences is a folder, not a program: "${res.configured}". ${hint}`;
+    }
+  }
+  if (execErr) {
+    const code = execErr.code || "";
+    // Killed by our timeout (cold first launch, Gatekeeper scan, slow disk) —
+    // OpenSCAD is installed, it just didn't answer in time. Not "missing".
+    if (execErr.killed || code === "ETIMEDOUT") {
+      return "OpenSCAD did not respond in time. If this is its first launch it may still be passing a security check — try again in a moment.";
+    }
+    if (code === "EACCES" || code === "EPERM") {
+      // Quote the binary/bundle that actually failed, not a hard-coded path.
+      const target = (res && (res.fromBundle || res.configured || res.cmd)) || "";
+      if (process.platform === "darwin") {
+        const quoted = target || "/Applications/OpenSCAD.app";
+        return `macOS blocked OpenSCAD from running (${code}). Right-click → Open clears the app icon, but the command-line program inside it can still be quarantined. In Terminal run:  xattr -dr com.apple.quarantine "${quoted}"  then try again.`;
+      }
+      if (process.platform === "win32") {
+        return `Windows blocked OpenSCAD from running (${code}). It may be locked or in use — for example by antivirus. Close anything using ${target || "openscad.exe"}, confirm it is allowed to run, then try again.`;
+      }
+      return `OpenSCAD is not allowed to run (${code}). Make sure it is executable:  chmod +x "${target || "openscad"}"  then try again.`;
+    }
+    if (code === "ENOENT") {
+      return `OpenSCAD was not found on your system. ${hint}`;
+    }
+  }
+  return `OpenSCAD was not found. ${hint}`;
+}
+
+// Resolve + actually run "openscad --version" to confirm it works. Catches the
+// cases a path check can't: quarantine/permissions (EACCES) and a broken binary.
+// Pass overridePath to test a specific path without saving it to Preferences.
+function verifyOpenScad(overridePath) {
+  const { execFile } = require("child_process");
+  let res;
+  if (overridePath != null && String(overridePath).trim()) {
+    const info = inspectOpenScadPath(overridePath);
+    res = info.kind === "ok"
+      ? { cmd: info.path, source: "prefs", configured: overridePath, fromBundle: info.fromBundle || null }
+      : { cmd: null, source: "prefs", configured: overridePath, problem: info };
+    if (!res.cmd) {
+      return Promise.resolve({ ok: false, cmd: null, error: "not-found", detail: describeOpenScadProblem(res, null) });
+    }
+  } else {
+    res = resolveOpenScad();
+  }
+  const cmd = res.cmd || "openscad";
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    try {
+      execFile(cmd, ["--version"], { timeout: 8000 }, (err, stdout, stderr) => {
+        if (!err) {
+          const version = String(stderr || stdout || "").trim() || "OpenSCAD";
+          finish({ ok: true, cmd, version });
+          return;
+        }
+        finish({
+          ok: false,
+          cmd,
+          error: (err.code === "EACCES" || err.code === "EPERM") ? "blocked"
+            : (err.killed || err.code === "ETIMEDOUT") ? "timeout"
+            : "not-found",
+          detail: describeOpenScadProblem(res, err),
+        });
+      });
+    } catch (err) {
+      finish({ ok: false, cmd, error: "not-found", detail: describeOpenScadProblem(res, err) });
+    }
+  });
 }
 
 async function launchOpenScadFile(filePath) {
@@ -656,24 +836,42 @@ async function launchOpenScadFile(filePath) {
     return proc;
   }
 
-  const cmd = findOpenScad();
+  const res = resolveOpenScad();
 
-  // On Windows without a found path, use 'start' as last resort
-  if (process.platform === "win32" && cmd === "openscad") {
+  // Windows: if we couldn't resolve a binary, fall back to Shell "start".
+  if (process.platform === "win32" && !res.cmd) {
     try {
       spawnOpenScad("cmd", ["/c", "start", "", filePath]);
       return { ok: true };
     } catch (err) {
-      console.error("Failed to launch OpenSCAD via cmd start:", err);
-      return { ok: false, error: "not-found" };
+      console.error("[openscad] launch via cmd start failed:", err);
+      return { ok: false, error: "not-found", detail: describeOpenScadProblem(res, err) };
     }
   }
 
+  // Confirm OpenSCAD actually runs before launching. spawn() reports a missing,
+  // non-executable, or quarantined binary *asynchronously*, so a bare spawn would
+  // silently no-op yet return success. verifyOpenScad() execs "--version" and
+  // classifies the failure (e.g. an EACCES quarantine) into an actionable reason.
+  const check = await verifyOpenScad();
+  if (!check.ok) {
+    console.warn("[openscad] not runnable:", check.detail);
+    return { ok: false, error: check.error, detail: check.detail };
+  }
+
+  const cmd = check.cmd;
   try {
-    spawnOpenScad(cmd, [filePath]);
+    const proc = spawnOpenScad(cmd, [filePath]);
+    // The verify above already ruled out a bad binary; log if one slips through.
+    proc.on("error", (err) => console.error(`[openscad] launch failed (${cmd}):`, err && err.message));
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: "not-found" };
+    console.error("[openscad] launch threw:", err);
+    return {
+      ok: false,
+      error: (err.code === "EACCES" || err.code === "EPERM") ? "blocked" : "not-found",
+      detail: describeOpenScadProblem(res, err),
+    };
   }
 }
 
@@ -796,7 +994,8 @@ ipcMain.handle("check-openscad", async (_event, payload) => {
     return { ok: true, requestId, issues: [], elapsedMs: 0 };
   }
 
-  const cmd = findOpenScad();
+  const osRes = resolveOpenScad();
+  const cmd = osRes.cmd || "openscad";
   const { scadPath, outputPath } = tempOpenScadPaths(filePath);
   const cwd = path.dirname(scadPath);
   const started = Date.now();
@@ -825,12 +1024,14 @@ ipcMain.handle("check-openscad", async (_event, payload) => {
         await Promise.all([unlinkIfExists(scadPath), unlinkIfExists(outputPath)]);
 
         const output = [stdout, stderr].filter(Boolean).join("\n");
-        if (err?.code === "ENOENT") {
+        if (err && (err.code === "ENOENT" || err.code === "EACCES" || err.code === "EPERM")) {
+          const detail = describeOpenScadProblem(osRes, err);
           resolve({
             ok: false,
             requestId,
-            error: "not-found",
-            issues: [{ severity: "error", message: "OpenSCAD executable was not found.", line: null, file: null, raw: err.message }],
+            error: (err.code === "EACCES" || err.code === "EPERM") ? "blocked" : "not-found",
+            detail,
+            issues: [{ severity: "error", message: detail, line: null, file: null, raw: err.message }],
             elapsedMs: Date.now() - started,
           });
           return;
@@ -890,13 +1091,11 @@ ipcMain.handle("export-stl", async (_event, sourcePath) => {
   });
   if (result.canceled) return { ok: false };
 
-  const cmd = findOpenScad();
-
-  // Verify OpenSCAD is reachable before starting a long export
-  const canRun = await new Promise((resolve) => {
-    execFile(cmd, ["--version"], { timeout: 5000 }, (err) => resolve(!err));
-  });
-  if (!canRun) return { ok: false, error: "not-found" };
+  // Verify OpenSCAD is reachable before starting a long export, with a
+  // specific reason if it isn't.
+  const check = await verifyOpenScad();
+  if (!check.ok) return { ok: false, error: check.error, detail: check.detail };
+  const cmd = check.cmd;
 
   let plan;
   const tempPaths = [];
@@ -976,14 +1175,26 @@ ipcMain.handle("set-preferences", (_event, prefs) => {
 
 ipcMain.handle("browse-openscad", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: "Locate OpenSCAD Executable",
+    title: "Locate OpenSCAD",
     filters: process.platform === "win32"
       ? [{ name: "Executables", extensions: ["exe"] }]
       : [{ name: "All Files", extensions: ["*"] }],
     properties: ["openFile"],
+    // Let macOS users either pick OpenSCAD.app or click into it; we resolve
+    // whichever they choose to the actual command-line binary below.
+    ...(process.platform === "darwin" ? { treatsFilePackagesAsDirectories: true } : {}),
   });
   if (result.canceled) return { ok: false };
-  return { ok: true, path: result.filePaths[0] };
+  const picked = result.filePaths[0];
+  const info = inspectOpenScadPath(picked);
+  // Save the resolved inner binary when we found one; otherwise keep what they
+  // picked so the Test button can explain what's wrong.
+  return { ok: true, path: info.kind === "ok" ? info.path : picked };
+});
+
+ipcMain.handle("test-openscad", async (_event, payload) => {
+  const override = payload && typeof payload.path === "string" ? payload.path : null;
+  return verifyOpenScad(override);
 });
 
 // --- Create new project to temp path or working dir ---

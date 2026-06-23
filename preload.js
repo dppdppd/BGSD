@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("bgsd", {
   saveFileAs: (scadText, profileId, currentPath) => ipcRenderer.invoke("save-file-as", scadText, profileId, currentPath),
   checkFileState: (filePath, fileState) => ipcRenderer.invoke("check-file-state", filePath, fileState),
   checkOpenScad: (payload) => ipcRenderer.invoke("check-openscad", payload),
+  testOpenScad: (payload) => ipcRenderer.invoke("test-openscad", payload),
   openInOpenScad: (filePath, profileId) => ipcRenderer.invoke("open-in-openscad", filePath, profileId),
   openUndoRevisionInOpenScad: (filePath, revisionId, profileId) => ipcRenderer.invoke("open-undo-revision-in-openscad", filePath, revisionId, profileId),
   loadFilePath: (filePath) => ipcRenderer.invoke("load-file-path", filePath),

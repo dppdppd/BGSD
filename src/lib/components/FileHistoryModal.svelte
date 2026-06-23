@@ -121,7 +121,7 @@
     if (result?.ok) {
       error = "";
     } else {
-      error = result?.error || "Could not open version in OpenSCAD";
+      error = result?.detail || result?.error || "Could not open version in OpenSCAD";
     }
   }
 

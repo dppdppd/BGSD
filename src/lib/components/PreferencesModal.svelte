@@ -12,6 +12,9 @@
     onsave,
     onbrowseworkingdir,
     onbrowseopenscad,
+    ontestopenscad,
+    testResult = null,
+    testing = false,
   }: {
     show: boolean;
     workingDir: string;
@@ -22,6 +25,9 @@
     onsave: () => void;
     onbrowseworkingdir: () => void;
     onbrowseopenscad: () => void;
+    ontestopenscad: () => void;
+    testResult?: { ok: boolean; text: string } | null;
+    testing?: boolean;
   } = $props();
 
   function openExternal(url: string) {
@@ -46,7 +52,11 @@
         <div class="prefs-input-row">
           <input class="prefs-input" id="prefs-openscad-path" type="text" bind:value={openScadPath} placeholder="(auto-detect)" data-testid="prefs-openscad-path" />
           <button class="prefs-browse" onclick={onbrowseopenscad} data-testid="prefs-browse">Browse...</button>
+          <button class="prefs-browse" onclick={ontestopenscad} disabled={testing} data-testid="prefs-test-openscad">{testing ? "Testing…" : "Test"}</button>
         </div>
+        {#if testResult}
+          <p class="prefs-test-result" class:ok={testResult.ok} class:err={!testResult.ok} data-testid="prefs-test-result">{testResult.text}</p>
+        {/if}
       </div>
       <div class="prefs-row">
         <label class="prefs-check-label">

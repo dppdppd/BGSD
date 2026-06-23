@@ -204,6 +204,9 @@
   let showPrefs = $state(false);
   let prefsWorkingDir = $state("");
   let prefsOpenScadPath = $state("");
+  let prefsTestResult = $state<{ ok: boolean; text: string } | null>(null);
+  let prefsTesting = $state(false);
+  let prefsTestSeq = 0; // invalidates an in-flight test when the modal is reopened
   let prefsAutoOpen = $state(true);
   let prefsProxy = $state("");
   // Theme: "light" (gruvbox light hard) | "dark" (gruvbox dark hard).
@@ -473,9 +476,9 @@
       const issues = Array.isArray(result?.issues) ? result.issues.map(normalizeOpenScadIssue) : [];
       diagnosticsIssues = issues;
 
-      if (result?.error === "not-found") {
+      if (result?.error === "not-found" || result?.error === "blocked") {
         diagnosticsStatus = "unavailable";
-        diagnosticsMessage = "OpenSCAD executable was not found.";
+        diagnosticsMessage = result?.detail || "OpenSCAD executable was not found.";
       } else if (result?.ok === false && issues.length === 0) {
         diagnosticsStatus = "unavailable";
         diagnosticsIssues = [{ severity: "error", message: String(result?.error || "OpenSCAD check failed."), line: null, file: null }];
@@ -1261,7 +1264,7 @@
 
     const res = await bgsd.openInOpenScad(filePath, profile || $project.libraryProfile);
     if (res && !res.ok && res.error === "not-found") {
-      statusMsg = "OpenSCAD not found";
+      statusMsg = res.detail || "OpenSCAD not found";
       // Prompt user to locate OpenSCAD
       const browse = await bgsd.browseOpenScad?.();
       if (browse?.ok && browse.path) {
@@ -1271,13 +1274,13 @@
         if (retry?.ok) {
           statusMsg = filePath.replace(/.*[/\\]/, "");
         } else if (retry && !retry.ok) {
-          statusMsg = `OpenSCAD: ${retry.error}`;
+          statusMsg = retry.detail || `OpenSCAD: ${retry.error}`;
         }
       } else {
-        statusMsg = "OpenSCAD not found — set in File > Preferences";
+        statusMsg = res.detail || "OpenSCAD not found — set in File > Preferences";
       }
     } else if (res && !res.ok) {
-      statusMsg = `OpenSCAD: ${res.error}`;
+      statusMsg = res.detail || `OpenSCAD: ${res.error}`;
     }
   }
 
@@ -1337,7 +1340,7 @@
     // For manual launch (Tools menu), bypass auto-open pref check
     const res = await bgsd.openInOpenScad(openPath, $project.libraryProfile);
     if (res && !res.ok && res.error === "not-found") {
-      statusMsg = "OpenSCAD not found";
+      statusMsg = res.detail || "OpenSCAD not found";
       const browse = await bgsd.browseOpenScad?.();
       if (browse?.ok && browse.path) {
         await bgsd.setPreferences?.({ openScadPath: browse.path });
@@ -1345,13 +1348,13 @@
         if (retry?.ok) {
           statusMsg = openPath.replace(/.*[/\\]/, "");
         } else if (retry && !retry.ok) {
-          statusMsg = `OpenSCAD: ${retry.error}`;
+          statusMsg = retry.detail || `OpenSCAD: ${retry.error}`;
         }
       } else {
-        statusMsg = "OpenSCAD not found — set in File > Preferences";
+        statusMsg = res.detail || "OpenSCAD not found — set in File > Preferences";
       }
     } else if (res && !res.ok) {
-      statusMsg = `OpenSCAD: ${res.error}`;
+      statusMsg = res.detail || `OpenSCAD: ${res.error}`;
     }
   }
 
@@ -1360,6 +1363,9 @@
     const prefs = await bgsd?.getPreferences?.() || { openScadPath: "", autoOpenInOpenScad: true };
     prefsWorkingDir = workingDir || "";
     prefsOpenScadPath = prefs.openScadPath || "";
+    prefsTestResult = null;
+    prefsTesting = false;
+    prefsTestSeq++; // discard any test still running from a previous open
     prefsAutoOpen = prefs.autoOpenInOpenScad !== false;
     prefsProxy = prefs.proxy || "";
     prefsTheme = prefs.theme === "dark" ? "dark" : "light";
@@ -1386,6 +1392,34 @@
     const result = await bgsd?.browseOpenScad?.();
     if (result?.ok && result.path) {
       prefsOpenScadPath = result.path;
+      prefsTestResult = null;
+    }
+  }
+
+  async function testOpenScadPath() {
+    const bgsd = (window as any).bgsd;
+    if (!bgsd?.testOpenScad) {
+      prefsTestResult = { ok: false, text: "Test is unavailable in this build." };
+      return;
+    }
+    const seq = ++prefsTestSeq;
+    prefsTesting = true;
+    prefsTestResult = null;
+    try {
+      // Test the path currently typed in the field (blank = auto-detect),
+      // without saving it until the user clicks Save.
+      const r = await bgsd.testOpenScad({ path: prefsOpenScadPath || "" });
+      if (seq !== prefsTestSeq) return; // modal was closed/reopened — drop stale result
+      if (r?.ok) {
+        prefsTestResult = { ok: true, text: `Working: ${r.version}${r.cmd ? `\n${r.cmd}` : ""}` };
+      } else {
+        prefsTestResult = { ok: false, text: r?.detail || "OpenSCAD could not be run." };
+      }
+    } catch (err: any) {
+      if (seq !== prefsTestSeq) return;
+      prefsTestResult = { ok: false, text: err?.message || "OpenSCAD test failed." };
+    } finally {
+      if (seq === prefsTestSeq) prefsTesting = false;
     }
   }
 
@@ -1548,7 +1582,8 @@
       const count = Array.isArray(result.files) ? result.files.length : 1;
       statusMsg = count > 1 ? `Exported ${count} STL files` : `Exported: ${result.filePath}`;
     }
-    else if (result.error === "not-found") statusMsg = "OpenSCAD not found — set its path in Preferences";
+    else if (result.detail) statusMsg = result.detail;
+    else if (result.error === "not-found" || result.error === "blocked") statusMsg = "OpenSCAD not found — set its path in Preferences";
     else if (result.error) statusMsg = `Export failed: ${result.error}`;
     else statusMsg = "Export cancelled";
   }
@@ -4447,6 +4482,9 @@
     onsave={savePreferences}
     onbrowseworkingdir={browseWorkingDirPref}
     onbrowseopenscad={browseOpenScadPath}
+    ontestopenscad={testOpenScadPath}
+    testResult={prefsTestResult}
+    testing={prefsTesting}
   />
 
   <FileHistoryModal
@@ -5608,6 +5646,13 @@
     background: #ebe4d2; cursor: pointer; font-size: 13px;
   }
   :global(.prefs-browse:hover) { background: #eee; border-color: #999; }
+  :global(.prefs-browse:disabled) { opacity: 0.6; cursor: default; }
+  :global(.prefs-test-result) {
+    margin: 6px 0 0; padding: 6px 8px; border-radius: 4px;
+    font-size: 12px; line-height: 1.4; white-space: pre-wrap; word-break: break-word;
+  }
+  :global(.prefs-test-result.ok) { background: #e6f4e6; color: #1f6f2b; border: 1px solid #b6dcb6; }
+  :global(.prefs-test-result.err) { background: #fbe8e6; color: #9b2620; border: 1px solid #e6b3ad; }
   :global(.prefs-check-label) {
     display: flex; align-items: center; gap: 8px;
     font-size: 14px; color: #333; cursor: pointer;
