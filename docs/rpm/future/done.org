@@ -3,6 +3,14 @@
 
 Closed entries swept from tasks.org by session-end. Newest first.
 
+* 0.5.x polish
+** DONE Robust OpenSCAD detection + actionable not-found errors :CLOSED: [2026-06-23 Tue]
+   Shipped v0.5.36. Resolve a chosen .app/folder to the inner Contents/MacOS binary; broaden detection (nightly/versioned, ~/Applications, Homebrew); classify failures (missing / folder / app-bundle-no-binary / OS-blocked) with platform-aware messages (macOS xattr, Windows lock, Linux chmod); thread detail through live-check / STL-export / launch / file-history; add Preferences "Test" button; verify-before-spawn so a quarantined binary reports the real reason. 10 adversarial-review findings fixed pre-release. Follow-up TODO tracks Mac-user confirmation.
+** DONE Persistent undo history sidecar files [[file:2026-05-03-persistent-undo-history.md]]
+   :PROPERTIES:
+   :ID: persistent-undo-history
+   :END:
+
 * Cancelled
 ** CANCELLED Dark/light theme toggle :CLOSED: [2026-05-10 Sun]
    Dropped by maintainer request.

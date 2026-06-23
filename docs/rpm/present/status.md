@@ -2,8 +2,8 @@
 
 ## Project Status
 - **Current phase**: 0.5.x — feature polish (version history, schema coverage, defaults UX, self-update)
-- **Latest release**: v0.5.35 (2026-05-21) — https://github.com/dppdppd/BGSD/releases/tag/v0.5.35
-- **Last updated**: 2026-05-21
+- **Latest release**: v0.5.36 (2026-06-23) — https://github.com/dppdppd/BGSD/releases/tag/v0.5.36
+- **Last updated**: 2026-06-23
 
 ## Completed Work
 - Cross-platform release builds via electron-builder
@@ -33,6 +33,7 @@
 - STL export creates one combined STL and one STL per print group
 - OpenSCAD diagnostics surfaced asynchronously with toolbar status and issue details
 - Windows release builds use Debian Wine via a temporary shim to avoid WineHQ devel `rcedit` hangs
+- OpenSCAD detection resolves `.app` bundles/folders to the inner CLI binary (covers nightly/versioned, `~/Applications`, Homebrew), gives specific platform-aware "can't run" reasons (macOS `xattr` / Windows lock / Linux `chmod`), adds a Preferences **Test** button, and verifies before launch so a quarantined binary reports the real cause instead of silently no-opping
 
 ## Active Specs
 (none — operating ad-hoc; specs will live in `docs/spec/`)

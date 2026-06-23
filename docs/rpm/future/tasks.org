@@ -2,6 +2,8 @@
 #+TODO: TODO IN-PROGRESS BLOCKED | DONE
 
 * 0.5.x polish
+** TODO Confirm OpenSCAD detection fix on a real Mac (shipped v0.5.36)
+   Implementation shipped in v0.5.36. When the user updates, have them open Preferences → Test next to the OpenSCAD path and report the exact message — it now pinpoints the cause (missing path / folder / app-bundle-no-binary / OS-blocked quarantine). Awaiting the user's report to mark resolved.
 ** TODO Clean up unused .toggle-btn.disabled CSS selector
 ** TODO In-place self-update on macOS / Windows (currently staged to ~/Downloads)
    Linux AppImage gets a full automatic in-place swap; macOS .app and Windows .exe both refuse to be replaced while running. Options: (a) bundle electron-updater + signing certs; (b) write a small bootstrapper script that the staged binary launches on next start to swap and relaunch.
@@ -13,8 +15,4 @@
 ** TODO Maximize new box feature dimensions from parent box [[file:2026-05-10-maximize-new-box-feature-dimensions.md]]
    :PROPERTIES:
    :ID: maximize-new-box-feature-dimensions
-   :END:
-** DONE Persistent undo history sidecar files [[file:2026-05-03-persistent-undo-history.md]]
-   :PROPERTIES:
-   :ID: persistent-undo-history
    :END:
