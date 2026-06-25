@@ -797,6 +797,29 @@ function verifyOpenScad(overridePath) {
   });
 }
 
+// Build an environment that tells OpenSCAD where BGSD keeps its libraries.
+// A design's `include <...>` is resolved by OpenSCAD relative to the design
+// file's own directory; the actual library lives in <workingDir>/<profile>/lib.
+// Adding those dirs to OPENSCADPATH lets includes resolve even when a file is
+// rendered/exported from a directory with no sibling copy (e.g. exporting
+// straight from the welcome screen, or a design opened from outside the working
+// dir). OPENSCADPATH only ADDS search locations — it never overrides a path
+// that already resolves, so this is safe for designs that already work.
+function openScadEnv(sourcePath) {
+  const prefs = loadPrefs();
+  const dirs = [];
+  if (sourcePath) dirs.push(path.dirname(sourcePath));
+  if (prefs.workingDir) {
+    for (const profileId of Object.keys(profiles)) {
+      const libDir = path.join(prefs.workingDir, profileId, "lib");
+      if (fs.existsSync(libDir)) dirs.push(libDir);
+    }
+  }
+  if (process.env.OPENSCADPATH) dirs.push(process.env.OPENSCADPATH);
+  const value = dirs.filter(Boolean).join(path.delimiter);
+  return value ? { ...process.env, OPENSCADPATH: value } : { ...process.env };
+}
+
 async function launchOpenScadFile(filePath) {
   const { spawn } = require("child_process");
   if (!validateFilePath(filePath) || !fs.existsSync(filePath)) {
@@ -826,7 +849,7 @@ async function launchOpenScadFile(filePath) {
   }
 
   function spawnOpenScad(cmd, args) {
-    const proc = spawn(cmd, args, { stdio: "ignore" });
+    const proc = spawn(cmd, args, { stdio: "ignore", env: openScadEnv(filePath) });
     proc.unref();
     openScadAlive = true;
     openScadProc = proc;
@@ -1019,7 +1042,7 @@ ipcMain.handle("check-openscad", async (_event, payload) => {
   }
 
   return new Promise((resolve) => {
-    execFile(cmd, ["-o", outputPath, scadPath], { cwd, timeout: 30000 }, (err, stdout, stderr) => {
+    execFile(cmd, ["-o", outputPath, scadPath], { cwd, timeout: 30000, env: openScadEnv(filePath) }, (err, stdout, stderr) => {
       void (async () => {
         await Promise.all([unlinkIfExists(scadPath), unlinkIfExists(outputPath)]);
 
@@ -1101,6 +1124,15 @@ ipcMain.handle("export-stl", async (_event, sourcePath) => {
   const tempPaths = [];
   try {
     const scadText = await fs.promises.readFile(sourcePath, "utf-8");
+    // Make sure the included library is present before rendering. The live
+    // preview does this on every check; export skipped it, so exporting a
+    // design whose library wasn't mirrored (e.g. straight from the welcome
+    // screen without opening it) failed with "Can't open include file".
+    try {
+      await ensureLibrariesForScadText(scadText, sourcePath);
+    } catch (err) {
+      console.warn("[export-stl] library ensure failed:", err.message);
+    }
     plan = createStlExportPlan({
       sourcePath,
       targetFilePath: result.filePath,
@@ -1123,7 +1155,7 @@ ipcMain.handle("export-stl", async (_event, sourcePath) => {
   async function runExportJob(job) {
     const inputPath = job.tempScadPath || job.sourcePath || sourcePath;
     return new Promise((resolve) => {
-      execFile(cmd, ["-o", job.filePath, inputPath], { timeout: 120000 }, (err, _stdout, stderr) => {
+      execFile(cmd, ["-o", job.filePath, inputPath], { timeout: 120000, env: openScadEnv(sourcePath) }, (err, _stdout, stderr) => {
         if (err) {
           resolve({ ok: false, error: stderr || err.message, job });
         } else {
