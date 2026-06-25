@@ -28,6 +28,42 @@ esac
 
 cd "$(dirname "$0")"
 
+# Fail fast with an actionable message if a required build tool is missing,
+# *before* bumping the version. A missing dependency used to abort mid-build
+# (or silently produce no artifact) only after package.json was already bumped.
+preflight() {
+  local missing=()
+  # electron-builder is wrapped in `xvfb-run` below whenever there is no
+  # display, so xvfb + xauth are required for EVERY target, not just Windows.
+  # xvfb-run aborts with "xauth command not found" when xauth is absent, which
+  # silently breaks even the Linux AppImage build.
+  if [ -z "${DISPLAY:-}" ]; then
+    command -v xvfb-run >/dev/null 2>&1 || missing+=("xvfb-run  (apt install xvfb)")
+    command -v xauth    >/dev/null 2>&1 || missing+=("xauth     (apt install xauth)")
+  fi
+  if [ "$TARGET" = "win" ] || [ "$TARGET" = "all" ]; then
+    command -v wine >/dev/null 2>&1 || missing+=("wine      (apt install wine wine32 wine64)")
+    command -v 7z >/dev/null 2>&1 || command -v 7za >/dev/null 2>&1 \
+      || missing+=("7z        (apt install p7zip-full)")
+    if command -v dpkg >/dev/null 2>&1 \
+       && ! dpkg --print-foreign-architectures 2>/dev/null | grep -qx i386; then
+      missing+=("i386 arch (sudo dpkg --add-architecture i386)")
+    fi
+  fi
+  if [ "${#missing[@]}" -gt 0 ]; then
+    echo "Missing build prerequisites for target '$TARGET':" >&2
+    local m
+    for m in "${missing[@]}"; do echo "  - $m" >&2; done
+    echo "" >&2
+    echo "On this Debian host, install them all in one go:" >&2
+    echo "  sudo dpkg --add-architecture i386 && sudo apt-get update \\" >&2
+    echo "    && sudo apt-get install -y --no-install-recommends \\" >&2
+    echo "       wine wine32 wine64 p7zip-full xauth xvfb" >&2
+    exit 1
+  fi
+}
+preflight
+
 NEW_VERSION=$(npm version "$LEVEL" --no-git-tag-version)
 VER="${NEW_VERSION#v}"
 echo "Bumped to $NEW_VERSION"
@@ -148,8 +184,31 @@ build_with_progress() {
     fi
     sleep 2
   done
-  wait "$pid"
-  printf "\r  %s: done                    \n" "$label"
+  local status=0
+  wait "$pid" || status=$?
+
+  # Resolve the produced artifact the same way the polling loop does.
+  local found=""
+  if [ -e "$pattern" ]; then
+    found="$pattern"
+  else
+    found=$(compgen -G "$pattern" 2>/dev/null | tail -1 || true)
+  fi
+
+  # This function used to end on `printf`, so it ALWAYS returned 0: a failed
+  # electron-builder (and the bare Linux/mac calls under `set -e`) slipped
+  # through and the script reported success with no artifact. Return wait's
+  # real status, and treat a zero exit that produced no output file as a
+  # failure too.
+  if [ "$status" -ne 0 ]; then
+    printf "\r  %s: FAILED (exit %s)            \n" "$label" "$status"
+  elif [ -z "$found" ]; then
+    status=1
+    printf "\r  %s: FAILED — no artifact matching %s\n" "$label" "$pattern"
+  else
+    printf "\r  %s: done (%s)            \n" "$label" "$found"
+  fi
+  return "$status"
 }
 
 if [ "$TARGET" = "linux" ] || [ "$TARGET" = "all" ]; then
