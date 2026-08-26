@@ -28,24 +28,24 @@ const lines: Line[] = [
 ];
 
 describe("CTD inherited parameter values", () => {
-  it("uses a scene global as the fallback for a virtual tray parameter", () => {
+  it("uses a scene value as the fallback for a virtual tray parameter", () => {
     expect(resolveCtdInheritedValue(lines, 3, "G_DIMENSIONS_XY", [50, 50])).toEqual({
       value: [120, 90],
-      source: "Global Overrides",
+      source: "Scene",
     });
   });
 
-  it("uses the nearest tray override before the scene global for a counter set", () => {
+  it("uses the nearest tray value before the scene value for a counter set", () => {
     expect(resolveCtdInheritedValue(lines, 5, "COUNTER_SHAPE", "SHAPE_SQUARE")).toEqual({
       value: "SHAPE_CIRCLE",
       source: "Tray",
     });
   });
 
-  it("falls through to the scene global when the tray has no matching override", () => {
+  it("falls through to the scene value when the tray has no matching value", () => {
     expect(resolveCtdInheritedValue(lines, 5, "G_DIMENSIONS_XY", [50, 50])).toEqual({
       value: [120, 90],
-      source: "Global Overrides",
+      source: "Scene",
     });
   });
 

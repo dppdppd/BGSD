@@ -123,11 +123,7 @@
     <div class="scad-line">{line.raw}</div>
     {#if !collapsed.has(i)}
     {#if line.role === "data" && libraryProfile !== "ctd"}
-      {@const _globalGroups = groupRowsForDisplay(getGlobalRows(), "globals", 1, _openDefaultsMode)}
-      {#if _globalGroups.length > 0}
-        <div class="scad-line scad-virtual"></div>
-      {/if}
-      {#each _globalGroups as group (group.id)}
+      {#each groupRowsForDisplay(getGlobalRows(), "globals", 1, _openDefaultsMode) as group (group.id)}
         <div class="scad-line scad-virtual"></div>
         {#each group.rows as row (row.key)}
           {#if row.isReal && row.lineIndex !== null}
@@ -138,11 +134,7 @@
         {/each}
       {/each}
     {/if}
-    {@const _schemaGroups = groupRowsForDisplay(getSortedSchemaRowsForOpen(i), getSchemaScopeForOpen(i), (line.depth ?? 0) + 1, _openDefaultsMode)}
-    {#if line.role === "data" && libraryProfile === "ctd" && _schemaGroups.length > 0}
-      <div class="scad-line scad-virtual"></div>
-    {/if}
-    {#each _schemaGroups as group (group.id)}
+    {#each groupRowsForDisplay(getSortedSchemaRowsForOpen(i), getSchemaScopeForOpen(i), (line.depth ?? 0) + 1, _openDefaultsMode) as group (group.id)}
       <div class="scad-line scad-virtual"></div>
       {#each group.rows as row (row.key)}
         {#if row.isReal && row.lineIndex !== null}

@@ -1599,7 +1599,7 @@
     isReal: boolean;
     depth?: number;
     fallbackValue?: any;
-    inheritedFrom?: "Global Overrides" | "Tray" | null;
+    inheritedFrom?: "Scene" | "Tray" | null;
   };
   type ParameterGroup = {
     id: string;
@@ -3915,13 +3915,7 @@
         <div class="block-body" transition:slide|global={{ duration: slideDur }}>
         <!-- Virtual globals block inside data = [ (BIT only; CTD uses per-scene KVs) -->
         {#if line.role === "data" && $project.libraryProfile !== "ctd"}
-          {@const globalGroups = groupRowsForDisplay(getGlobalRows(), "globals", 1, defaultsModeForBlock)}
-          {#if globalGroups.length > 0}
-            <div class="line-row global-overrides-heading" style="{padDepth(1)}; {bracketStyle(1)}" data-testid="global-overrides-group-{i}" role="heading" aria-level="2">
-              <span class="global-overrides-label">Global Overrides</span>
-            </div>
-          {/if}
-          {#each globalGroups as group (group.id)}
+          {#each groupRowsForDisplay(getGlobalRows(), "globals", 1, defaultsModeForBlock) as group (group.id)}
             <div class="line-row kv-category" style="{padDepth(group.depth)}; {bracketStyle(group.depth)}" data-testid="category-globals-{group.id}">
               <span class="category-label">{group.label}</span>
               {#if group.changedCount > 0}
@@ -4002,11 +3996,6 @@
           {/each}
         {/if}
         <!-- Sorted schema rows (real + virtual) after open bracket -->
-        {#if line.role === "data" && $project.libraryProfile === "ctd" && schemaGroups.length > 0}
-          <div class="line-row global-overrides-heading" style="{padDepth((line.depth ?? 0) + 1)}; {bracketStyle((line.depth ?? 0) + 1)}" data-testid="global-overrides-group-{i}" role="heading" aria-level="2">
-            <span class="global-overrides-label">Global Overrides</span>
-          </div>
-        {/if}
         {#each schemaGroups as group (group.id)}
           <div class="line-row kv-category" style="{padDepth(group.depth)}; {bracketStyle(group.depth)}" data-testid="category-{group.id}">
             <span class="category-label">{group.label}</span>
@@ -5140,34 +5129,6 @@
      card, not by tinting every row. Keys win first read. */
   .line-row.kv {
     --bracket-bg: var(--paper);
-  }
-  /* Scene globals are an inherited scope, not just another parameter
-     category. Give that scope one quiet parent band; the existing category
-     rules below remain the third-level organization inside it. */
-  .line-row.global-overrides-heading {
-    --bracket-bg: color-mix(in srgb, var(--paper), var(--sepia-tint) 65%);
-    height: 22px;
-    margin-top: 4px;
-    color: var(--bracket-color);
-  }
-  .line-row.global-overrides-heading::after {
-    content: "";
-    position: absolute;
-    left: var(--indent, 0px);
-    right: 0;
-    bottom: 0;
-    height: 1px;
-    background: var(--bracket-color);
-    opacity: 0.7;
-    pointer-events: none;
-  }
-  .global-overrides-label {
-    position: relative;
-    z-index: 2;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
   }
   .line-row.kv-category {
     --bracket-bg: var(--paper);

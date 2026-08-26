@@ -2,7 +2,7 @@ import type { Line } from "./stores/project";
 
 export type CtdInheritedValue = {
   value: any;
-  source: "Global Overrides" | "Tray" | null;
+  source: "Scene" | "Tray" | null;
 };
 
 function bracketWeight(line: Line): number {
@@ -53,10 +53,9 @@ function directValue(lines: Line[], openIndex: number, key: string): { found: bo
 }
 
 /**
- * CTD builds an effective tray by putting tray entries before scene globals;
- * its first-match lookup therefore gives a tray override precedence. Counter
- * sets repeat that pattern: an explicit set value wins, then the containing
- * tray value, then the scene global, and finally the library default.
+ * CTD resolves repeated parameters from the nearest layer outward. An
+ * explicit counter-set value wins over its tray value, which wins over the
+ * scene value; the schema default is used only when no layer sets the key.
  *
  * This function resolves only the inherited fallback for a row in openIndex;
  * the caller still gives any explicit value in that row's own block priority.
@@ -75,8 +74,8 @@ export function resolveCtdInheritedValue(
       if (trayValue.found) return { value: trayValue.value, source: "Tray" };
     }
     if (parent.role === "data") {
-      const globalValue = directValue(lines, parentIndex, key);
-      if (globalValue.found) return { value: globalValue.value, source: "Global Overrides" };
+      const sceneValue = directValue(lines, parentIndex, key);
+      if (sceneValue.found) return { value: sceneValue.value, source: "Scene" };
       break;
     }
     parentIndex = findParentOpen(lines, parentIndex);
