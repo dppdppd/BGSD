@@ -31,6 +31,7 @@
   import { startAutosave, onSaveStatus, setFilePath, getFilePath, setNeedsBackup, setReadOnly, getReadOnly, onReadOnlyEdit, onExternalFileChange, saveNowDetailed, suppressNextAutosave, setFileState, getFileState, isSaveInFlight, markExternalFileChange, clearExternalFileChange } from "./lib/autosave";
   import { startHistory, clearHistory, undo, redo, restoreProjectFromHistory, canUndo, canRedo } from "./lib/stores/history";
   import { getSchema } from "./lib/schema";
+  import { resolveCtdInheritedValue } from "./lib/ctd-inheritance";
   import tooltips from "./lib/tooltips/en.json";
   import PreferencesModal from "./lib/components/PreferencesModal.svelte";
   import FileHistoryModal from "./lib/components/FileHistoryModal.svelte";
@@ -1597,6 +1598,8 @@
     value: any;
     isReal: boolean;
     depth?: number;
+    fallbackValue?: any;
+    inheritedFrom?: "Global Overrides" | "Tray" | null;
   };
   type ParameterGroup = {
     id: string;
@@ -2197,8 +2200,8 @@
   }
 
   /** Materialize a virtual KV row and enter raw value editing mode. */
-  function materializeAndEditRawValue(closeIndex: number, key: string, def: any, depth: number) {
-    materializeKv(closeIndex, key, def.default, depth);
+  function materializeAndEditRawValue(closeIndex: number, key: string, value: any, depth: number) {
+    materializeKv(closeIndex, key, value, depth);
     rawValueEditing = new Set([...rawValueEditing, closeIndex]);
   }
 
@@ -2560,9 +2563,7 @@
    * both real (existing kv lines) and virtual (missing, shown with defaults).
    * Returns { key, def, lineIndex?, value, isReal, depth }[] sorted alphabetically.
    */
-  function getSortedSchemaRows(closeIndex: number): {
-    key: string; def: any; lineIndex: number | null; value: any; isReal: boolean; depth: number;
-  }[] {
+  function getSortedSchemaRows(closeIndex: number): ParameterRow[] {
     const closeLine = $project.lines[closeIndex];
     if (!closeLine || closeLine.kind !== "close") return [];
     const ctx = getCloseContext(closeLine, closeIndex);
@@ -2602,11 +2603,35 @@
           .map(([k, d]) => ({ key: k, def: d }))
       : getScalarKeysForContext(ctx!);
     const rows = scalars.filter(({ key }) => !structuredKeys.has(key)).map(({ key, def }) => {
+      // CTD deliberately repeats inheritable keys in the scene, tray, and
+      // counter-set schemas. A missing child key therefore means "use the
+      // nearest ancestor value", not "use the schema default".
+      const inherited = $project.libraryProfile === "ctd" && Object.prototype.hasOwnProperty.call(GLOBAL_SCHEMA, key)
+        ? resolveCtdInheritedValue($project.lines, openIdx, key, def.default)
+        : { value: def.default, source: null };
       const existing = existingMap.get(key);
       if (existing) {
-        return { key, def, lineIndex: existing.lineIndex, value: existing.value, isReal: true, depth: childDepth };
+        return {
+          key,
+          def,
+          lineIndex: existing.lineIndex,
+          value: existing.value,
+          isReal: true,
+          depth: childDepth,
+          fallbackValue: inherited.value,
+          inheritedFrom: inherited.source,
+        };
       }
-      return { key, def, lineIndex: null, value: def.default, isReal: false, depth: childDepth };
+      return {
+        key,
+        def,
+        lineIndex: null,
+        value: inherited.value,
+        isReal: false,
+        depth: childDepth,
+        fallbackValue: inherited.value,
+        inheritedFrom: inherited.source,
+      };
     });
 
     // Sort alphabetically
@@ -2615,9 +2640,7 @@
   }
 
   /** Get sorted schema rows for an open bracket (delegates to its matching close). */
-  function getSortedSchemaRowsForOpen(openIndex: number): {
-    key: string; def: any; lineIndex: number | null; value: any; isReal: boolean; depth: number;
-  }[] {
+  function getSortedSchemaRowsForOpen(openIndex: number): ParameterRow[] {
     const closeIdx = findMatchingClose(openIndex);
     if (closeIdx < 0) return [];
     return getSortedSchemaRows(closeIdx);
@@ -2641,8 +2664,8 @@
   });
 
   /** When a virtual default is changed from its default value, materialize it. */
-  function onVirtualChange(closeIndex: number, key: string, def: any, newValue: any) {
-    if (JSON.stringify(newValue) === JSON.stringify(def.default)) return;
+  function onVirtualChange(closeIndex: number, key: string, fallbackValue: any, newValue: any) {
+    if (JSON.stringify(newValue) === JSON.stringify(fallbackValue)) return;
     const depth = (($project.lines[closeIndex]?.depth ?? 0)) + 1;
     materializeKv(closeIndex, key, newValue, depth);
   }
@@ -2748,7 +2771,8 @@
   }
 
   function parameterRowChanged(row: ParameterRow): boolean {
-    return row.isReal && JSON.stringify(row.value) !== JSON.stringify(row.def?.default);
+    const fallback = row.fallbackValue === undefined ? row.def?.default : row.fallbackValue;
+    return row.isReal && JSON.stringify(row.value) !== JSON.stringify(fallback);
   }
 
   function shouldShowParameterRow(row: ParameterRow, mode: DefaultsMode): boolean {
@@ -2948,7 +2972,7 @@
   }
 
   /** Finalize a comment edit. If the comment is empty/whitespace and the value
-   *  matches its schema default, dematerialize the line back to virtual. */
+   *  matches its effective fallback, dematerialize the line back to virtual. */
   function finalizeComment(i: number, comment: string) {
     const trimmed = comment.trim();
     const line = $project.lines[i];
@@ -2957,7 +2981,11 @@
     if (!trimmed) {
       if (line.kind === "kv" && line.kvKey) {
         const def = KEY_SCHEMA_MAP[line.kvKey];
-        if (def?.default !== undefined && JSON.stringify(line.kvValue) === JSON.stringify(def.default)) {
+        const openIndex = findParentOpen(i);
+        const fallback = $project.libraryProfile === "ctd" && openIndex >= 0 && Object.prototype.hasOwnProperty.call(GLOBAL_SCHEMA, line.kvKey)
+          ? resolveCtdInheritedValue($project.lines, openIndex, line.kvKey, def?.default).value
+          : def?.default;
+        if (fallback !== undefined && JSON.stringify(line.kvValue) === JSON.stringify(fallback)) {
           deleteLine(i); editingComment = null; return;
         }
       } else if (line.kind === "global" && line.globalKey) {
@@ -2972,9 +3000,9 @@
     editingComment = null;
   }
 
-  /** Materialize a virtual kv at its default value and open comment editor. */
-  function materializeVirtualKvWithComment(closeIndex: number, key: string, def: any, depth: number) {
-    materializeKv(closeIndex, key, def.default, depth);
+  /** Materialize a virtual kv at its effective value and open comment editor. */
+  function materializeVirtualKvWithComment(closeIndex: number, key: string, value: any, depth: number) {
+    materializeKv(closeIndex, key, value, depth);
     // After insert, the new line is at closeIndex
     editingComment = closeIndex;
   }
@@ -3151,12 +3179,12 @@
     updateKv(lineIndex, value, schemaDefault);
   }
 
-  function updateVirtualShape(closeIndex: number, depth: number, value: string, def: any) {
+  function updateVirtualShape(closeIndex: number, depth: number, value: string, fallbackValue: any) {
     if (value === "SVG") {
       addSvgShape(closeIndex, depth);
       return;
     }
-    onVirtualChange(closeIndex, "FTR_SHAPE", def, value);
+    onVirtualChange(closeIndex, "FTR_SHAPE", fallbackValue, value);
   }
 
   /** Insert a BOX_LID block before `closeIndex` (flat format). */
@@ -3883,10 +3911,17 @@
           {/if}
         </div>
         {#if !collapsed.has(i)}
+        {@const schemaGroups = groupRowsForDisplay(getSortedSchemaRowsForOpen(i), getSchemaScopeForOpen(i), (line.depth ?? 0) + 1, defaultsModeForBlock)}
         <div class="block-body" transition:slide|global={{ duration: slideDur }}>
         <!-- Virtual globals block inside data = [ (BIT only; CTD uses per-scene KVs) -->
         {#if line.role === "data" && $project.libraryProfile !== "ctd"}
-          {#each groupRowsForDisplay(getGlobalRows(), "globals", 1, defaultsModeForBlock) as group (group.id)}
+          {@const globalGroups = groupRowsForDisplay(getGlobalRows(), "globals", 1, defaultsModeForBlock)}
+          {#if globalGroups.length > 0}
+            <div class="line-row global-overrides-heading" style="{padDepth(1)}; {bracketStyle(1)}" data-testid="global-overrides-group-{i}" role="heading" aria-level="2">
+              <span class="global-overrides-label">Global Overrides</span>
+            </div>
+          {/if}
+          {#each globalGroups as group (group.id)}
             <div class="line-row kv-category" style="{padDepth(group.depth)}; {bracketStyle(group.depth)}" data-testid="category-globals-{group.id}">
               <span class="category-label">{group.label}</span>
               {#if group.changedCount > 0}
@@ -3967,7 +4002,12 @@
           {/each}
         {/if}
         <!-- Sorted schema rows (real + virtual) after open bracket -->
-        {#each groupRowsForDisplay(getSortedSchemaRowsForOpen(i), getSchemaScopeForOpen(i), (line.depth ?? 0) + 1, defaultsModeForBlock) as group (group.id)}
+        {#if line.role === "data" && $project.libraryProfile === "ctd" && schemaGroups.length > 0}
+          <div class="line-row global-overrides-heading" style="{padDepth((line.depth ?? 0) + 1)}; {bracketStyle((line.depth ?? 0) + 1)}" data-testid="global-overrides-group-{i}" role="heading" aria-level="2">
+            <span class="global-overrides-label">Global Overrides</span>
+          </div>
+        {/if}
+        {#each schemaGroups as group (group.id)}
           <div class="line-row kv-category" style="{padDepth(group.depth)}; {bracketStyle(group.depth)}" data-testid="category-{group.id}">
             <span class="category-label">{group.label}</span>
             {#if group.changedCount > 0}
@@ -3978,18 +4018,19 @@
           {@const rkt = getKeyType(row.key)}
           {@const rks = getKeySchema(row.key)}
           {@const closeIdx = findMatchingClose(i)}
+          {@const fallbackValue = row.fallbackValue === undefined ? row.def.default : row.fallbackValue}
           {@const onChange = row.isReal
-            ? (v) => updateKv(row.lineIndex, v, row.def.default)
-            : (v) => onVirtualChange(closeIdx, row.key, row.def, v)}
+            ? (v) => updateKv(row.lineIndex, v, fallbackValue)
+            : (v) => onVirtualChange(closeIdx, row.key, fallbackValue, v)}
           {@const val = row.value}
           <div class="line-row kv" class:virtual={!row.isReal} class:fading-out={fadingOutKeys.has(row.key)} class:has-diagnostic={lineDiagnosticSeverity(row.lineIndex) != null} class:diagnostic-error={lineDiagnosticSeverity(row.lineIndex) === "error"} class:diagnostic-warning={lineDiagnosticSeverity(row.lineIndex) === "warning"} class:diag-highlight={hoveredDiagKeys.has(row.key)} class:diag-x={hoveredDiagAxes.has("x")} class:diag-y={hoveredDiagAxes.has("y")} class:diag-z={hoveredDiagAxes.has("z")} class:search-match={keyMatchesSearch(row.key)} style="{padDepth(row.depth)}; {bracketStyle(row.depth)}" data-testid={row.isReal ? `line-${row.lineIndex}` : `virtual-${row.key}`}>
-            <span class="kv-key" class:virtual-key={!row.isReal} title={tip(row.key)}>{label(row.key)}</span>
+            <span class="kv-key" class:virtual-key={!row.isReal} title={[tip(row.key), !row.isReal && row.inheritedFrom ? `Inherited from ${row.inheritedFrom}` : ""].filter(Boolean).join("\n")}>{label(row.key)}</span>
             {@render diagnosticSlot(row.lineIndex)}
             <span class="kv-control">
               {#if row.isReal && rawValueEditing.has(row.lineIndex!)}
                 <input class="kv-raw-value" type="text" spellcheck="false"
                   value={formatKvValue(val)}
-                  onblur={(e) => handleRawValueBlur(row.lineIndex!, e.currentTarget.value, row.def.default)}
+                  onblur={(e) => handleRawValueBlur(row.lineIndex!, e.currentTarget.value, fallbackValue)}
                   onkeydown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
               {:else if dynamicMultiReferenceConfig(row.key, val)}
                 {@render dynamicMultiReferenceControl(row.key, val, onChange, dynamicMultiReferenceConfig(row.key, val), `schema-${i}-${row.key}`)}
@@ -4002,7 +4043,7 @@
                   {#each rks?.values || [] as v}<option value={v}>{v}</option>{/each}
                 </select>
               {:else if rkt === "shape"}
-                <select value={val} onchange={(e) => row.isReal ? updateShapeKv(row.lineIndex!, e.currentTarget.value, row.def.default) : updateVirtualShape(closeIdx, row.depth, e.currentTarget.value, row.def)}>
+                <select value={val} onchange={(e) => row.isReal ? updateShapeKv(row.lineIndex!, e.currentTarget.value, fallbackValue) : updateVirtualShape(closeIdx, row.depth, e.currentTarget.value, fallbackValue)}>
                   {#each rks?.values || [] as v}<option value={v}>{v}</option>{/each}
                   <option value="SVG">SVG</option>
                 </select>
@@ -4019,38 +4060,38 @@
               {:else if rkt === "xyz"}
                 {#if typeof val === "string" && $knownConstantsStore.has(val)}
                   <span class="preset-pill" title={val + " → " + resolvePresetValue(val)}>{$constantLabels[val] || val}</span>
-                  <button class="preset-clear" title="Clear preset" onclick={() => onChange(row.def.default)}>✕</button>
+                  <button class="preset-clear" title="Clear preset" onclick={() => onChange(fallbackValue)}>✕</button>
                 {:else if Array.isArray(val)}
                   {#each [0,1,2] as j}
                     {#if typeof val[j] === "string" && $knownConstantsStore.has(val[j])}
                       <span class="preset-pill sm" title={val[j] + " → " + resolvePresetValue(val[j])}>{$constantLabels[val[j]] || val[j]}</span>
-                      <button class="preset-clear" title="Clear" onclick={() => { const c = [...val]; c[j] = row.def.default?.[j] ?? 0; onChange(c); }}>✕</button>
+                      <button class="preset-clear" title="Clear" onclick={() => { const c = [...val]; c[j] = fallbackValue?.[j] ?? 0; onChange(c); }}>✕</button>
                     {:else}
                       <input class="kv-str sm" type="text" value={val[j] ?? 0} data-axis={["x","y","z"][j]}
                         onchange={(e) => { const c = [...val]; c[j] = smartParseNum(e.currentTarget.value); onChange(c); }} />
                     {/if}
                     {@const cpf = componentPresetField(row.key, j)}
                     {#if cpf}
-                      {@render presetBtn(cpf, (v) => { const c = Array.isArray(val) ? [...val] : [...(row.def.default || [0,0,0])]; c[j] = v; onChange(c); }, `comp-${i}-${row.key}-${j}`)}
+                      {@render presetBtn(cpf, (v) => { const c = Array.isArray(val) ? [...val] : [...(fallbackValue || [0,0,0])]; c[j] = v; onChange(c); }, `comp-${i}-${row.key}-${j}`)}
                     {/if}
                   {/each}
                 {/if}
               {:else if rkt === "xy"}
                 {#if typeof val === "string" && $knownConstantsStore.has(val)}
                   <span class="preset-pill" title={val + " → " + resolvePresetValue(val)}>{$constantLabels[val] || val}</span>
-                  <button class="preset-clear" title="Clear preset" onclick={() => onChange(row.def.default)}>✕</button>
+                  <button class="preset-clear" title="Clear preset" onclick={() => onChange(fallbackValue)}>✕</button>
                 {:else if Array.isArray(val)}
                   {#each [0,1] as j}
                     {#if typeof val[j] === "string" && $knownConstantsStore.has(val[j])}
                       <span class="preset-pill sm" title={val[j] + " → " + resolvePresetValue(val[j])}>{$constantLabels[val[j]] || val[j]}</span>
-                      <button class="preset-clear" title="Clear" onclick={() => { const c = [...val]; c[j] = row.def.default?.[j] ?? 0; onChange(c); }}>✕</button>
+                      <button class="preset-clear" title="Clear" onclick={() => { const c = [...val]; c[j] = fallbackValue?.[j] ?? 0; onChange(c); }}>✕</button>
                     {:else}
                       <input class="kv-str sm" type="text" value={val[j] ?? 0} data-axis={["x","y","z"][j]}
                         onchange={(e) => { const c = [...val]; c[j] = smartParseNum(e.currentTarget.value); onChange(c); }} />
                     {/if}
                     {@const cpf = componentPresetField(row.key, j)}
                     {#if cpf}
-                      {@render presetBtn(cpf, (v) => { const c = Array.isArray(val) ? [...val] : [...(row.def.default || [0,0])]; c[j] = v; onChange(c); }, `comp-${i}-${row.key}-${j}`)}
+                      {@render presetBtn(cpf, (v) => { const c = Array.isArray(val) ? [...val] : [...(fallbackValue || [0,0])]; c[j] = v; onChange(c); }, `comp-${i}-${row.key}-${j}`)}
                     {/if}
                   {/each}
                 {/if}
@@ -4083,11 +4124,11 @@
               {@render commentBtn($project.lines[row.lineIndex], row.lineIndex)}
               <span class="spacer"></span>
               <button class="toggle-btn" class:active={rawValueEditing.has(row.lineIndex!)} title="Edit value as raw text" onclick={() => toggleRawValueEdit(row.lineIndex!)}>{"{}"}</button>
-              <button class="delete-btn" title="Reset to default" onclick={() => dematerializeKv(row.lineIndex)}>✕</button>
+              <button class="delete-btn" title={row.inheritedFrom ? `Use ${row.inheritedFrom} value` : "Reset to default"} onclick={() => dematerializeKv(row.lineIndex)}>✕</button>
             {:else}
-              <button class="comment-btn" title="Add comment" onclick={() => materializeVirtualKvWithComment(closeIdx, row.key, row.def, row.depth)}>//</button>
+              <button class="comment-btn" title="Add comment" onclick={() => materializeVirtualKvWithComment(closeIdx, row.key, val, row.depth)}>//</button>
               <span class="spacer"></span>
-              <button class="toggle-btn" title="Edit value as raw text" onclick={() => materializeAndEditRawValue(closeIdx, row.key, row.def, row.depth)}>{"{}"}</button>
+              <button class="toggle-btn" title="Edit value as raw text" onclick={() => materializeAndEditRawValue(closeIdx, row.key, val, row.depth)}>{"{}"}</button>
             {/if}
             <button class="fav-btn" class:active={isFavorite(row.key)} title={isFavorite(row.key) ? "Remove from favorites" : "Add to favorites"} onclick={() => toggleFavorite(row.key)}>{isFavorite(row.key) ? "★" : "☆"}</button>
           </div>
@@ -5099,6 +5140,34 @@
      card, not by tinting every row. Keys win first read. */
   .line-row.kv {
     --bracket-bg: var(--paper);
+  }
+  /* Scene globals are an inherited scope, not just another parameter
+     category. Give that scope one quiet parent band; the existing category
+     rules below remain the third-level organization inside it. */
+  .line-row.global-overrides-heading {
+    --bracket-bg: color-mix(in srgb, var(--paper), var(--sepia-tint) 65%);
+    height: 22px;
+    margin-top: 4px;
+    color: var(--bracket-color);
+  }
+  .line-row.global-overrides-heading::after {
+    content: "";
+    position: absolute;
+    left: var(--indent, 0px);
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: var(--bracket-color);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .global-overrides-label {
+    position: relative;
+    z-index: 2;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
   .line-row.kv-category {
     --bracket-bg: var(--paper);
