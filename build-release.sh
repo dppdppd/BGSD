@@ -49,6 +49,14 @@ preflight() {
        && ! dpkg --print-foreign-architectures 2>/dev/null | grep -qx i386; then
       missing+=("i386 arch (sudo dpkg --add-architecture i386)")
     fi
+    # The assisted NSIS target runs a temporary 32-bit installer under Wine
+    # so electron-builder can capture its uninstaller. wine64 alone can build
+    # the portable target, but it cannot complete the installer target.
+    if command -v dpkg-query >/dev/null 2>&1 \
+       && ! dpkg-query -W -f='${Status}' wine32:i386 2>/dev/null \
+          | grep -qx 'install ok installed'; then
+      missing+=("wine32:i386 (apt install wine32:i386)")
+    fi
   fi
   if [ "${#missing[@]}" -gt 0 ]; then
     echo "Missing build prerequisites for target '$TARGET':" >&2
@@ -216,8 +224,8 @@ if [ "$TARGET" = "linux" ] || [ "$TARGET" = "all" ]; then
 fi
 
 if [ "$TARGET" = "win" ] || [ "$TARGET" = "all" ]; then
-  # Windows portable packaging must use max compression; store-compressed
-  # payloads produce oversized release assets.
+  # Both Windows packages use NSIS. Max compression keeps the portable and
+  # installer release assets reasonably sized.
   _old_path="${PATH-}"
   _had_path=0
   if [ "${PATH+x}" = "x" ]; then
@@ -249,6 +257,15 @@ if [ "$TARGET" = "win" ] || [ "$TARGET" = "all" ]; then
   export ELECTRON_BUILDER_COMPRESSION_LEVEL=9
   _win_build_status=0
   build_with_progress "--win" "Windows" "release/BGSD ${VER}.exe" || _win_build_status=$?
+  if [ "$_win_build_status" -eq 0 ]; then
+    _win_installer="release/BGSD-Setup-${VER}.exe"
+    if [ ! -e "$_win_installer" ]; then
+      echo "Windows installer: FAILED — no artifact matching $_win_installer"
+      _win_build_status=1
+    else
+      echo "Windows installer: done ($_win_installer)"
+    fi
+  fi
   restore_windows_build_env \
     "$BGSD_WINE_SHIM" "${WINEPREFIX-}" "$BGSD_CREATED_WINEPREFIX" \
     "$_had_path" "$_old_path" \
@@ -256,7 +273,7 @@ if [ "$TARGET" = "win" ] || [ "$TARGET" = "all" ]; then
     "$_had_winearch" "$_old_winearch" \
     "$_had_winedlloverrides" "$_old_winedlloverrides" \
     "$_had_win_compression_level" "$_old_win_compression_level"
-  unset BGSD_WINE_SHIM BGSD_CREATED_WINEPREFIX
+  unset BGSD_WINE_SHIM BGSD_CREATED_WINEPREFIX _win_installer
   if [ "$_win_build_status" -ne 0 ]; then
     exit "$_win_build_status"
   fi

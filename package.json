@@ -63,8 +63,16 @@
     "win": {
       "icon": "build/icon.ico",
       "target": [
-        "portable"
+        "portable",
+        "nsis"
       ]
+    },
+    "nsis": {
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true
     },
     "mac": {
       "icon": "build/icon.icns",
