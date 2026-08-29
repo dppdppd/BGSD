@@ -2337,11 +2337,10 @@
   function bracketStyle(depth: number): string {
     const d = depth ?? 0;
     const indent = Math.max(0, d * DEPTH_PX);
-    // Right edges step inward slightly at each depth so nested frames remain
-    // individually visible instead of collapsing onto one viewport edge.
+    // Horizontal caps step inward slightly at each depth, but the frame stays
+    // open on the right so it never crosses the favorite-star controls.
     const frameRight = 8 + d * 6;
-    const ancestorRightWidth = d * 6;
-    return `--depth: ${d}; --indent: ${indent}px; --frame-right: ${frameRight}px; --ancestor-right-width: ${ancestorRightWidth}px`;
+    return `--depth: ${d}; --indent: ${indent}px; --frame-right: ${frameRight}px`;
   }
 
   // --- Collapse/expand ---
@@ -5072,7 +5071,6 @@
        struct.close) is. Rows merge cleanly into the card body. */
     background:
       linear-gradient(var(--self-edge-color), var(--self-edge-color)) left var(--indent, 0px) top / 1px 100% no-repeat,
-      linear-gradient(var(--self-edge-color), var(--self-edge-color)) right var(--frame-right, 8px) top / 1px 100% no-repeat,
       linear-gradient(to right, transparent var(--indent, 0px), var(--bracket-bg) var(--indent, 0px));
   }
 
@@ -5080,29 +5078,26 @@
      label text. The label takes natural width; the ::after pseudo
      flex-grows within kv-key to fill the rest. kv-control's position
      never shifts because kv-key's outer width stays pinned to 180px. */
-  /* Every open hierarchy remains a complete frame through its descendants.
-     Left ancestor rails repeat at the 24px nesting interval; right rails
-     step inward 6px per level so overlapping frames stay distinguishable. */
+  /* Every open hierarchy keeps its left rail through its descendants. Rails
+     repeat at the 24px nesting interval; the right side deliberately stays
+     open so hierarchy strokes never overlap the favorite-star controls. */
   .line-row::before,
   .raw-block::before {
     content: ""; position: absolute;
-    left: 0; right: 0; top: 0; bottom: 0;
-    width: auto;
-    background-image:
-      repeating-linear-gradient(to right, var(--frame-rail) 0 1px, transparent 1px 24px),
-      repeating-linear-gradient(to right, transparent 0 5px, var(--frame-rail) 5px 6px);
-    background-position: left top, right 8px top;
-    background-size: var(--indent, 0px) 100%, var(--ancestor-right-width, 0px) 100%;
+    left: 0; top: 0; bottom: 0;
+    width: var(--indent, 0px);
+    background-image: repeating-linear-gradient(to right, var(--frame-rail) 0 1px, transparent 1px 24px);
+    background-position: left top;
+    background-size: var(--indent, 0px) 100%;
     background-repeat: no-repeat;
     opacity: 0.78;
     pointer-events: none; z-index: 1;
   }
 
   /* Preserve the parent frame through the deliberate breathing room around
-     nested block headers/footers and parameter category separators. */
+     nested block headers and footers. */
   .line-row.struct.open::before  { top: -18px; }
   .line-row.struct.close::before { bottom: -18px; }
-  .line-row.kv-category::before  { top: -3px; bottom: -3px; }
 
   /* Card top + bottom edges. struct.open carries the card's top edge;
      struct.close carries the bottom. Both span only x=indent → the
@@ -5130,7 +5125,7 @@
   }
 
   /* A collapsed block has no separate close row, so its single header row
-     draws both caps and remains a complete rectangle. */
+     draws both caps and remains a complete three-sided bracket. */
   .line-row.struct.open.collapsed::after {
     top: 0;
     bottom: 0;
@@ -5169,8 +5164,6 @@
     height: 18px;
     padding-top: 0;
     padding-bottom: 0;
-    margin-top: 3px;
-    margin-bottom: 3px;
     gap: 4px;
     justify-content: center;
     color: var(--ink-mute);
@@ -5187,7 +5180,6 @@
     pointer-events: none;
     z-index: 1;
   }
-  .line-row.kv-category + .line-row.kv-category { margin-top: 0; }
   .category-label {
     position: relative;
     z-index: 2;
