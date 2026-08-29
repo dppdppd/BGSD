@@ -8,6 +8,8 @@ release/
 harness/out/
 screen_recordings/
 *.bak
+# Generated mesh exports are build artifacts, not editable source.
+*.stl
 tests/workspace/
 docs/rpm/~rpm-*
 images/@eaDir/
