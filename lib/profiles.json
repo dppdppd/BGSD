@@ -2,7 +2,7 @@
   "bit": {
     "name": "Boardgame Insert Toolkit",
     "repo": "dppdppd/The-Boardgame-Insert-Toolkit",
-    "branch": "master",
+    "branch": "20d505c8b9aeff33e33f83471ad50eb3761e5365",
     "files": [
       "release/lib/boardgame_insert_toolkit_lib.4.scad"
     ],

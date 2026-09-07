@@ -83,7 +83,7 @@ describe("BIT schema", () => {
     });
     expect(featureKeys.FTR_SHAPE).toMatchObject({
       type: "shape",
-      values: ["SQUARE", "HEX", "HEX2", "OCT", "OCT2", "ROUND", "FILLET"],
+      values: ["SQUARE", "TRI", "TRI2", "PENT", "PENT2", "HEX", "HEX2", "OCT", "OCT2", "ROUND", "FILLET"],
       child_context: "shape_svg",
       default: "SQUARE",
     });

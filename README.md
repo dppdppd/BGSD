@@ -83,6 +83,10 @@ npm run dist:mac     # zip
 - **Vite** — build toolchain
 - **Line-based model** — preserves raw SCAD text for round-trip fidelity
 
+### Native polygon compartments
+
+The BIT shape selector includes TRI, TRI2, PENT, and PENT2. For upright compartments, TRI/PENT place a flat edge at the bottom and TRI2/PENT2 place a vertex there. Laid-down TRI and TRI2 use the same pointed-bottom profile. Windows validation uses BIT 4.13.0 from the [reviewed BIT revision](https://github.com/dppdppd/The-Boardgame-Insert-Toolkit/commit/20d505c8b9aeff33e33f83471ad50eb3761e5365). The library profile pins that revision so new projects download the verified shape implementation. Update this pin through the normal release flow after Windows validation.
+
 ## License
 
 CC BY-NC-SA 4.0

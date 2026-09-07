@@ -29,6 +29,8 @@ if (!shotPrefix && process.env.BGSD_HARNESS_SCRIPT) {
   shotPrefix = path.basename(process.env.BGSD_HARNESS_SCRIPT, path.extname(process.env.BGSD_HARNESS_SCRIPT));
 }
 
+const isScripted = !!(process.env.BGSD_HARNESS_SCRIPT || process.env.BGSD_HARNESS_COMMANDS);
+
 let app, page;
 let currentFilePath = null;
 
@@ -223,15 +225,17 @@ async function handleCommand(line) {
           const re = new RegExp(prof.includePattern, "i");
           if (re.test(scad)) {
             const cacheDir = path.join(userDataDir, "lib-cache", profileId);
-            const includeNames = [...scad.matchAll(/include\s*<\s*(.+?)\s*>/gi)]
-              .map((m) => path.basename(m[1].trim()))
-              .filter((name) => re.test(name));
-            const fallbackNames = (prof.files || []).map((libFile) => path.basename(libFile));
+            const explicitIncludeNames = [...scad.matchAll(/include\s*<\s*(.+?)\s*>/gi)]
+              .map((m) => path.basename(m[1].trim()));
+            const includeNames = explicitIncludeNames.filter((name) => re.test(name));
+            // Versioned profiles render the exact included snapshot; fixed profiles also need companion libraries.
+            const fallbackNames = prof.latestFilePattern ? [] : (prof.files || []).map((libFile) => path.basename(libFile));
             for (const basename of [...new Set([...includeNames, ...fallbackNames])]) {
               const src = path.join(cacheDir, basename);
               if (fs.existsSync(src)) {
                 fs.copyFileSync(src, path.join(libDir, basename));
-              } else {
+              } else if (explicitIncludeNames.includes(basename)) {
+                // Fixed-profile companions are optional until the design includes them.
                 console.log(`  WARNING: library file not cached: ${src}`);
               }
             }
@@ -257,21 +261,24 @@ async function handleCommand(line) {
           }
         }
         try {
-          const { execSync } = require("child_process");
-          execSync(`openscad -o "${renderFpath}" --autocenter --viewall --imgsize=800,600 "${tmpScad}"`, {
+          const { spawnSync } = require("child_process");
+          const rendered = spawnSync("openscad", ["-o", renderFpath, "--autocenter", "--viewall", "--imgsize=800,600", tmpScad], {
             timeout: 60000,
-            stdio: ["ignore", "pipe", "pipe"],
+            encoding: "utf8",
           });
+          const diagnostics = `${rendered.stdout || ""}\n${rendered.stderr || ""}`;
+          if (rendered.error || rendered.status !== 0 || /(?:WARNING|ERROR):/.test(diagnostics)) {
+            throw new Error(rendered.error?.message || diagnostics.trim() || `OpenSCAD exited ${rendered.status}`);
+          }
+          if (!fs.existsSync(renderFpath) || fs.statSync(renderFpath).size === 0) {
+            throw new Error("OpenSCAD produced no preview image");
+          }
           console.log(`  OpenSCAD render: ${renderFname}`);
         } catch (err) {
           console.log(`  OpenSCAD render failed: ${err.message.split("\n")[0]}`);
-        }
-        // Clean up temp dir
-        try {
-          const { execSync: execClean } = require("child_process");
-          execClean(`rm -rf "${tmpDir}"`);
-        } catch {
-          // Best-effort temp cleanup; render output already exists or failed above.
+          if (isScripted) throw err;
+        } finally {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
         }
         break;
       }
@@ -315,13 +322,14 @@ async function handleCommand(line) {
         console.log(`  Unknown command: ${cmd}. Type 'help'.`);
     }
   } catch (err) {
+    // Scripted checks must fail the process; interactive use keeps the REPL open.
+    if (isScripted) throw err;
     console.log(`  Error: ${err.message}`);
   }
 }
 
 async function main() {
   // Global watchdog: kill the process if it runs longer than 2 minutes (scripted) or 30 min (interactive)
-  const isScripted = !!(process.env.BGSD_HARNESS_SCRIPT || process.env.BGSD_HARNESS_COMMANDS);
   const watchdogMs = parseInt(process.env.BGSD_HARNESS_TIMEOUT || (isScripted ? "120000" : "1800000"), 10);
   const watchdog = setTimeout(() => {
     console.error(`Harness watchdog: exceeded ${watchdogMs}ms — force exiting`);
@@ -359,6 +367,7 @@ async function main() {
   const scriptPath = process.env.BGSD_HARNESS_SCRIPT;
   const scriptInline = process.env.BGSD_HARNESS_COMMANDS;
   if (scriptPath || scriptInline) {
+    let exitCode = 0;
     try {
       const script = scriptPath
         ? fs.readFileSync(scriptPath, "utf-8")
@@ -368,10 +377,11 @@ async function main() {
         await handleCommand(cmd);
       }
     } catch (err) {
+      exitCode = 1;
       console.error("Script failed:", err.message);
     }
     await app.close();
-    process.exit(0);
+    process.exit(exitCode);
   }
 
   const rl = readline.createInterface({

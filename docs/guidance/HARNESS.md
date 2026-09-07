@@ -136,6 +136,7 @@ BGSD_OPEN=/path/to/file.scad \
 | `test-new-ctd.txt` | Create new CTD project, screenshot top/bottom, print SCAD |
 | `test-open-bit.txt` | Create BIT project, screenshot at scroll positions, print SCAD |
 | `test-open-ctd.txt` | Create CTD project, screenshot at scroll positions, print SCAD |
+| `test-bit-native-polygons.txt` | Select all four native triangle/pentagon shapes, check unquoted SCAD output, and preview the final pentagon with the downloaded BIT library |
 | `test-scad-toggle.txt` | Toggle Show SCAD view on/off, screenshot both states |
 | `test-hide-defaults.txt` | Exercise per-block default parameter visibility, screenshot each state |
 
