@@ -1,0 +1,7 @@
+wait app-root
+wait welcome-update-libs
+ipc working-dir-progress "[Boardgame Insert Toolkit] Checking for updates (master)"
+ipc working-dir-progress "[Counter Tray Designer] Checking for updates (master)"
+wait update-toast
+js (() => { const log = document.querySelector('[data-testid="update-toast"]'); const text = log?.textContent || ""; if (!text.includes("[Boardgame Insert Toolkit] Checking for updates (master)")) throw new Error("BIT check missing from update progress"); if (!text.includes("[Counter Tray Designer] Checking for updates (master)")) throw new Error("CTD check missing from update progress"); if (log.getBoundingClientRect().height <= 0) throw new Error("update progress is not visible"); return "Both library checks remain visible without a downloaded-file message"; })()
+shot library_update_checks
